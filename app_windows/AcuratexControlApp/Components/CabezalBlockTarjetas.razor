@@ -1,0 +1,97 @@
+@* [ACURATEX] Este bloque dibuja un grupo de pines de salida para el cabezal modular.
+   [FLUJO] UI Razor -> evento de click -> componente padre -> servicio -> firmware. *@
+<section class="cabezal-block">
+    <div class="blk-head">
+        <div>
+            <div class="blk-title">@Block.Title</div>
+        </div>
+    </div>
+
+    <div class="blk-actions">
+        <button type="button" @onclick="() => SetAllAsync(false)" disabled="@ActionsDisabled">OFF ALL</button>
+        <button type="button" @onclick="() => SetAllAsync(true)" disabled="@ActionsDisabled">ON ALL</button>
+        @if (!string.IsNullOrWhiteSpace(Block.RunCommand))
+        {
+            <button class="mini-btn run" type="button" @onclick="RunAsync" disabled="@ActionsDisabled">RUN</button>
+        }
+        @if (!string.IsNullOrWhiteSpace(Block.StopCommand))
+        {
+            <button class="mini-btn stop" type="button" @onclick="StopAsync" disabled="@ActionsDisabled">STOP</button>
+        }
+    </div>
+
+    <div class="pin-grid">
+        @for (int pin = 1; pin <= Block.PinCount; pin++)
+        {
+            int currentPin = pin;
+            <button class="@PinClass(currentPin)"
+                    type="button"
+                    disabled="@ActionsDisabled"
+                    @onclick="() => TogglePinAsync(currentPin)">
+                @currentPin
+            </button>
+        }
+    </div>
+</section>
+
+@code {
+    // [C#] `[Parameter]` marca un valor que viene desde el componente contenedor.
+    // [ACURATEX] `Block` contiene el nombre del grupo, los pines y el estado visual.
+    [Parameter]
+    public CabezalOutputBlockTarjetas Block { get; set; } = new(string.Empty, string.Empty, string.Empty, Array.Empty<int>(), null, null);
+
+    [Parameter]
+    public Func<CabezalBlockPinChangeTarjetas, Task>? PinClicked { get; set; }
+
+    [Parameter]
+    public Func<CabezalBlockAllChangeTarjetas, Task>? AllClicked { get; set; }
+
+    [Parameter]
+    public Func<string, Task>? RunClicked { get; set; }
+
+    [Parameter]
+    public Func<string, Task>? StopClicked { get; set; }
+
+    // [ACURATEX] Si esta bandera está activa, los controles quedan visibles pero no clicables.
+    [Parameter]
+    public bool ActionsDisabled { get; set; }
+
+    // [ACURATEX] Convierte el bit lógico en una clase visual.
+    private string PinClass(int pinIndex)
+    {
+        return Block.States[pinIndex - 1] ? "pin-btn on" : "pin-btn";
+    }
+
+    // [ACURATEX] El pin cambia por intención de la UI, no por cálculo físico en este componente.
+    private async Task TogglePinAsync(int pinIndex)
+    {
+        if (PinClicked != null) {
+            bool nextState = !Block.States[pinIndex - 1];
+            await PinClicked(new CabezalBlockPinChangeTarjetas(Block.Key, pinIndex, nextState));
+        }
+    }
+
+    // [ACURATEX] Orden masiva para que el padre traduzca el bloque completo.
+    private async Task SetAllAsync(bool on)
+    {
+        if (AllClicked != null) {
+            await AllClicked(new CabezalBlockAllChangeTarjetas(Block.Key, on));
+        }
+    }
+
+    // [ACURATEX] RUN pide al padre que ejecute el comando asociado.
+    private async Task RunAsync()
+    {
+        if (RunClicked != null && Block.RunCommand != null) {
+            await RunClicked(Block.RunCommand);
+        }
+    }
+
+    // [ACURATEX] STOP usa la misma ruta de salida pero con la orden de parada.
+    private async Task StopAsync()
+    {
+        if (StopClicked != null && Block.StopCommand != null) {
+            await StopClicked(Block.StopCommand);
+        }
+    }
+}

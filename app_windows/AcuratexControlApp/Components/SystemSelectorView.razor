@@ -1,0 +1,88 @@
+@* [ACURATEX] Selector de sistema que decide si abrir la shell unificada o la modular.
+   [FLUJO] La vista llama al host WinForms, y el host decide que formulario abrir.
+   [EQUIV MCU] Se parece a un menu de arranque que selecciona el modo de operacion.
+   [ACURATEX] El selector no crea ventanas por si mismo; delega todo al host. *@
+@inject ISystemSelectorHost Host
+
+@* [ACURATEX] Este selector no crea ventanas por si mismo.
+   [FLUJO] Botón visual -> Host -> formulario WinForms concreto -> shell elegida.
+   [EQUIV MCU] Se parece a un menú de arranque que decide qué modo de operación cargar. *@
+
+<main class="system-selector-window">
+    <section class="system-selector-shell">
+        <section class="system-selector-card" aria-labelledby="selector-title">
+            <button class="close-button" type="button" aria-label="Cerrar selector" @onclick="Host.CloseAsync">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                </svg>
+            </button>
+
+            <div class="system-selector-header">
+                <div class="brand-row">
+                    <div class="brand-logo-crop">
+                        <img alt="Accuratex Logo"
+                             class="brand-logo"
+                             src="https://www.accuratex.com/wp-content/uploads/2021/02/maquinas_tejedoras_FINAL-001.png" />
+                    </div>
+                    <div class="brand-copy">
+                        <div class="brand-name">ACURATEX CONTROL</div>
+                        <div class="brand-sub">Panel de pruebas</div>
+                    </div>
+                </div>
+
+                <h1 id="selector-title" class="system-selector-title">Seleccionar Sistema</h1>
+                <p class="system-selector-subtitle">Elige la interfaz que quieres abrir</p>
+            </div>
+
+            <div class="system-option-grid" role="group" aria-label="Sistemas disponibles">
+                <button class="system-option unified" type="button" @onclick="Host.SelectUnifiedSystemAsync">
+                    @* [ACURATEX] La vista no instancia formularios: solo pide al host que abra la shell unificada. *@
+                    @* [FLUJO] Este click no abre la shell directamente; se lo pide al host WinForms. *@
+                    @* [C#] `@onclick` traduce el click del navegador en una llamada a un metodo asincrono. *@
+                    <span class="option-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M4 5h16v14H4V5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                            <path d="M8 9h8M8 13h5M16 17h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </span>
+                    <span class="option-copy">
+                        <span class="option-title">Sistema Unificado</span>
+                        <span class="option-desc">Control integrado del sistema principal</span>
+                    </span>
+                    <span class="option-arrow" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </span>
+                </button>
+
+                <button class="system-option modular" type="button" @onclick="Host.SelectCardSystemAsync">
+                    @* [ACURATEX] Igual que arriba, la vista no toma la decisión final; la delega al host. *@
+                    @* [FLUJO] Igual que el anterior: la vista solo expresa intención. *@
+                    @* [C#] El boton solo notifica; el formulario WinForms crea la ventana final. *@
+                    <span class="option-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M5 5h6v6H5V5ZM13 5h6v6h-6V5ZM5 13h6v6H5v-6ZM13 13h6v6h-6v-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                        </svg>
+                    </span>
+                    <span class="option-copy">
+                        <span class="option-title">Sistema Modular</span>
+                        <span class="option-desc">Pruebas, diagnostico y control modular</span>
+                    </span>
+                    <span class="option-arrow" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none">
+                            <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </span>
+                </button>
+            </div>
+
+            <div class="system-selector-status">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>Conexion activa lista</span>
+            </div>
+        </section>
+    </section>
+
+    <AppAlertModal />
+</main>

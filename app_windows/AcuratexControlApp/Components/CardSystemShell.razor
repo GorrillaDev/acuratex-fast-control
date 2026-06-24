@@ -1,0 +1,263 @@
+@* [ACURATEX] Shell raíz del sistema modular.
+   [FLUJO] Sesión + permisos + emergencia -> Razor -> eventos -> servicios -> firmware. *@
+@implements IDisposable
+@implements IAsyncDisposable
+@inject AuthStateService AuthState
+@inject PermissionService PermissionService
+@inject IConnectionController Connection
+@inject IEmergencyStopService EmergencyStop
+@inject IJSRuntime JS
+
+<main class="acuratex-system-shell system-shell-modular">
+    <AcuratexWindowChrome />
+
+    @if (EmergencyStop.IsEmergencyStopActive)
+    {
+        <section class="system-emergency-banner" role="status" aria-live="assertive">
+            <strong>PARADA DE EMERGENCIA ACTIVADA</strong>
+            <span>@EmergencyStatusLine</span>
+        </section>
+    }
+
+    @if (!IsAuthenticated)
+    {
+        <section class="system-shell-main tarjetas-session-shell">
+            <section class="tarjetas-connectivity-only">
+                <h2>Sin sesion iniciada</h2>
+                <p>Conectividad disponible. Inicia sesion para habilitar el panel operativo de Sistema Modular.</p>
+
+                <div class="tarjetas-connectivity-grid">
+                    <div class="tarjetas-connectivity-item">
+                        <span>Estado de conexion</span>
+                        <strong>@ConnectionStatusLabel</strong>
+                    </div>
+                    <div class="tarjetas-connectivity-item">
+                        <span>Transporte</span>
+                        <strong>USB / WiFi (panel principal)</strong>
+                    </div>
+                </div>
+            </section>
+        </section>
+    }
+    else if (!CanUseTarjetas)
+    {
+        <section class="system-shell-main tarjetas-session-shell">
+            <section class="tarjetas-connectivity-only">
+                <h2>Acceso restringido</h2>
+                <p>No tienes permisos para operar Sistema Modular con el rol actual.</p>
+            </section>
+        </section>
+    }
+    else
+    {
+        <section class="system-shell-main unified-shell">
+            <aside class="unified-sidebar">
+                <div class="unified-sidebar-brand">
+                    <div class="unified-sidebar-logo-crop">
+                        <img src="https://www.accuratex.com/wp-content/uploads/2021/02/maquinas_tejedoras_FINAL-001.png"
+                             alt="Accuratex Logo"
+                             class="unified-sidebar-logo" />
+                    </div>
+                </div>
+
+                <nav class="unified-nav" aria-label="Vistas Sistema Modular">
+                    <button class="@UnifiedNavItemClass("servo")" type="button" @onclick='() => SelectTab("servo")'>
+                        <span class="unified-nav-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M4 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6zM14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6zM4 16a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2zM14 16a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                            </svg>
+                        </span>
+                        <span>Dashboard Servo</span>
+                    </button>
+                    <button class="@UnifiedNavItemClass("cabezal")" type="button" @onclick='() => SelectTab("cabezal")'>
+                        <span class="unified-nav-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2zM9 9h6v6H9V9z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                            </svg>
+                        </span>
+                        <span>Cabezal</span>
+                    </button>
+                </nav>
+
+                <div class="unified-user-box">
+                    <span>@SessionLabel</span>
+                </div>
+            </aside>
+
+            <section class="system-panel-host unified-main">
+                <div class="system-panel" hidden="@(_selectedTab != "servo")">
+                    <ServoDashboardTarjetas />
+                </div>
+
+                <div class="system-panel" hidden="@(_selectedTab != "cabezal")">
+                    <CabezalDashboardTarjetas />
+                </div>
+            </section>
+        </section>
+    }
+
+    <AppAlertModal />
+</main>
+
+@code {
+    // [C#] Este campo guarda la pestaña visible dentro de la shell modular.
+    // [ACURATEX] Solo cambia la vista; no altera permisos ni conexión.
+    private string _selectedTab = "servo";
+    // [FLUJO] Click en navegación -> cambia este valor -> el panel visible se recalcula.
+    // [C#] `DotNetObjectReference` permite que JavaScript llame de vuelta a este componente.
+    // [ACURATEX] Se usa para registrar el atajo ESC en el WebView.
+    private DotNetObjectReference<CardSystemShell>? _selfReference;
+    private int _escapeHotkeyHandle;
+    private bool _escapeRegistered;
+
+    // [ACURATEX] `IsAuthenticated` resume el estado de acceso actual.
+    private bool IsAuthenticated => AuthState.IsAuthenticated;
+    // [FLUJO] La shell modular no se dibuja completa si todavía no hay login.
+
+    // [ACURATEX] La shell modular solo se muestra si el rol tiene permiso para este modo.
+    private bool CanUseTarjetas =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.TestRunTarjetas);
+    // [EQUIV MCU] Se parece a una compuerta de habilitación antes de activar un subsistema.
+
+    // [ACURATEX] Este texto resume el usuario y rol que están activos.
+    private string SessionLabel
+    {
+        get
+        {
+            // [FLUJO] La pantalla toma la sesión activa y la convierte en una etiqueta humana.
+            if (!IsAuthenticated) {
+                return "Sin sesion";
+            }
+
+            string username = AuthState.CurrentUser?.Username ?? "usuario";
+            string role = AuthState.CurrentRole?.Name ?? "sin rol";
+            return $"{role} | {username}";
+        }
+    }
+
+    // [ACURATEX] Resume si el enlace físico o de red está arriba o abajo.
+    private string ConnectionStatusLabel => Connection.IsConnected ? "Conectado" : "Desconectado";
+    // [EQUIV MCU] Es como una bandera de link-up/link-down en una interfaz de comunicaciones.
+
+    private string EmergencyStatusLine
+    {
+        get
+        {
+            // [EQUIV MCU] Se parece a una línea de diagnóstico persistente en una HMI.
+            EmergencyStopAuditEntry? entry = EmergencyStop.LastAuditEntry;
+            if (entry == null) {
+                return "Origen ESCAPE. Presiona ESC nuevamente o INIT para desbloquear la app.";
+            }
+
+            return $"{entry.TimestampLocal:yyyy-MM-dd HH:mm:ss} | Usuario: {entry.Username} | Rol: {entry.Role} | Origen: {entry.Origin}. Presiona ESC nuevamente o INIT para desbloquear la app.";
+        }
+    }
+
+    // [ACURATEX] `OnInitialized` conecta los eventos de sesión, enlace y emergencia antes del render.
+    protected override void OnInitialized()
+    {
+        // [FLUJO] Suscripciones tempranas -> la UI se entera de cambios sin polling.
+        AuthState.StateChanged += OnSessionChanged;
+        Connection.ConnectionLost += OnConnectionLost;
+        EmergencyStop.StateChanged += OnEmergencyStateChanged;
+    }
+
+    // [ACURATEX] `firstRender` evita registrar el atajo varias veces.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // [FLUJO] La referencia JS solo se crea una vez por instancia visual.
+        if (!firstRender || _escapeRegistered) {
+            return;
+        }
+
+        // [C#] `DotNetObjectReference.Create(this)` expone este componente a JavaScript como callback.
+        _selfReference = DotNetObjectReference.Create(this);
+
+        try {
+            _escapeHotkeyHandle = await JS.InvokeAsync<int>("acuratexHotkeys.registerEscape", _selfReference, nameof(OnEscapePressed));
+            _escapeRegistered = _escapeHotkeyHandle != 0;
+        } catch {
+            _escapeHotkeyHandle = 0;
+            _escapeRegistered = false;
+        }
+    }
+
+    // [ACURATEX] `[JSInvokable]` expone el ESC al código JavaScript.
+    [JSInvokable]
+    public async Task OnEscapePressed()
+    {
+        // [EQUIV MCU] Se parece a un callback de interrupción que llega desde la capa de entrada.
+        if (!CanUseTarjetas) {
+            return;
+        }
+
+        // [ACURATEX] ESC alterna la parada de emergencia porque el panel modular trabaja como una HMI segura.
+        await EmergencyStop.ToggleEmergencyStopAsync("ESC");
+    }
+
+    // [ACURATEX] Cambia solo el panel visible, no el estado de la sesión.
+    private void SelectTab(string tab)
+    {
+        // [FLUJO] Navegación lateral -> pestaña -> render condicional.
+        _selectedTab = tab;
+    }
+
+    // [ACURATEX] Convierte la pestaña elegida en clase CSS activa o inactiva.
+    private string UnifiedNavItemClass(string tab)
+    {
+        // [C#] La comparación de strings decide si la clase incluye el marcador `active`.
+        return _selectedTab == tab ? "unified-nav-item active" : "unified-nav-item";
+    }
+
+    // [ACURATEX] `InvokeAsync(StateHasChanged)` lleva el repintado al contexto correcto.
+    private void OnSessionChanged()
+    {
+        // [FLUJO] Evento externo -> `InvokeAsync` -> `StateHasChanged` -> Blazor repinta.
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] La shell se repinta cuando el enlace cae.
+    private void OnConnectionLost()
+    {
+        // [EQUIV MCU] Igual que una interrupción de fallo de enlace, obliga a recalcular la pantalla.
+        // [FLUJO] `ConnectionLost` llega al componente y dispara nueva evaluación visual.
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] El banner de emergencia cambia y la UI debe volver a calcularse.
+    private void OnEmergencyStateChanged()
+    {
+        // [ACURATEX] La shell no decide la seguridad; solo refleja el estado que el servicio publica.
+        // [FLUJO] Cambio de seguridad -> repintado del banner y de la shell.
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] Se desuscribe para no dejar referencias colgando.
+    public void Dispose()
+    {
+        // [ACURATEX] Se quitan las suscripciones para no dejar callbacks vivos cuando la vista desaparece.
+        // [EQUIV MCU] Es como limpiar callbacks antes de apagar una tarea.
+        AuthState.StateChanged -= OnSessionChanged;
+        Connection.ConnectionLost -= OnConnectionLost;
+        EmergencyStop.StateChanged -= OnEmergencyStateChanged;
+    }
+
+    // [ACURATEX] Limpia la integración JS y la referencia administrada.
+    public async ValueTask DisposeAsync()
+    {
+        // [ACURATEX] Se desregistra el atajo JS y luego se libera la referencia administrada.
+        // [EQUIV MCU] Se parece a desregistrar una interrupción de teclado al salir.
+        if (_escapeRegistered && _escapeHotkeyHandle != 0) {
+            try {
+                await JS.InvokeVoidAsync("acuratexHotkeys.unregister", _escapeHotkeyHandle);
+            } catch {
+            }
+        }
+
+        _selfReference?.Dispose();
+        _selfReference = null;
+        _escapeRegistered = false;
+        _escapeHotkeyHandle = 0;
+    }
+}

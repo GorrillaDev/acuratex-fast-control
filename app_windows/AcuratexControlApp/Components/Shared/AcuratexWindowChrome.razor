@@ -1,0 +1,104 @@
+@* [ACURATEX] Chrome visual compartido para las ventanas WinForms hospedadas con BlazorWebView.
+   [FLUJO] La barra de titulo llama a `IWindowChromeHost`, que a su vez modifica la ventana WinForms.
+   [EQUIV MCU] Es parecido a un panel frontal con botones de minimizar, maximizar y cerrar.
+   [ACURATEX] La vista no mueve la ventana directamente; delega la orden al host. *@
+@implements IDisposable
+@inject IWindowChromeHost Host
+
+<header class="acuratex-window-chrome"
+        @onmousedown="BeginDragWindowAsync"
+        @ondblclick="ToggleMaximizeFromHeaderAsync">
+    <div class="chrome-brand">
+        <img src="img/accuratex-icon.png" class="window-title-icon" alt="Accuratex icon" />
+        <div class="window-title-label">@Host.Title</div>
+    </div>
+
+    <div class="chrome-actions" @onmousedown:stopPropagation="true">
+        @if (Host.CanMinimize)
+        {
+            <button class="chrome-button" type="button" aria-label="Minimizar" title="Minimizar" @onclick="Host.MinimizeAsync">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M6 18h12" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" />
+                </svg>
+            </button>
+        }
+
+        @if (Host.CanMaximize)
+        {
+            <button class="chrome-button" type="button" aria-label="@MaximizeLabel" title="@MaximizeLabel" @onclick="Host.ToggleMaximizeAsync">
+                @if (Host.IsMaximized)
+                {
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M8 8h8v8H8V8Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                        <path d="M11 5h8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M7 7h10v10H7V7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                    </svg>
+                }
+            </button>
+        }
+
+        <button class="chrome-button close" type="button" aria-label="Cerrar" title="Cerrar" @onclick="Host.CloseAsync">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" />
+            </svg>
+        </button>
+    </div>
+</header>
+
+@code {
+    // [ACURATEX] La etiqueta cambia segun si la ventana esta maximizada o no.
+    // [C#] Esta propiedad calculada evita guardar un estado duplicado en el componente.
+    private string MaximizeLabel => Host.IsMaximized ? "Restaurar" : "Maximizar";
+
+    // [ACURATEX] La UI se suscribe aqui para repintar la chrome cuando cambia el estado de ventana.
+    // [FLUJO] Host.StateChanged -> AcuratexWindowChrome -> StateHasChanged.
+    protected override void OnInitialized()
+    {
+        // [EQUIV MCU] Es como registrar un callback para refrescar una pantalla cuando cambia un bit de estado.
+        Host.StateChanged += HandleHostStateChanged;
+    }
+
+    // [C#] `Task` permite que el click espere la operacion de ventana aunque la accion sea breve.
+    // [ACURATEX] El mouse izquierdo sobre la barra inicia el arrastre nativo.
+    // [EQUIV MCU] Es como entregar el control del raton a una rutina de manejo de ventana.
+    private async Task BeginDragWindowAsync(MouseEventArgs args)
+    {
+        // [ACURATEX] Solo el boton izquierdo inicia el arrastre; los demas botones no deben mover la ventana.
+        if (args.Button != 0) {
+            return;
+        }
+
+        await Host.BeginDragWindowAsync();
+    }
+
+    // [ACURATEX] El doble click sobre la barra alterna maximizar/restaurar si la ventana lo permite.
+    // [FLUJO] Doble click -> host -> cambio de tamaño/estado.
+    private async Task ToggleMaximizeFromHeaderAsync()
+    {
+        // [FLUJO] Doble click sobre la barra -> comprobacion de capacidad -> cambio de tamaño.
+        if (Host.CanMaximize) {
+            await Host.ToggleMaximizeAsync();
+        }
+    }
+
+    // [ACURATEX] Este callback no cambia datos propios; solo pide un repintado.
+    // [C#] `InvokeAsync` evita tocar el arbol de componentes desde el hilo equivocado.
+    private void HandleHostStateChanged()
+    {
+        // [C#] `InvokeAsync` vuelve al hilo de render de Blazor antes de pedir el repintado.
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] Se desuscribe al cerrar para no dejar handlers colgados.
+    // [FLUJO] Dispose -> quita subscripcion -> evita repintados despues del cierre.
+    public void Dispose()
+    {
+        // [ACURATEX] Sin desuscripcion, la chrome seguiria reaccionando a un host ya destruido.
+        Host.StateChanged -= HandleHostStateChanged;
+    }
+}

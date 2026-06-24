@@ -1,0 +1,14 @@
+@* [ACURATEX] Pantalla de arranque mostrada mientras WinForms prepara la ventana principal.
+   [FLUJO] Program.Main -> SplashScreen -> Form1 -> BlazorWebView listo.
+   [EQUIV MCU] Se parece a un LED o pantalla de power-on antes de entrar al loop principal. *@
+<div class="splash-wrapper">
+    <div class="splash">
+        @* [ACURATEX] El texto indica al usuario que la app sigue cargando aunque la UI principal aun no exista. *@
+        <div class="loading-text">CARGANDO</div>
+
+        <div class="loading-bar-area">
+            @* [ACURATEX] La barra es solo visual; no mide progreso real de firmware ni de red. *@
+            <div class="loading-bar-fill"></div>
+        </div>
+    </div>
+</div>

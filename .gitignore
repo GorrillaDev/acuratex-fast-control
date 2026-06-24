@@ -1,0 +1,10 @@
+﻿**/bin/
+**/obj/
+**/build/
+**/build_*/
+.vs/
+.vscode/
+*.user
+*.suo
+*.tmp
+*.log

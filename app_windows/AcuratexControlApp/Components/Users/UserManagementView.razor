@@ -1,0 +1,836 @@
+@* [ACURATEX] Vista demo de gestion de usuarios y permisos visibles segun rol.
+   [FLUJO] AuthStateService define sesion -> PermissionService decide visibilidad -> DemoUsersService entrega filas.
+   [EQUIV MCU] Se parece a una tabla de operarios filtrada por privilegios del supervisor.
+   [ACURATEX] Esta pantalla solo simula acciones: no modifica la base real. *@
+@implements IDisposable
+@inject PermissionService PermissionService
+@inject AuthStateService AuthState
+@inject DemoUsersService DemoUsersService
+@inject IAppAlertService AlertService
+
+<section class="space-y-5">
+    <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-lg font-bold text-gray-800">@SectionTitle</h2>
+            <span class="text-xs text-gray-500">Datos demo temporales</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+            <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                <div class="text-gray-500">Usuario actual</div>
+                <div class="font-semibold text-gray-800">@CurrentUsername</div>
+            </div>
+            <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                <div class="text-gray-500">Rol actual</div>
+                <div class="font-semibold text-gray-800">@CurrentRoleName</div>
+            </div>
+            <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                <div class="text-gray-500">Registros visibles</div>
+                <div class="font-semibold text-gray-800">@_visibleUsers.Count</div>
+            </div>
+            <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                <div class="text-gray-500">Permisos activos</div>
+                <div class="font-semibold text-gray-800">@AuthState.GetCurrentPermissions().Count</div>
+            </div>
+        </div>
+    </section>
+
+    @if (!CanViewUsers)
+    {
+        <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow">
+            No tienes permisos para acceder a la gestion de usuarios.
+        </section>
+    }
+    else
+    {
+        <section class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="font-semibold text-gray-800">@ListTitle</h3>
+                <span class="text-xs text-gray-500">@ScopeLabel</span>
+            </div>
+
+            @if (_visibleUsers.Count == 0)
+            {
+                <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow text-sm text-gray-600">
+                    No hay usuarios visibles para este rol.
+                </section>
+            }
+            else
+            {
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    @foreach (DemoManagedUser user in _visibleUsers)
+                    {
+                        DemoUserAccessStatus status = GetStatus(user);
+                        <article class="bg-white rounded-lg border border-gray-200 p-4 card-shadow space-y-4">
+                            <header class="flex flex-wrap items-start justify-between gap-3">
+                                <div class="space-y-1">
+                                    <h4 class="text-base font-semibold text-gray-800">@user.DisplayName</h4>
+                                    <div class="text-xs text-gray-500">@user.Username</div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                                        @RoleLabel(user.RoleId)
+                                    </span>
+                                    <span class="@StatusBadgeClass(status)">
+                                        @StatusLabel(status)
+                                    </span>
+                                </div>
+                            </header>
+
+                            <div class="grid grid-cols-2 gap-3 text-xs">
+                                <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <div class="text-gray-500">Fecha de creacion</div>
+                                    <div class="font-semibold text-gray-800">@FormatDate(user.CreatedAt)</div>
+                                </div>
+                                <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <div class="text-gray-500">Fecha de vencimiento</div>
+                                    <div class="font-semibold text-gray-800">@FormatDate(user.ExpiresAt)</div>
+                                </div>
+                                <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <div class="text-gray-500">Tiempo restante</div>
+                                    <div class="font-semibold text-gray-800">@RemainingLabel(user)</div>
+                                </div>
+                                <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <div class="text-gray-500">Horas trabajadas</div>
+                                    <div class="font-semibold text-gray-800">@($"{user.WorkedHours:0.0} h")</div>
+                                </div>
+                                <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <div class="text-gray-500">Ultimo acceso</div>
+                                    <div class="font-semibold text-gray-800">@FormatDateTime(user.LastLoginAt)</div>
+                                </div>
+                                <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <div class="text-gray-500">Sesiones realizadas</div>
+                                    <div class="font-semibold text-gray-800">@user.SessionCount</div>
+                                </div>
+                            </div>
+
+                            @if (CanRenderActionsFor(user))
+                            {
+                                <div class="flex flex-wrap gap-2 pt-1">
+                                    <button class="bg-white border border-gray-300 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-50"
+                                            type="button"
+                                            @onclick='() => ViewDetailAsync(user)'>
+                                        Ver detalle
+                                    </button>
+                                    <button class="bg-white border border-gray-300 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-50"
+                                            type="button"
+                                            @onclick='() => ChangePasswordAsync(user)'>
+                                        Cambiar contrasena
+                                    </button>
+                                    <button class="bg-white border border-gray-300 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-50"
+                                            type="button"
+                                            @onclick='() => ToggleEnabledAsync(user)'>
+                                        @(user.Enabled ? "Desactivar" : "Activar")
+                                    </button>
+                                    <button class="bg-white border border-gray-300 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-50"
+                                            type="button"
+                                            @onclick='() => RenewAccessAsync(user)'>
+                                        Renovar acceso
+                                    </button>
+                                    <button class="bg-white border border-gray-300 text-gray-700 px-3 py-1 rounded text-xs hover:bg-gray-50"
+                                            type="button"
+                                            @onclick='() => ToggleLockAsync(user)'>
+                                        @(user.Locked ? "Desbloquear" : "Bloquear")
+                                    </button>
+                                </div>
+                            }
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<DemoManagedUser> _visibleUsers = Array.Empty<DemoManagedUser>();
+
+    // [ACURATEX] Estos getters solo derivan texto de la sesion y de los permisos.
+    // [FLUJO] Sesion actual -> etiqueta visible -> cabecera de la tarjeta.
+    private string CurrentUsername =>
+        AuthState.CurrentUser?.DisplayName ?? AuthState.CurrentUser?.Username ?? "Sin sesion";
+
+    private string CurrentRoleName => AuthState.CurrentRole?.Name ?? "Sin rol";
+
+    private bool CanViewUsers => PermissionService.CanViewUsers();
+
+    // [ACURATEX] Cambia el encabezado segun el rol activo.
+    // [EQUIV MCU] Es como mostrar un nombre de modo distinto en una HMI.
+    private string SectionTitle =>
+        PermissionService.CurrentUserIsAdminTecnico()
+            ? "Usuarios tecnicos"
+            : "Gestion de usuarios";
+
+    private string ListTitle =>
+        PermissionService.CurrentUserIsAdminTecnico()
+            ? "Usuarios tecnicos"
+            : "Usuarios demo";
+
+    // [ACURATEX] Este valor cambia la descripcion segun el alcance de acceso permitido.
+    // [EQUIV MCU] Es parecido a mostrar un modo de funcionamiento distinto en un display.
+    private string ScopeLabel
+    {
+        get
+        {
+            if (PermissionService.CurrentUserIsSuperRoot()) {
+                return "SUPER ROOT: visibilidad total";
+            }
+
+            if (PermissionService.CurrentUserIsAdminTecnico()) {
+                return "ADMIN TECNICO: solo tecnicos";
+            }
+
+            return "Sin acceso";
+        }
+    }
+
+    // [ACURATEX] Recalcula la lista visible cuando cambia la sesion.
+    // [FLUJO] AuthState.StateChanged -> recarga -> repintado.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para cargar la lista visible inicial y engancharse al cambio de
+    /// estado de autenticacion.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama Blazor cuando el componente se crea.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta una vez al entrar en la vista.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Carga usuarios visibles y suscribe `HandleAuthStateChanged`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Blazor -> `OnInitialized()` -> lista visible inicial.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a leer una tabla de usuarios al iniciar una pantalla de supervision.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La vista arrancaria sin lista y sin reaccionar a cambios de sesion.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        // [FLUJO] Al entrar en la vista ya se carga el subconjunto correcto de usuarios.
+        ReloadVisibleUsers();
+        AuthState.StateChanged += HandleAuthStateChanged;
+    }
+
+    // [ACURATEX] El servicio decide que usuarios se muestran.
+    // [C#] La UI no filtra manualmente; delega la regla al servicio.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para pedirle al servicio que reconstruya la lista de usuarios
+    /// que la pantalla puede mostrar.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llaman `OnInitialized()` y el handler de cambios de autenticacion.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al iniciar la vista o cuando cambia la sesion.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Reescribe `_visibleUsers`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// AuthState -> `ReloadVisibleUsers()` -> filas visibles.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a volver a leer una tabla filtrada de operarios segun el rol activo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La vista no tendria una forma centralizada de refrescar su lista.
+    /// </summary>
+    private void ReloadVisibleUsers()
+    {
+        _visibleUsers = DemoUsersService.GetVisibleUsersFor(AuthState.CurrentUser);
+    }
+
+    // [ACURATEX] El estado de acceso se calcula con la hora actual.
+    // [FLUJO] Fecha actual -> DemoUsersService -> color/etiqueta.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para convertir los datos de un usuario demo en un estado de acceso
+    /// que la UI pueda pintar.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el bucle que dibuja cada tarjeta de usuario.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta por cada usuario visible que se renderiza.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario a evaluar.
+    ///
+    /// [SALIDAS]
+    /// Devuelve el estado de acceso calculado.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Usuario demo -> `GetStatus()` -> etiqueta y color.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a evaluar banderas de mantenimiento y vigencia de una cuenta.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La tarjeta tendria que repetir la logica de estado.
+    /// </summary>
+    private DemoUserAccessStatus GetStatus(DemoManagedUser user)
+    {
+        // [FLUJO] La fecha actual entra al servicio para calcular vencimientos y bloqueos.
+        return DemoUsersService.GetStatus(user, DateTime.Now);
+    }
+
+    // [ACURATEX] Esta etiqueta resume el tiempo restante de acceso.
+    // [FLUJO] Fecha actual -> tiempo restante -> texto compacto.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para mostrar un texto corto con el tiempo restante de acceso.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama la tarjeta de cada usuario.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al renderizar el detalle de vigencia.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario demo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve un texto legible para el operador.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Usuario -> `RemainingLabel()` -> texto visible.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a transformar una fecha de expiracion en un mensaje de diagnostico.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La tarjeta tendria que recalcular y formatear el vencimiento.
+    /// </summary>
+    private string RemainingLabel(DemoManagedUser user)
+    {
+        return DemoUsersService.BuildRemainingTimeLabel(user, DateTime.Now);
+    }
+
+    // [ACURATEX] Traducir IDs a texto evita repetir literales en toda la UI.
+    // [EQUIV MCU] Es parecido a mapear un codigo de registro a una etiqueta humana.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para traducir un ID de rol a una etiqueta humana corta.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llaman las tarjetas de usuario y la vista de detalle.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al pintar el rol de un usuario.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el identificador del rol.
+    ///
+    /// [SALIDAS]
+    /// Devuelve el texto visible del rol.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// RoleId -> `RoleLabel()` -> badge de rol.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a mapear un codigo interno a un nombre de modo en un display.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI tendria que repetir literales de rol en muchos lugares.
+    /// </summary>
+    private static string RoleLabel(string roleId)
+    {
+        if (string.Equals(roleId, AppRoleIds.SuperRoot, StringComparison.OrdinalIgnoreCase)) {
+            return "SUPER ROOT";
+        }
+
+        if (string.Equals(roleId, AppRoleIds.AdminTecnico, StringComparison.OrdinalIgnoreCase)) {
+            return "ADMIN TECNICO";
+        }
+
+        return "TECNICO";
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para convertir el enum de estado en el texto que ve el operador.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llaman las tarjetas y la vista de detalle.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al mostrar el estado de acceso.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el enum de estado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una cadena corta.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Estado enum -> `StatusLabel()` -> texto visible.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a convertir bits de estado en una palabra de diagnostico.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La tarjeta deberia repetir el switch en cada lugar.
+    /// </summary>
+    private static string StatusLabel(DemoUserAccessStatus status)
+    {
+        // [C#] `switch` por expresion selecciona un texto segun el estado calculado.
+        return status switch
+        {
+            DemoUserAccessStatus.Activo => "Activo",
+            DemoUserAccessStatus.PorVencer => "Por vencer",
+            DemoUserAccessStatus.Vencido => "Vencido",
+            DemoUserAccessStatus.Bloqueado => "Bloqueado",
+            _ => "Activo"
+        };
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para elegir la clase CSS del badge segun el estado del usuario.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama la plantilla Razor al pintar cada tarjeta.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta por cada estado visible.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el estado calculado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una cadena con clases CSS.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Estado -> `StatusBadgeClass()` -> color de la etiqueta.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a elegir un color de LED segun un estado de alarma.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI tendria que repetir la tabla de colores en varios puntos.
+    /// </summary>
+    private static string StatusBadgeClass(DemoUserAccessStatus status)
+    {
+        // [ACURATEX] La clase CSS cambia el color del badge segun el estado del usuario.
+        return status switch
+        {
+            DemoUserAccessStatus.Activo => "inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700",
+            DemoUserAccessStatus.PorVencer => "inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700",
+            DemoUserAccessStatus.Vencido => "inline-flex items-center rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700",
+            DemoUserAccessStatus.Bloqueado => "inline-flex items-center rounded border border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700",
+            _ => "inline-flex items-center rounded border border-gray-300 bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-700"
+        };
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para mostrar una fecha en formato corto y estable.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llaman las tarjetas de usuario.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al pintar fechas de creacion o vencimiento.
+    ///
+    /// [ENTRADAS]
+    /// Recibe una fecha.
+    ///
+    /// [SALIDAS]
+    /// Devuelve texto con formato `yyyy-MM-dd`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Fecha -> `FormatDate()` -> texto corto.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a convertir un valor de registro en una cadena legible.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Cada tarjeta tendria que formatear la fecha por su cuenta.
+    /// </summary>
+    private static string FormatDate(DateTime value)
+    {
+        return value.ToString("yyyy-MM-dd");
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para mostrar una fecha/hora nullable sin forzar excepciones.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llaman las tarjetas de usuario.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al pintar el ultimo acceso.
+    ///
+    /// [ENTRADAS]
+    /// Recibe una fecha/hora opcional.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una cadena formateada o `-` si no existe valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Fecha opcional -> `FormatDateTime()` -> texto visible.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a verificar si un registro opcional tiene datos antes de imprimirlos.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI tendria que repetir la validacion de nullable en cada tarjeta.
+    /// </summary>
+    private static string FormatDateTime(DateTime? value)
+    {
+        // [C#] `HasValue` indica si el nullable realmente contiene una fecha.
+        return value.HasValue ? value.Value.ToString("yyyy-MM-dd HH:mm") : "-";
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para decidir si la pantalla debe mostrar botones de accion para un
+    /// usuario concreto.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el bloque Razor que renderiza cada tarjeta.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al pintar la seccion de acciones.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario a evaluar.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `true` si la UI puede mostrar los botones.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Permisos + rol -> `CanRenderActionsFor()` -> botones visibles.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a habilitar salidas solo cuando una maquina de estados lo permite.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La plantilla tendria que repetir la misma regla de visibilidad varias veces.
+    /// </summary>
+    private bool CanRenderActionsFor(DemoManagedUser user)
+    {
+        // [ACURATEX] La vista respeta el rol actual antes de mostrar botones de accion.
+        if (PermissionService.CurrentUserIsSuperRoot()) {
+            return true;
+        }
+
+        if (PermissionService.CurrentUserIsAdminTecnico()) {
+            return PermissionService.CanManageTechnicians()
+                && string.Equals(user.RoleId, AppRoleIds.Tecnico, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    // [ACURATEX] Cada boton de accion abre una alerta demo; no modifica la base real.
+    // [FLUJO] Click -> AlertService -> modal -> usuario reconoce la accion simulada.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para mostrar un detalle informativo del usuario sin modificar datos.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el boton "Ver detalle".
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador pide inspeccionar una cuenta concreta.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario seleccionado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Abre una alerta informativa.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Click -> `ViewDetailAsync()` -> `AlertService.ShowAsync()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a abrir una pantalla de diagnostico de una cuenta.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La tarjeta no tendria una forma de mostrar detalles compactos.
+    /// </summary>
+    private Task ViewDetailAsync(DemoManagedUser user)
+    {
+        // [FLUJO] Click en detalle -> mensaje sintetico -> modal informativo.
+        string message =
+            $"Usuario: {user.Username}\n" +
+            $"Nombre: {user.DisplayName}\n" +
+            $"Rol: {RoleLabel(user.RoleId)}\n" +
+            $"Estado: {StatusLabel(GetStatus(user))}\n" +
+            $"Vence: {FormatDate(user.ExpiresAt)}\n" +
+            $"Tiempo restante: {RemainingLabel(user)}";
+
+        return AlertService.ShowAsync("Detalle de usuario", message, AppAlertKind.Info);
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para simular el flujo de cambio de contrasena desde la vista.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el boton "Cambiar contrasena".
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador pide ese cambio para una cuenta.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario seleccionado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Solo muestra una alerta demo.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Click -> `ChangePasswordAsync()` -> alerta demo.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a entrar a una rutina de mantenimiento de credenciales.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La tarjeta no mostraria la accion simulada de contrasena.
+    /// </summary>
+    private Task ChangePasswordAsync(DemoManagedUser user)
+    {
+        // [ACURATEX] El boton existe solo como simulacion, no como cambio real.
+        return AlertService.ShowAsync(
+            "Cambiar contrasena",
+            $"Funcion demo preparada para {user.Username}.",
+            AppAlertKind.Info);
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para simular la activacion o desactivacion de una cuenta demo.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el boton "Activar" o "Desactivar".
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador pulsa esa accion de estado.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario seleccionado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Solo abre una alerta demo.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Click -> `ToggleEnabledAsync()` -> aviso demo.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a poner una salida en ON/OFF, pero sin tocar la base real.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La vista no mostraria el boton demo de habilitar/deshabilitar.
+    /// </summary>
+    private Task ToggleEnabledAsync(DemoManagedUser user)
+    {
+        string action = user.Enabled ? "Desactivar" : "Activar";
+        // [EQUIV MCU] Esto se parece a activar o desactivar una salida, pero en demo.
+        return AlertService.ShowAsync(
+            action,
+            $"Funcion demo preparada para {user.Username}.",
+            AppAlertKind.Info);
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para simular la renovacion de acceso de una cuenta demo.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el boton "Renovar acceso".
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador pide extender la vigencia.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario seleccionado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Solo muestra una alerta demo.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Click -> `RenewAccessAsync()` -> alerta demo.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a reiniciar un contador de vigencia en una pantalla de mantenimiento.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La tarjeta perderia una de sus acciones de simulacion.
+    /// </summary>
+    private Task RenewAccessAsync(DemoManagedUser user)
+    {
+        // [ACURATEX] Renovar acceso tambien es una accion simulada de la interfaz.
+        return AlertService.ShowAsync(
+            "Renovar acceso",
+            $"Funcion demo preparada para {user.Username}.",
+            AppAlertKind.Info);
+    }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para simular el bloqueo o desbloqueo de una cuenta demo.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el boton "Bloquear" o "Desbloquear".
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al pulsar esa accion.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el usuario seleccionado.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Solo muestra una alerta demo.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Click -> `ToggleLockAsync()` -> aviso demo.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a activar una bandera de bloqueo en un registro de seguridad.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No se veria la accion de bloqueo simulada en la vista.
+    /// </summary>
+    private Task ToggleLockAsync(DemoManagedUser user)
+    {
+        string action = user.Locked ? "Desbloquear" : "Bloquear";
+        // [FLUJO] El boton solo abre un aviso; el estado demo no cambia en esta vista.
+        return AlertService.ShowAsync(
+            action,
+            $"Funcion demo preparada para {user.Username}.",
+            AppAlertKind.Info);
+    }
+
+    // [ACURATEX] La UI refresca solo despues de que el servicio cambio la sesion.
+    // [C#] `InvokeAsync(StateHasChanged)` evita tocar el render fuera del hilo de Blazor.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para refrescar la lista visible cuando cambia la sesion activa.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama el evento `StateChanged` de `AuthStateService`.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando cambia el usuario o el rol autenticado.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Reconstruye la lista y pide un repintado asincrono.
+    ///
+    /// [FLUJO ACURATEX]
+    /// AuthState cambia -> `HandleAuthStateChanged()` -> lista nueva -> `StateHasChanged`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a una interrupcion de cambio de perfil que obliga a refrescar la HMI.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La pantalla no reaccionaria cuando cambia la sesion activa.
+    /// </summary>
+    private void HandleAuthStateChanged()
+    {
+        // [FLUJO] Servicio de auth -> nueva lista visible -> repintado del componente.
+        ReloadVisibleUsers();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] Se desuscribe al destruir la vista.
+    // [FLUJO] Dispose -> quita suscripcion -> no quedan callbacks vivos.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Esta funcion existe para desuscribirse del estado de autenticacion cuando el componente
+    /// deja de existir.
+    ///
+    /// [QUIEN LA LLAMA]
+    /// La llama Blazor al destruir el componente.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al salir de la vista o cerrar la pagina.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Quita la suscripcion a `StateChanged`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Cierre de componente -> `Dispose()` -> desuscripcion.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a retirar un callback de una interrupcion antes de apagar un modulo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La vista podria seguir recibiendo eventos despues de cerrarse.
+    /// </summary>
+    public void Dispose()
+    {
+        // [ACURATEX] Sin esta baja, el componente seguiria recibiendo eventos luego de salir.
+        AuthState.StateChanged -= HandleAuthStateChanged;
+    }
+}

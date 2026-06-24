@@ -1,0 +1,94 @@
+@* [ACURATEX] Modal compartido para alertas y confirmaciones de la app.
+   [FLUJO] Servicio de alertas -> `CurrentAlert` -> modal Razor -> `AcceptCurrent()`.
+   [EQUIV MCU] Se parece a una alarma que queda latente hasta que el operador la reconoce.
+   [ACURATEX] La vista solo refleja el objeto actual del servicio de alertas. *@
+@implements IDisposable
+@inject IAppAlertService AlertService
+
+@if (AlertService.CurrentAlert is { } alert)
+{
+    // [C#] `is { } alert` captura el valor solo si no es null.
+    // [C#] Ese patron evita repetir `AlertService.CurrentAlert != null` y deja el objeto listo para usar.
+    // [ACURATEX] La vista se dibuja únicamente cuando existe una alerta activa.
+    <div class="app-alert-overlay">
+        <section class="app-alert-modal @KindClass(alert.Kind)"
+                 role="alertdialog"
+                 aria-modal="true"
+                 aria-labelledby="app-alert-title"
+                 aria-describedby="app-alert-message">
+            <div class="app-alert-icon" aria-hidden="true">
+                @if (alert.Kind == AppAlertKind.Error)
+                {
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 8v5M12 17h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+                        <path d="M10.4 3.8 2.6 18a2 2 0 0 0 1.75 3h15.3a2 2 0 0 0 1.75-3L13.6 3.8a1.82 1.82 0 0 0-3.2 0Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                    </svg>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 8v5M12 17h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+                        <path d="M4.5 20h15a1.6 1.6 0 0 0 1.38-2.4L13.38 4.7a1.6 1.6 0 0 0-2.76 0L3.12 17.6A1.6 1.6 0 0 0 4.5 20Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                    </svg>
+                }
+            </div>
+
+            <div class="app-alert-content">
+                <h2 id="app-alert-title">@alert.Title</h2>
+                <p id="app-alert-message">@alert.Message</p>
+            </div>
+
+            <div class="app-alert-actions">
+                <button class="app-alert-primary" type="button" autofocus @onclick="AcceptAsync">
+                    @alert.ButtonText
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    // [ACURATEX] La vista escucha cambios del servicio y se repinta cuando aparece o desaparece una alerta.
+    // [FLUJO] AlertService.AlertChanged -> modal -> StateHasChanged.
+    protected override void OnInitialized()
+    {
+        // [FLUJO] El modal escucha al servicio central para aparecer o desaparecer sin polling.
+        AlertService.AlertChanged += HandleAlertChanged;
+    }
+
+    // [ACURATEX] Aceptar cierra la alerta desde el servicio centralizado.
+    // [C#] `Task.CompletedTask` deja claro que el click no necesita espera propia.
+    private Task AcceptAsync()
+    {
+        // [FLUJO] Click del usuario -> servicio central -> cierre de la alerta compartida.
+        AlertService.AcceptCurrent();
+        return Task.CompletedTask;
+    }
+
+    // [ACURATEX] `InvokeAsync` lleva el repintado al hilo correcto de Blazor.
+    // [EQUIV MCU] Equivale a pedir actualización de pantalla desde una interrupcion/callback.
+    private void HandleAlertChanged()
+    {
+        // [FLUJO] Evento externo -> InvokeAsync -> StateHasChanged -> modal actualizado.
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] Selecciona una clase CSS segun el tipo de alerta sin cambiar la logica.
+    private static string KindClass(AppAlertKind kind)
+    {
+        // [C#] `switch` por expresion decide una clase CSS segun el enum recibido.
+        return kind switch
+        {
+            AppAlertKind.Error => "is-error",
+            AppAlertKind.Info => "is-info",
+            _ => "is-warning"
+        };
+    }
+
+    // [ACURATEX] Se desuscribe para evitar callbacks despues de destruir la vista.
+    // [FLUJO] Dispose -> quita subscripcion -> no quedan alertas apuntando a la vista muerta.
+    public void Dispose()
+    {
+        AlertService.AlertChanged -= HandleAlertChanged;
+    }
+}

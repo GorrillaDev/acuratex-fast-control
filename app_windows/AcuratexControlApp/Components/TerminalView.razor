@@ -1,0 +1,253 @@
+@* [ACURATEX] Consola del panel principal: comandos manuales, preset y trazas visibles.
+   [FLUJO] La vista recibe propiedades del padre y dispara callbacks hacia los servicios de envio.
+   [EQUIV MCU] Se parece a una consola serie con botones de acceso rapido y un log en pantalla.
+   [ACURATEX] Esta vista no envia por si sola; solo transforma clicks en intenciones para el host. *@
+<section class="space-y-5">
+    <section class="bg-white rounded-lg border border-gray-200 p-4 card-shadow">
+        <h2 class="text-sm font-semibold text-gray-700">Consola y registros</h2>
+    </section>
+
+    @if (ShowCommandSection)
+    {
+        <section class="bg-white rounded-lg border border-gray-200 p-6 card-shadow space-y-6" data-purpose="command-console">
+            <div class="flex flex-col lg:flex-row lg:items-center gap-4">
+                <label class="font-bold text-gray-700" for="command-field">Comando:</label>
+
+                <input id="command-field"
+                       class="flex-1 bg-gray-50 border border-gray-200 rounded px-4 py-2 font-mono text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       value="@Command"
+                       disabled="@(!CanUseManualCommand)"
+                       @oninput="CommandChanged" />
+
+                <button class="bg-[#1e293b] hover:bg-slate-900 text-white px-8 py-2 rounded font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button"
+                        disabled="@(!CanSend || !CanUseManualCommand)"
+                        @onclick="SendManualLineClicked">
+                    Enviar l&iacute;nea
+                </button>
+            </div>
+
+            @if (!CanUseManualCommand)
+            {
+                <p class="text-xs text-amber-700">
+                    Tu rol actual no tiene permiso para enviar comandos manuales.
+                </p>
+            }
+
+            <div class="flex flex-wrap gap-2">
+                <button class="bg-white border border-gray-200 text-gray-600 px-4 py-1.5 rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button"
+                        disabled="@(!CanSendPreset)"
+                        @onclick="SendStartClicked">
+                    Enviar start
+                </button>
+
+                <button class="bg-white border border-gray-200 text-gray-600 px-4 py-1.5 rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button"
+                        disabled="@(!CanSendPreset)"
+                        @onclick="SendStopClicked">
+                    Enviar stop
+                </button>
+
+                <button class="bg-white border border-gray-200 text-gray-600 px-4 py-1.5 rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button"
+                        disabled="@(!CanSendPreset)"
+                        @onclick="SendTestClicked">
+                    Enviar testeo
+                </button>
+            </div>
+
+            @if (ShowRawCommandButton || ShowClearLogsButton || ShowDevModeButton)
+            {
+                <div class="pt-2 border-t border-gray-200 space-y-2">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Acciones avanzadas (preparado)</div>
+                    <div class="flex flex-wrap gap-2">
+                        @if (ShowRawCommandButton)
+                        {
+                            <button class="bg-red-50 border border-red-300 text-red-700 px-4 py-1.5 rounded text-xs hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    type="button"
+                                    disabled="@(!CanSendRawCommand)"
+                                    @onclick="SendRawCommandClicked">
+                                Enviar RAW
+                            </button>
+                        }
+
+                        @if (ShowClearLogsButton)
+                        {
+                            <button class="bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    type="button"
+                                    disabled="@(!CanClearLogs)"
+                                    @onclick="ClearLogsClicked">
+                                Borrar logs
+                            </button>
+                        }
+
+                        @if (ShowDevModeButton)
+                        {
+                            <button class="bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    type="button"
+                                    disabled="@(!CanEnableDevMode)"
+                                    @onclick="EnableDevModeClicked">
+                                Modo desarrollo
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+    }
+
+    @if (CanLaunchGraphicInterface)
+    {
+        <section class="bg-white rounded-lg border border-gray-200 p-4 card-shadow flex flex-wrap items-center justify-between gap-3"
+                 data-purpose="graphic-interface-launch">
+            <div class="text-sm font-medium text-gray-700">Interfaz gr&aacute;fica de pruebas</div>
+            <button class="bg-[#086d90] hover:bg-cyan-800 text-white px-6 py-2 rounded-md font-bold transition-colors"
+                    type="button"
+                    @onclick="LaunchGuiClicked">
+                Abrir interfaz gr&aacute;fica de pruebas
+            </button>
+        </section>
+    }
+
+    <section class="bg-white rounded-lg border border-gray-200 overflow-hidden card-shadow" data-purpose="log-terminal">
+        <div class="px-4 py-2 border-b border-gray-200 flex items-center gap-2 bg-gray-50">
+            <span class="text-sm font-bold text-gray-700">Log</span>
+        </div>
+
+        <div id="main-log" class="bg-[#111111] h-[22rem] p-4 font-mono text-sm custom-scrollbar overflow-y-auto">
+            @if (Logs.Count == 0)
+            {
+                <div class="text-gray-400">Sin mensajes.</div>
+            }
+            else
+            {
+                @foreach (string line in Logs)
+                {
+                    (string time, string message) = SplitLogLine(line);
+                    <div class="flex gap-2">
+                        <span class="text-cyan-500">@time</span>
+                        <span class="text-white">@message</span>
+                    </div>
+                }
+            }
+        </div>
+    </section>
+</section>
+
+@code {
+    // [C#] `Parameter` conecta este componente con su contenedor.
+    // [ACURATEX] `Command` es la linea que el usuario puede editar antes de enviarla.
+    // [FLUJO] Padre -> parámetro -> input de texto -> evento hacia el host.
+    [Parameter]
+    public string Command { get; set; } = string.Empty;
+
+    // [ACURATEX] `CanSend` refleja si hay conexión y no se está procesando otra acción.
+    // [FLUJO] Host calcula la capacidad; esta vista solo pinta el botón en consecuencia.
+    [Parameter]
+    public bool CanSend { get; set; }
+
+    // [ACURATEX] `CanSendPreset` habilita los botones rápidos de start/stop/testeo.
+    // [EQUIV MCU] Se parece a una bandera de permiso para rutinas de prueba.
+    [Parameter]
+    public bool CanSendPreset { get; set; }
+
+    // [ACURATEX] Estas banderas permiten ocultar o mostrar secciones según permisos.
+    // [FLUJO] Permiso de sesión -> bandera -> rama visual.
+    [Parameter]
+    public bool ShowCommandSection { get; set; } = true;
+
+    [Parameter]
+    public bool CanUseManualCommand { get; set; } = true;
+
+    [Parameter]
+    public bool ShowRawCommandButton { get; set; }
+
+    [Parameter]
+    public bool CanSendRawCommand { get; set; }
+
+    [Parameter]
+    public bool ShowClearLogsButton { get; set; }
+
+    [Parameter]
+    public bool CanClearLogs { get; set; }
+
+    [Parameter]
+    public bool ShowDevModeButton { get; set; }
+
+    [Parameter]
+    public bool CanEnableDevMode { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<string> Logs { get; set; } = Array.Empty<string>();
+
+    // [ACURATEX] Cada callback va del boton visual al componente padre.
+    // [ACURATEX] Cada callback sube el click al componente padre, que luego llama a servicios.
+    // [FLUJO] Click -> EventCallback -> host -> servicio -> firmware.
+    [Parameter]
+    public EventCallback<ChangeEventArgs> CommandChanged { get; set; }
+
+    [Parameter]
+    public EventCallback SendManualLineClicked { get; set; }
+
+    [Parameter]
+    public EventCallback SendStartClicked { get; set; }
+
+    [Parameter]
+    public EventCallback SendStopClicked { get; set; }
+
+    [Parameter]
+    public EventCallback SendTestClicked { get; set; }
+
+    [Parameter]
+    public EventCallback LaunchGuiClicked { get; set; }
+
+    [Parameter]
+    public bool CanLaunchGraphicInterface { get; set; } = true;
+
+    [Parameter]
+    public EventCallback SendRawCommandClicked { get; set; }
+
+    [Parameter]
+    public EventCallback ClearLogsClicked { get; set; }
+
+    [Parameter]
+    public EventCallback EnableDevModeClicked { get; set; }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para separar la hora del texto principal de cada linea del log.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama la vista `TerminalView` cuando recorre las lineas del registro visual.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta en cada render de la terminal para formatear cada entrada visible.
+    ///
+    /// [ENTRADAS]
+    /// Recibe una linea de texto ya guardada en la lista de logs.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tupla con hora y mensaje.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No modifica nada; solo separa texto.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Lista de logs -> `SplitLogLine()` -> hora y mensaje -> pantalla.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a separar el timestamp de una trama serial antes de mostrarla por un monitor.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI tendria que mostrar la linea completa sin separar la marca temporal.
+    /// </summary>
+    private static (string Time, string Message) SplitLogLine(string line)
+    {
+        if (line.Length > 11 && line[0] == '[' && line[9] == ']') {
+            return (line[..10], line[11..]);
+        }
+
+        return (string.Empty, line);
+    }
+}

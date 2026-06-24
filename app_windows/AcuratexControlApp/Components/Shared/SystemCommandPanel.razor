@@ -1,0 +1,93 @@
+@* [ACURATEX] Panel reutilizable para lanzar comandos del catalogo y mostrar el log.
+   [FLUJO] La UI muestra comandos, y cada boton invoca un `EventCallback` hacia el padre.
+   [EQUIV MCU] Se parece a un panel de mandos con botones que disparan rutinas.
+   [ACURATEX] Este panel no conoce la conexion; solo presenta opciones y notifica clicks. *@
+<section class="system-command-panel">
+    <div class="command-panel-head">
+        <h2>@Title</h2>
+        @if (!string.IsNullOrWhiteSpace(Subtitle))
+        {
+            <p>@Subtitle</p>
+        }
+    </div>
+
+    <div class="command-grid">
+        @foreach (CommandDefinition command in Commands)
+        {
+            <button class="command-card" type="button" @onclick="() => CommandClicked.InvokeAsync(command)">
+                <span class="command-title">@command.Title</span>
+                <span class="command-line">@command.Command</span>
+                @if (ShowDetails)
+                {
+                    <span class="command-detail">@BuildCommandDescription(command)</span>
+                }
+            </button>
+        }
+    </div>
+</section>
+
+@code {
+    // [ACURATEX] `Parameter` marca datos que llegan desde el componente padre.
+    // [ACURATEX] `Title` y `Subtitle` describen que familia de comandos se esta mostrando.
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Subtitle { get; set; } = string.Empty;
+
+    // [ACURATEX] Lista de comandos ya preparados por la capa de dominio.
+    // [FLUJO] Host -> catalogo -> panel de comandos -> botones.
+    [Parameter]
+    public IReadOnlyList<CommandDefinition> Commands { get; set; } = Array.Empty<CommandDefinition>();
+
+    [Parameter]
+    public bool ShowDetails { get; set; }
+
+    // [C#] `EventCallback<T>` es el mecanismo de Blazor para avisar al padre con un dato tipado.
+    // [ACURATEX] Cada click sube el comando elegido sin que el panel conozca el transporte real.
+    [Parameter]
+    public EventCallback<CommandDefinition> CommandClicked { get; set; }
+
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para construir una descripcion corta del comando usando solo datos del catalogo.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el propio panel al dibujar cada tarjeta de comando.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta durante el render cuando `ShowDetails` esta activado.
+    ///
+    /// [ENTRADAS]
+    /// Recibe un `CommandDefinition`.
+    ///
+    /// [SALIDAS]
+    /// Devuelve un texto con categoria y clave especial.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No modifica estado.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Catalogo -> `BuildCommandDescription()` -> etiqueta detallada.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a combinar una etiqueta tecnica con una nota de diagnostico.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El panel no podria mostrar el detalle extendido del comando sin repetir logica.
+    /// </summary>
+    // [ACURATEX] El padre decide si la vista muestra metadatos extra del comando.
+    // [C#] `static` evita depender de estado del componente para un texto puramente derivado.
+    private static string BuildCommandDescription(CommandDefinition command)
+    {
+        // [FLUJO] El panel reutiliza metadatos del catálogo ya resuelto por la capa superior.
+        // [C#] `string.IsNullOrWhiteSpace` detecta vacio, null o solo espacios.
+        // [ACURATEX] Si no hay clave especial, la UI muestra un texto de respaldo.
+        string special = string.IsNullOrWhiteSpace(command.SpecialCommandKey)
+            ? "pendiente"
+            : command.SpecialCommandKey!;
+
+        // [C#] La interpolacion compone una cadena legible sin concatenar piezas manualmente.
+        return $"Categoria: {command.Category} | Especial: {special}";
+    }
+}

@@ -1,0 +1,4232 @@
+@* [ACURATEX] Esta es la pantalla principal de trabajo.
+   [ACURATEX] Aquí convergen conexión, login, consola, archivos locales y acceso a sistemas.
+   [ACURATEX] La vista no calcula el protocolo: solo dispara servicios y refleja estado. *@
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
+@inject IMainControlPanelHost Host
+@inject IJSRuntime JS
+@inject PermissionService PermissionService
+@inject AuthStateService AuthState
+@inject IAppAlertService AlertService
+@inject ICommandFileTransferService CommandFileTransferService
+@inject IHeadProfileService HeadProfileService
+@inject ILocalTempFileService LocalTempFileService
+
+@* [ACURATEX] Esta pantalla es el centro de control principal.
+   [FLUJO] Usuario -> Razor -> Host WinForms -> servicios -> firmware.
+   [EQUIV MCU] Se parece a la pantalla principal de una HMI embebida. *@
+
+<main class="h-full flex flex-col overflow-hidden bg-slate-100">
+    <AcuratexWindowChrome />
+
+    <div class="flex flex-1 min-h-0 overflow-hidden">
+        <aside class="w-16 bg-[#2d3748] flex flex-col items-center py-4 gap-6 shrink-0">
+                        @* [FLUJO] El panel lateral solo cambia la vista actual, no manda comandos de firmware. *@
+                        <button class="@SidebarButtonClass(MainPanelView.Dashboard)"
+                    type="button"
+                    data-purpose="nav-dashboard"
+                    title="Conectividad"
+                    @onclick='() => SelectView(MainPanelView.Dashboard)'>
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                </svg>
+            </button>
+
+            @if (CanOpenUsersView)
+            {
+                <button class="@SidebarButtonClass(MainPanelView.Users)"
+                        type="button"
+                        data-purpose="nav-users"
+                        title="Usuarios"
+                        @onclick='() => SelectView(MainPanelView.Users)'>
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                        <circle cx="9" cy="7" r="4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                    </svg>
+                </button>
+            }
+
+            @if (CanSeeConsole)
+            {
+                <button class="@SidebarButtonClass(MainPanelView.Console)"
+                        type="button"
+                        data-purpose="nav-terminal"
+                        title="Terminal"
+                        @onclick='() => SelectView(MainPanelView.Console)'>
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                    </svg>
+                </button>
+            }
+
+            <div class="mt-auto flex flex-col gap-6">
+                @if (CanViewConfig)
+                {
+                    <button class="@SidebarButtonClass(MainPanelView.Config)"
+                            type="button"
+                            data-purpose="nav-settings"
+                            title="Configuracion"
+                            @onclick='() => SelectView(MainPanelView.Config)'>
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                        </svg>
+                    </button>
+                }
+            </div>
+        </aside>
+
+        <section class="login-dashboard-shell flex-1 min-h-0 overflow-y-auto p-5 md:p-6 bg-[#f8fafc] custom-scrollbar">
+            <div class="dashboard-soft-bg max-w-6xl mx-auto space-y-5">
+                @if (IsAuthenticated)
+                {
+                    <section class="session-header-card bg-white rounded-lg border border-gray-200 p-3 card-shadow flex flex-wrap items-center justify-between gap-3">
+                        <div class="session-user-info text-sm text-gray-700">
+                            <span class="font-semibold">@CurrentUsername</span>
+                            <span class="text-gray-500"> | </span>
+                            <span class="font-medium">@CurrentRoleLabel</span>
+                        </div>
+                        <div class="session-collab-brand" aria-label="Colaboracion PUCP">
+                            <span class="session-collab-text">En colaboraci&oacute;n con</span>
+                            <img src="img/pucp-mecatronica-logo.png"
+                                 class="session-pucp-logo"
+                                 alt="Logo PUCP"
+                                 loading="lazy" />
+                        </div>
+                        <button class="bg-white border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-sm hover:bg-gray-50"
+                                type="button"
+                                @onclick="HandleLogoutAsync">
+                            Cerrar sesion
+                        </button>
+                    </section>
+                }
+                else
+                {
+                    <section class="bg-white rounded-lg border border-gray-200 p-4 card-shadow flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                            <h2 class="text-sm font-semibold text-gray-800">Sin sesion iniciada</h2>
+                            <p class="text-xs text-gray-500">Conectividad disponible. Inicia sesion para habilitar comandos, pruebas y vistas segun rol.</p>
+                        </div>
+                        <button class="bg-[#086d90] hover:bg-cyan-800 text-white px-5 py-2 rounded-md font-semibold transition-colors"
+                                type="button"
+                                @onclick="HandleLoginAsync">
+                            Iniciar sesion
+                        </button>
+                    </section>
+                }
+
+                @if (_currentView == MainPanelView.Dashboard)
+                {
+                    <div class="space-y-5">
+                        <section class="bg-white rounded-lg border border-gray-200 p-4 card-shadow flex items-center justify-between gap-4" data-purpose="connection-type-selector">
+                            <div class="flex items-center gap-3">
+                                <div class="bg-blue-50 p-2 rounded text-blue-600">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                    </svg>
+                                </div>
+                                <label class="font-medium text-gray-700" for="connection-mode">Tipo conexi&oacute;n</label>
+                            </div>
+
+                            <div class="w-48">
+                                <select id="connection-mode"
+                                        aria-label="Tipo conexi&oacute;n"
+                                        class="w-full bg-gray-50 border border-gray-200 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        value="@State.Mode"
+                                        @onchange="OnModeChanged"
+                                        disabled="@State.IsBusy">
+                                    <option value="@ConnectionMode.Usb">USB</option>
+                                    <option value="@ConnectionMode.Wifi">WiFi</option>
+                                </select>
+                            </div>
+                        </section>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <section class="bg-white rounded-lg border-2 border-blue-400 p-6 card-shadow @(State.IsUsbPanelEnabled ? "" : "opacity-60")" data-purpose="usb-config-card">
+                                <div class="flex items-center gap-3 mb-6">
+                                    <div class="text-blue-600">
+                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                        </svg>
+                                    </div>
+                                    <h2 class="font-bold text-lg text-gray-800">@State.UsbPanelTitle</h2>
+                                </div>
+
+                                <div class="space-y-4">
+                                    <div class="flex items-center gap-4 min-w-0">
+                                        <label class="w-24 shrink-0 text-sm font-medium text-gray-600" for="endpoint-select">@State.EndpointLabel</label>
+
+                                        <div class="device-row flex flex-1 min-w-0 gap-2">
+                                            <select id="endpoint-select"
+                                                    aria-label="@State.EndpointLabel"
+                                                    class="usb-device-select flex-1 bg-gray-50 border border-gray-200 rounded px-3 py-2 text-xs text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                    title="@State.SelectedEndpointId"
+                                                    value="@State.SelectedEndpointId"
+                                                    @onchange="OnEndpointChanged"
+                                                    disabled="@(!State.IsUsbPanelEnabled || State.IsBusy)">
+                                                @if (State.Endpoints.Count == 0)
+                                                {
+                                                    <option value="">Sin dispositivos</option>
+                                                }
+                                                else
+                                                {
+                                                    @foreach (MainEndpointOption endpoint in State.Endpoints)
+                                                    {
+                                                        <option value="@endpoint.Id" title="@endpoint.Id">@endpoint.Label</option>
+                                                    }
+                                                }
+                                            </select>
+
+                                            <button class="shrink-0 bg-[#0e7490] hover:bg-cyan-800 text-white px-6 py-2 rounded text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    type="button"
+                                                    disabled="@(!State.CanRefreshEndpoint)"
+                                                    @onclick="Host.RefreshEndpointsAsync">
+                                                Buscar
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center gap-4">
+                                        <label class="w-24 text-sm font-medium text-gray-600" for="baud-field">@State.BaudLabel</label>
+
+                                        <div class="flex-1 relative">
+                                            <input id="baud-field"
+                                                   class="w-full bg-gray-50 border border-gray-200 rounded pl-3 pr-10 py-2 text-xs font-mono text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                   value="@State.BaudValue"
+                                                   @oninput="OnBaudChanged"
+                                                   readonly="@State.BaudReadOnly"
+                                                   disabled="@(!State.IsUsbPanelEnabled)" />
+
+                                            <span class="absolute right-3 top-2.5 text-gray-400 pointer-events-none" aria-hidden="true">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                                </svg>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="bg-white rounded-lg border border-gray-200 p-6 card-shadow @(State.IsWifiPanelEnabled ? "" : "opacity-70")" data-purpose="wifi-config-card">
+                                <div class="flex items-center gap-3 mb-6">
+                                    <div class="@(State.IsWifiPanelEnabled ? "text-sky-600" : "text-gray-400")">
+                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                        </svg>
+                                    </div>
+                                    <h2 class="font-bold text-lg @(State.IsWifiPanelEnabled ? "text-gray-800" : "text-gray-400")">Conexi&oacute;n WiFi</h2>
+                                </div>
+
+                                <div class="space-y-4">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div class="flex items-center gap-2">
+                                            <label class="text-sm font-medium text-gray-500" for="host-field">Host</label>
+                                            <input id="host-field"
+                                                   class="flex-1 bg-gray-50 border border-gray-200 rounded px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                   value="@State.Host"
+                                                   @oninput="OnHostChanged"
+                                                   disabled="@(!State.IsWifiPanelEnabled || State.IsBusy)" />
+                                        </div>
+
+                                        <div class="flex items-center gap-2">
+                                            <label class="text-sm font-medium text-gray-500" for="port-field">Port</label>
+                                            <input id="port-field"
+                                                   class="flex-1 bg-gray-50 border border-gray-200 rounded px-3 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                   value="@State.Port"
+                                                   @oninput="OnPortChanged"
+                                                   disabled="@(!State.IsWifiPanelEnabled || State.IsBusy)" />
+                                        </div>
+                                    </div>
+
+                                    <p class="text-[10px] text-gray-400">
+                                        Usa esto cuando el <span class="font-bold">ESP</span> este en la misma red o hotspot fijo.
+                                    </p>
+
+                                    <div class="flex justify-end">
+                                        <button class="bg-[#0e7490] hover:bg-cyan-800 text-white px-6 py-2 rounded text-sm font-semibold transition-colors disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                                                type="button"
+                                                disabled="@(!State.CanDiscoverWifi)"
+                                                @onclick="Host.DiscoverWifiAsync">
+                                            @State.DiscoverButtonText
+                                        </button>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <section class="bg-white rounded-lg border border-gray-200 p-3 card-shadow flex flex-wrap items-center justify-between gap-4" data-purpose="status-bar">
+                            <div class="flex gap-3">
+                                @* [ACURATEX] Conectar y desconectar pasan por Host, que es la ventana principal. *@
+                                <button class="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        type="button"
+                                        disabled="@(!State.CanConnect)"
+                                        @onclick="Host.ConnectAsync">
+                                    Conectar
+                                </button>
+
+                                <button class="bg-white border border-gray-300 text-gray-600 px-6 py-2 rounded font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        type="button"
+                                        disabled="@(!State.CanDisconnect)"
+                                        @onclick="Host.DisconnectAsync">
+                                    Desconectar
+                                </button>
+                            </div>
+
+                            <div class="flex items-center gap-2 text-sm">
+                                <span class="text-gray-700">Estado:</span>
+                                <div class="flex items-center gap-2 @(State.IsConnected ? "text-emerald-600" : "text-red-600") font-bold">
+                                    <span class="w-2.5 h-2.5 rounded-full @(State.IsConnected ? "bg-emerald-600" : "bg-red-600")"></span>
+                                    @State.StatusText
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                }
+                else if (_currentView == MainPanelView.Console)
+                {
+                    <TerminalView Command="@State.Command"
+                                  CanSend="@(State.CanSend && CanUseManualCommand)"
+                                  CanSendPreset="@(State.CanSendPreset && CanUsePresetCommands)"
+                                  ShowCommandSection="@ShowCommandSection"
+                                  CanUseManualCommand="@CanUseManualCommand"
+                                  CanLaunchGraphicInterface="@CanLaunchGraphicInterface"
+                                  ShowRawCommandButton="@ShowRawCommandButton"
+                                  CanSendRawCommand="@CanSendRawCommand"
+                                  ShowClearLogsButton="@ShowClearLogsButton"
+                                  CanClearLogs="@CanClearLogs"
+                                  ShowDevModeButton="@ShowDevModeButton"
+                                  CanEnableDevMode="@CanEnableDevMode"
+                                  Logs="@State.Logs"
+                                  CommandChanged="OnCommandChanged"
+                                  SendManualLineClicked="Host.SendManualLineAsync"
+                                  SendStartClicked="SendStartAsync"
+                                  SendStopClicked="SendStopAsync"
+                                  SendTestClicked="SendTestAsync"
+                                  LaunchGuiClicked="Host.LaunchGuiAsync"
+                                  SendRawCommandClicked="HandleSendRawCommandAsync"
+                                  ClearLogsClicked="HandleClearLogsAsync"
+                                  EnableDevModeClicked="HandleEnableDevModeAsync" />
+                }
+                else if (_currentView == MainPanelView.Users)
+                {
+                    @if (CanOpenUsersView)
+                    {
+                        <UserManagementView />
+                    }
+                    else
+                    {
+                        <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow">
+                            No tienes permisos para acceder a la gestion de usuarios.
+                        </section>
+                    }
+                }
+                else
+                {
+                    <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-3">
+                        <h2 class="text-lg font-bold text-gray-800">Configuracion</h2>
+                        <p class="text-sm text-gray-600">Panel de ajustes y utilidades de mantenimiento.</p>
+                        <div class="text-xs text-gray-500">Permisos detectados:</div>
+                        <div class="flex flex-wrap gap-2">
+                            @if (PermissionService.HasPermission(UserPermission.ConfigView))
+                            {
+                                <span class="inline-flex items-center rounded border border-gray-300 bg-white px-2 py-1 text-[11px] font-mono text-gray-700">CONFIG_VIEW</span>
+                            }
+                            @if (PermissionService.HasPermission(UserPermission.ConfigEditBasic))
+                            {
+                                <span class="inline-flex items-center rounded border border-gray-300 bg-white px-2 py-1 text-[11px] font-mono text-gray-700">CONFIG_EDIT_BASIC</span>
+                            }
+                            @if (PermissionService.HasPermission(UserPermission.ConfigEditCritical))
+                            {
+                                <span class="inline-flex items-center rounded border border-gray-300 bg-white px-2 py-1 text-[11px] font-mono text-gray-700">CONFIG_EDIT_CRITICAL</span>
+                            }
+                            @if (PermissionService.HasPermission(UserPermission.CommandScriptUpload))
+                            {
+                                <span class="inline-flex items-center rounded border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-mono text-red-700">COMMAND_SCRIPT_UPLOAD</span>
+                            }
+                            @if (PermissionService.HasPermission(UserPermission.SystemFileAccess))
+                            {
+                                <span class="inline-flex items-center rounded border border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-mono text-sky-700">SYSTEM_FILE_ACCESS</span>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="head-program-admin-card bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-4">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-base font-bold text-gray-800">Programas de Cabezal (UNI / MOD)</h3>
+                                <p class="text-sm text-gray-600">
+                                    Administra los programas maestros del cabezal por sistema. Solo se aceptan archivos con formato cbz.uni.progX.txt o cbz.mod.progX.txt.
+                                </p>
+                            </div>
+
+                            @if (CanManageHeadPrograms)
+                            {
+                                <button class="rounded bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="RefreshHeadProgramsAsync"
+                                        disabled="@(!CanRefreshHeadPrograms)">
+                                    @(_isHeadProgramBusy ? "Actualizando..." : "Actualizar programas")
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                    Solo SUPER ROOT
+                                </span>
+                            }
+                        </div>
+
+                        @if (!CanManageHeadPrograms)
+                        {
+                            <p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                No tiene permisos para administrar programas de cabezal.
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="head-program-admin-status text-xs text-gray-600">@_headProgramStatusMessage</div>
+
+                            <div class="head-program-admin-grid">
+                                <section class="head-program-admin-system-card">
+                                    <div class="head-program-admin-system-header">
+                                        <div class="head-program-admin-system-title">Sistema Unificado</div>
+                                        <div class="head-program-admin-system-active">@BuildActiveHeadProgramSummary(HeadSystemKind.Unified)</div>
+                                    </div>
+
+                                    @if (_unifiedHeadPrograms.Count == 0)
+                                    {
+                                        <div class="head-program-admin-empty">No se encontraron programas cbz.uni.progX.txt.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="head-program-admin-list">
+                                            @foreach (HeadProgramInfo program in _unifiedHeadPrograms)
+                                            {
+                                                <article class="@HeadProgramRowClass(program)">
+                                                    <div class="head-program-admin-row-main">
+                                                        <div class="head-program-admin-row-title">
+                                                            <span>@program.DisplayName</span>
+                                                            @if (program.IsActive)
+                                                            {
+                                                                <span class="head-program-active-badge">activo</span>
+                                                            }
+                                                        </div>
+                                                        <div class="head-program-admin-row-file">@program.FileName</div>
+                                                        <div class="head-program-admin-row-meta">
+                                                            <span>Perfil: @(program.ProfileName ?? "(sin PROFILE_NAME)")</span>
+                                                            <span>Bindings: @program.BindingCount</span>
+                                                            <span>Modulos: @program.ModuleCount</span>
+                                                        </div>
+                                                        @if (!program.IsValid && !string.IsNullOrWhiteSpace(program.ValidationError))
+                                                        {
+                                                            <div class="head-program-admin-row-error">@program.ValidationError</div>
+                                                        }
+                                                        @if (program.Warnings.Count > 0)
+                                                        {
+                                                            <div class="head-program-admin-row-warning">
+                                                                <span>Advertencias:</span>
+                                                                @foreach (string warning in program.Warnings)
+                                                                {
+                                                                    <div>@warning</div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+
+                                                    <div class="head-program-admin-row-actions">
+                                                        <button type="button"
+                                                                class="tester-file-action-button primary"
+                                                                @onclick="() => ApplyHeadProgramAsync(HeadSystemKind.Unified, program.FileName)"
+                                                                disabled="@(_isHeadProgramBusy || !program.IsValid)">
+                                                            Aplicar
+                                                        </button>
+                                                    </div>
+                                                </article>
+                                            }
+                                        </div>
+                                    }
+                                </section>
+
+                                <section class="head-program-admin-system-card">
+                                    <div class="head-program-admin-system-header">
+                                        <div class="head-program-admin-system-title">Sistema Modular</div>
+                                        <div class="head-program-admin-system-active">@BuildActiveHeadProgramSummary(HeadSystemKind.Modular)</div>
+                                    </div>
+
+                                    @if (_modularHeadPrograms.Count == 0)
+                                    {
+                                        <div class="head-program-admin-empty">No se encontraron programas cbz.mod.progX.txt.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="head-program-admin-list">
+                                            @foreach (HeadProgramInfo program in _modularHeadPrograms)
+                                            {
+                                                <article class="@HeadProgramRowClass(program)">
+                                                    <div class="head-program-admin-row-main">
+                                                        <div class="head-program-admin-row-title">
+                                                            <span>@program.DisplayName</span>
+                                                            @if (program.IsActive)
+                                                            {
+                                                                <span class="head-program-active-badge">activo</span>
+                                                            }
+                                                        </div>
+                                                        <div class="head-program-admin-row-file">@program.FileName</div>
+                                                        <div class="head-program-admin-row-meta">
+                                                            <span>Perfil: @(program.ProfileName ?? "(sin PROFILE_NAME)")</span>
+                                                            <span>Bindings: @program.BindingCount</span>
+                                                            <span>Modulos: @program.ModuleCount</span>
+                                                        </div>
+                                                        @if (!program.IsValid && !string.IsNullOrWhiteSpace(program.ValidationError))
+                                                        {
+                                                            <div class="head-program-admin-row-error">@program.ValidationError</div>
+                                                        }
+                                                        @if (program.Warnings.Count > 0)
+                                                        {
+                                                            <div class="head-program-admin-row-warning">
+                                                                <span>Advertencias:</span>
+                                                                @foreach (string warning in program.Warnings)
+                                                                {
+                                                                    <div>@warning</div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+
+                                                    <div class="head-program-admin-row-actions">
+                                                        <button type="button"
+                                                                class="tester-file-action-button primary"
+                                                                @onclick="() => ApplyHeadProgramAsync(HeadSystemKind.Modular, program.FileName)"
+                                                                disabled="@(_isHeadProgramBusy || !program.IsValid)">
+                                                            Aplicar
+                                                        </button>
+                                                    </div>
+                                                </article>
+                                            }
+                                        </div>
+                                    }
+                                </section>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-4">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-base font-bold text-gray-800">Archivo de comandos</h3>
+                                <p class="text-sm text-gray-600">Carga un archivo .txt al tester para usarlo posteriormente en pruebas de Cabezal.</p>
+                            </div>
+                            @if (!CanUploadCommandScript)
+                            {
+                                <span class="inline-flex items-center rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                    Solo SUPER ROOT
+                                </span>
+                            }
+                        </div>
+
+                        @if (!CanUploadCommandScript)
+                        {
+                            <p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                No tiene permisos para cargar archivos de comandos.
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="flex flex-wrap items-center gap-2">
+                                <label class="inline-flex cursor-pointer items-center rounded bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800">
+                                    Seleccionar archivo .txt
+                                    <InputFile OnChange="OnCommandFileSelectedAsync"
+                                               accept=".txt,text/plain"
+                                               disabled="@_isUploadingCommandFile"
+                                               class="hidden" />
+                                </label>
+
+                                <button class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="ClearSelectedCommandFile"
+                                        disabled="@(_selectedCommandFile is null || _isUploadingCommandFile)">
+                                    Quitar seleccion
+                                </button>
+
+                                <button class="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="UploadSelectedCommandFileAsync"
+                                        disabled="@(!CanUploadSelectedCommandFile)">
+                                    @(_isUploadingCommandFile ? "Subiendo..." : "Subir al tester")
+                                </button>
+
+                                <button class="rounded border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="RunMinimalFileUploadTestAsync"
+                                        disabled="@(_isUploadingCommandFile || !State.IsConnected)">
+                                    Probar subida minima FILE
+                                </button>
+                            </div>
+
+                            @if (_selectedCommandFile is not null)
+                            {
+                                <div class="grid grid-cols-1 gap-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm md:grid-cols-3">
+                                    <div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500">Nombre</div>
+                                        <div class="font-mono text-gray-800">@_selectedCommandFile.FileName</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500">Tamano</div>
+                                        <div class="font-mono text-gray-800">@_selectedCommandFile.SizeBytes bytes</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500">Lineas</div>
+                                        <div class="font-mono text-gray-800">@_selectedCommandFile.LineCount</div>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-2">
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Vista previa (primeras 10 lineas)</div>
+                                    <pre class="max-h-64 overflow-auto rounded border border-gray-200 bg-[#0f172a] p-3 text-xs leading-5 text-slate-100">@BuildPreviewText(_selectedCommandFile.PreviewLines)</pre>
+                                </div>
+                            }
+
+                            <div class="space-y-2">
+                                <div class="h-2 w-full overflow-hidden rounded bg-gray-200">
+                                    <div class="h-full bg-red-600 transition-all duration-200"
+                                         style="@($"width: {_uploadProgressPercent}%;")"></div>
+                                </div>
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="text-gray-600">@_uploadStatusMessage</span>
+                                    <span class="font-mono text-gray-700">@_uploadProgressPercent%</span>
+                                </div>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="tester-file-explorer-card bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-4">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div class="space-y-1">
+                                <h3 class="text-base font-bold text-gray-800">Archivos del tester</h3>
+                                <p class="max-w-3xl text-sm text-gray-600">
+                                    Administra archivos guardados en el tester. Los archivos se muestran como una carpeta virtual mediante el protocolo FILE_*.
+                                </p>
+                            </div>
+
+                            @if (CanManageTesterFiles)
+                            {
+                                <button class="rounded bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="RefreshTesterFilesAsync"
+                                        disabled="@(!CanRefreshTesterFiles)">
+                                    @(_isTesterFileBusy ? "Actualizando..." : "Actualizar lista")
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                    Solo SUPER ROOT
+                                </span>
+                            }
+                        </div>
+
+                        @if (!CanManageTesterFiles)
+                        {
+                            <p class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                No tiene permisos para administrar archivos del tester.
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="tester-file-status-row">
+                                <div class="h-2 w-full overflow-hidden rounded bg-gray-200">
+                                    <div class="h-full bg-[#0e7490] transition-all duration-200"
+                                         style="@($"width: {_testerFileProgressPercent}%;")"></div>
+                                </div>
+                                <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <span class="text-gray-600">@_testerFileStatusMessage</span>
+                                    <span class="font-mono text-gray-700">@_testerFileProgressPercent%</span>
+                                </div>
+                            </div>
+
+                            <div class="local-temp-folder-panel">
+                                <div class="local-temp-header">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-bold text-gray-800">Carpeta temporal local</div>
+                                        <div class="truncate font-mono text-xs text-gray-600" title="@LocalTempFolderPath">
+                                            %TEMP%\AccuratexControlApp\firmware-files\
+                                        </div>
+                                    </div>
+                                    <span class="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+                                        @SelectedLocalTempFileCount archivo(s) seleccionado(s)
+                                    </span>
+                                </div>
+
+                                <div class="local-temp-toolbar">
+                                    <button type="button"
+                                            class="tester-file-action-button"
+                                            @onclick="OpenLocalTempFolderAsync"
+                                            disabled="@_isLocalTempBusy">
+                                        Ver carpeta temporal
+                                    </button>
+                                    <button type="button"
+                                            class="tester-file-action-button"
+                                            @onclick="CopyLocalTempFolderPathAsync"
+                                            disabled="@_isLocalTempBusy">
+                                        Copiar ruta
+                                    </button>
+                                    <button type="button"
+                                            class="tester-file-action-button"
+                                            @onclick="RefreshLocalTempFilesAsync"
+                                            disabled="@(!CanRefreshLocalTempFiles)">
+                                        Actualizar lista temporal
+                                    </button>
+                                    <button type="button"
+                                            class="tester-file-action-button"
+                                            @onclick="SelectAllLocalTempFiles"
+                                            disabled="@(_isLocalTempBusy || !_localTempFiles.Any(static file => file.IsValid))">
+                                        Seleccionar todos
+                                    </button>
+                                    <button type="button"
+                                            class="tester-file-action-button"
+                                            @onclick="DeselectAllLocalTempFiles"
+                                            disabled="@(_isLocalTempBusy || SelectedLocalTempFileCount == 0)">
+                                        Deseleccionar todos
+                                    </button>
+                                    <button type="button"
+                                            class="tester-file-action-button primary"
+                                            @onclick="UploadSelectedLocalTempFilesAsync"
+                                            disabled="@(!CanUploadSelectedLocalTempFiles)">
+                                        Subir seleccionados al tester
+                                    </button>
+                                </div>
+
+                                <div class="local-temp-progress">
+                                    <div class="h-2 w-full overflow-hidden rounded bg-gray-200">
+                                        <div class="h-full bg-red-600 transition-all duration-200"
+                                             style="@($"width: {_localTempGlobalProgressPercent}%;")"></div>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                        <span class="text-gray-600">@_localTempStatusMessage</span>
+                                        <span class="font-mono text-gray-700">
+                                            Archivo @_localTempCurrentFileIndex de @_localTempTotalFiles | Global @_localTempGlobalProgressPercent% | Actual @_localTempCurrentFileProgressPercent%
+                                        </span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(_localTempCurrentFileName))
+                                    {
+                                        <div class="text-xs text-gray-500">Actual: <span class="font-mono">@_localTempCurrentFileName</span></div>
+                                    }
+                                </div>
+
+                                @if (_localTempFiles.Count == 0)
+                                {
+                                    <div class="local-temp-empty">
+                                        Presiona Actualizar lista temporal para leer los .txt de la cache local.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="local-temp-list">
+                                        @foreach (LocalTempFileEntry file in _localTempFiles)
+                                        {
+                                            <article class="@LocalTempEntryClass(file)">
+                                                <label class="local-temp-check">
+                                                    <input type="checkbox"
+                                                           checked="@file.IsSelected"
+                                                           disabled="@(!file.IsValid || _isLocalTempBusy)"
+                                                           @onchange="args => ToggleLocalTempSelection(file.FileName, args)" />
+                                                </label>
+
+                                                <div class="local-temp-main">
+                                                    <div class="tester-file-name-row">
+                                                        <span class="tester-file-name">@file.FileName</span>
+                                                        <span class="@LocalTempStatusBadgeClass(file)">@BuildLocalTempStatus(file)</span>
+                                                    </div>
+                                                    <div class="tester-file-meta">
+                                                        <span>@FormatFileSize(file.SizeBytes)</span>
+                                                        <span>@file.LastModified.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                                        @if (!file.IsValid)
+                                                        {
+                                                            <span class="text-red-700">@file.ValidationError</span>
+                                                        }
+                                                    </div>
+                                                </div>
+
+                                                <div class="local-temp-actions">
+                                                    <button type="button"
+                                                            class="tester-file-action-button"
+                                                            @onclick="() => OpenLocalTempFileInEditorAsync(file.FileName)"
+                                                            disabled="@(!file.IsValid || _isLocalTempBusy)">
+                                                        Abrir en editor
+                                                    </button>
+                                                </div>
+                                            </article>
+                                        }
+                                    </div>
+                                }
+
+                                @if (_localTempUploadIssues.Count > 0)
+                                {
+                                    <div class="local-temp-errors">
+                                        <div class="text-xs font-semibold uppercase tracking-wide text-red-700">Archivos con error</div>
+                                        @foreach (LocalTempUploadIssue issue in _localTempUploadIssues)
+                                        {
+                                            <div><span class="font-mono">@issue.FileName</span>: @issue.Message</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            @if (_duplicateUploadDialog is not null)
+                            {
+                                <div class="local-temp-modal-backdrop">
+                                    <div class="local-temp-modal">
+                                        <h4>Archivos existentes en el tester</h4>
+                                        <p>Algunos archivos seleccionados ya existen en el tester. Deseas sobrescribirlos?</p>
+                                        <div class="local-temp-duplicate-list">
+                                            @foreach (LocalTempFileEntry file in _duplicateUploadDialog.Duplicates)
+                                            {
+                                                <div class="local-temp-duplicate-row">
+                                                    <span class="font-mono">@file.FileName</span>
+                                                    <span>@FormatFileSize(file.SizeBytes)</span>
+                                                    <span>Ya existe en tester</span>
+                                                    <span>Sobrescribir / Omitir</span>
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="local-temp-modal-actions">
+                                            <button type="button"
+                                                    class="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                                                    @onclick="OverwriteDuplicateLocalTempFilesAsync">
+                                                Sobrescribir todos
+                                            </button>
+                                            <button type="button"
+                                                    class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                                    @onclick="SkipDuplicateLocalTempFilesAsync">
+                                                Omitir existentes y subir solo nuevos
+                                            </button>
+                                            <button type="button"
+                                                    class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                                    @onclick="CancelDuplicateLocalTempUpload">
+                                                Cancelar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+
+                            <div class="tester-file-workspace">
+                                <div class="tester-file-list-panel">
+                                    <div class="tester-file-panel-header">
+                                        <div>
+                                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Carpeta virtual</div>
+                                            <div class="font-mono text-sm text-gray-800">/fs</div>
+                                        </div>
+                                        <span class="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600">@_testerFiles.Count archivo(s)</span>
+                                    </div>
+
+                                    @if (_testerFiles.Count == 0)
+                                    {
+                                        <div class="tester-file-empty">
+                                            Presiona Actualizar lista para consultar FILE_LIST.
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="tester-file-list">
+                                            @foreach (TesterFileEntry file in _testerFiles)
+                                            {
+                                                <article class="@TesterFileEntryClass(file)"
+                                                         title="@file.FileName"
+                                                         @onclick="() => SelectTesterFileRow(file.FileName)">
+                                                    <div class="tester-file-icon" aria-hidden="true">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                                            <path d="M14 2v6h6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                                            <path d="M8 13h8M8 17h5" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                                                        </svg>
+                                                    </div>
+
+                                                    <div class="tester-file-main">
+                                                        <div class="tester-file-name-row">
+                                                            <span class="tester-file-name">@file.FileName</span>
+                                                            @if (file.IsSelected)
+                                                            {
+                                                                <span class="tester-file-selected-badge">activo</span>
+                                                            }
+                                                            @if (IsOpenedTesterFile(file.FileName))
+                                                            {
+                                                                <span class="tester-file-open-badge">abierto</span>
+                                                            }
+                                                        </div>
+                                                        <div class="tester-file-meta">
+                                                            <span>@FormatFileSize(file.SizeBytes)</span>
+                                                            <span>@FormatLocalDownload(file)</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="tester-file-actions">
+                                                        <button type="button"
+                                                                class="tester-file-action-button"
+                                                                @onclick="() => OpenTesterFileAsync(file.FileName)"
+                                                                @onclick:stopPropagation="true"
+                                                                disabled="@(_isTesterFileBusy || !State.IsConnected)">
+                                                            Abrir
+                                                        </button>
+                                                        <button type="button"
+                                                                class="tester-file-action-button"
+                                                                @onclick="() => SelectTesterFileAsync(file.FileName)"
+                                                                @onclick:stopPropagation="true"
+                                                                disabled="@(_isTesterFileBusy || !State.IsConnected || file.IsSelected)">
+                                                            Seleccionar en tester
+                                                        </button>
+                                                        @if (IsOpenedTesterFile(file.FileName))
+                                                        {
+                                                            <button type="button"
+                                                                    class="tester-file-action-button"
+                                                                    @onclick="SaveOpenTesterFileAsync"
+                                                                    @onclick:stopPropagation="true"
+                                                                    disabled="@(!CanSaveTesterFile)">
+                                                                Guardar cambios
+                                                            </button>
+                                                            <button type="button"
+                                                                    class="tester-file-action-button"
+                                                                    @onclick="SaveOpenTesterFileAsAsync"
+                                                                    @onclick:stopPropagation="true"
+                                                                    disabled="@(_isTesterFileBusy || !State.IsConnected)">
+                                                                Guardar como
+                                                            </button>
+                                                        }
+                                                        <button type="button"
+                                                                class="tester-file-action-button danger"
+                                                                @onclick="() => DeleteTesterFileAsync(file.FileName)"
+                                                                @onclick:stopPropagation="true"
+                                                                disabled="@(_isTesterFileBusy || !State.IsConnected)">
+                                                            Eliminar
+                                                        </button>
+                                                    </div>
+                                                </article>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="tester-file-editor-panel">
+                                    @if (_openedTesterFileName is null)
+                                    {
+                                        <div class="tester-file-editor-empty">
+                                            Selecciona Abrir sobre un archivo del tester para descargarlo y editarlo aqui.
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="tester-file-editor-header">
+                                            <div class="min-w-0">
+                                                <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Editor de texto</div>
+                                                <div class="truncate font-mono text-sm font-semibold text-gray-800">@_openedTesterFileName</div>
+                                                @if (!string.IsNullOrWhiteSpace(_testerFileEditorOrigin))
+                                                {
+                                                    <div class="truncate text-[11px] font-semibold text-sky-700">@_testerFileEditorOrigin</div>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(_testerFileTempPath))
+                                                {
+                                                    <div class="truncate text-[11px] text-gray-500">@_testerFileTempPath</div>
+                                                }
+                                            </div>
+                                            <span class="@(IsTesterFileEditorDirty ? "tester-file-dirty-badge" : "tester-file-clean-badge")">
+                                                @(IsTesterFileEditorDirty ? "modificado" : "limpio")
+                                            </span>
+                                        </div>
+
+                                        <div class="tester-file-editor-stats">
+                                            <span>@TesterFileEditorLineCount linea(s)</span>
+                                            <span>@TesterFileEditorByteCount bytes UTF-8</span>
+                                        </div>
+
+                                        <textarea class="tester-file-editor"
+                                                  value="@_testerFileEditorText"
+                                                  @oninput="OnTesterFileEditorInput"
+                                                  disabled="@_isTesterFileBusy"
+                                                  spellcheck="false"></textarea>
+
+                                        <div class="tester-file-editor-actions">
+                                            <button class="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    type="button"
+                                                    @onclick="SaveOpenTesterFileAsync"
+                                                    disabled="@(!CanSaveTesterFile)">
+                                                Guardar en tester
+                                            </button>
+                                            <button class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    type="button"
+                                                    @onclick="SaveOpenTesterFileAsAsync"
+                                                    disabled="@(_isTesterFileBusy || !State.IsConnected)">
+                                                Guardar como
+                                            </button>
+                                            <button class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    type="button"
+                                                    @onclick="DiscardTesterFileChanges"
+                                                    disabled="@(!IsTesterFileEditorDirty || _isTesterFileBusy)">
+                                                Descartar cambios
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </section>
+                }
+            </div>
+        </section>
+    </div>
+
+    <div class="h-2 bg-[#1e293b] shrink-0"></div>
+
+    <AppAlertModal />
+</main>
+
+@code {
+    private const int MaxCommandFileSizeBytes = 65536;
+    private const int CommandFilePreviewLimit = 10;
+
+    private bool _pendingLogScroll;
+    private readonly Dictionary<string, DateTime> _pendingCriticalActionConfirmations = new(StringComparer.OrdinalIgnoreCase);
+    private MainPanelView _currentView = MainPanelView.Dashboard;
+    private SelectedCommandFile? _selectedCommandFile;
+    private bool _isUploadingCommandFile;
+    private int _uploadProgressPercent;
+    private string _uploadStatusMessage = "Sin archivo seleccionado.";
+    private IReadOnlyList<TesterFileEntry> _testerFiles = Array.Empty<TesterFileEntry>();
+    private readonly Dictionary<string, DateTime> _testerFileDownloadTimes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _isTesterFileBusy;
+    private int _testerFileProgressPercent;
+    private string _testerFileStatusMessage = "Lista sin actualizar.";
+    private string? _selectedTesterFileName;
+    private string? _openedTesterFileName;
+    private string? _testerFileTempPath;
+    private string _testerFileEditorOrigin = string.Empty;
+    private string _testerFileEditorText = string.Empty;
+    private string _testerFileOriginalText = string.Empty;
+    private IReadOnlyList<LocalTempFileEntry> _localTempFiles = Array.Empty<LocalTempFileEntry>();
+    private bool _isLocalTempBusy;
+    private string _localTempStatusMessage = "Carpeta temporal sin actualizar.";
+    private int _localTempGlobalProgressPercent;
+    private int _localTempCurrentFileProgressPercent;
+    private int _localTempCurrentFileIndex;
+    private int _localTempTotalFiles;
+    private string _localTempCurrentFileName = string.Empty;
+    private IReadOnlyList<LocalTempUploadIssue> _localTempUploadIssues = Array.Empty<LocalTempUploadIssue>();
+    private LocalTempDuplicateDialog? _duplicateUploadDialog;
+    private IReadOnlyList<HeadProgramInfo> _unifiedHeadPrograms = Array.Empty<HeadProgramInfo>();
+    private IReadOnlyList<HeadProgramInfo> _modularHeadPrograms = Array.Empty<HeadProgramInfo>();
+    private bool _isHeadProgramBusy;
+    private string _headProgramStatusMessage = "Programas de cabezal sin actualizar.";
+
+    private MainControlPanelState State => Host.State;
+
+    private bool IsAuthenticated => AuthState.IsAuthenticated;
+
+    private bool CanOpenUsersView =>
+        IsAuthenticated
+        && PermissionService.CanViewUsers();
+
+    private bool CanSeeConsole =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.LogViewSession);
+
+    private bool CanViewConfig =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.ConfigView);
+
+    private bool CanUploadCommandScript =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.CommandScriptUpload);
+
+    private bool CanManageTesterFiles =>
+        IsAuthenticated
+        && PermissionService.CurrentUserIsSuperRoot()
+        && PermissionService.HasAllPermissions(UserPermission.SystemFileAccess, UserPermission.CommandScriptUpload);
+
+    private bool CanManageHeadPrograms => CanManageTesterFiles;
+
+    private bool CanRefreshHeadPrograms =>
+        CanManageHeadPrograms
+        && !_isHeadProgramBusy
+        && !_isTesterFileBusy
+        && !_isLocalTempBusy;
+
+    private bool CanUploadSelectedCommandFile =>
+        CanUploadCommandScript
+        && _selectedCommandFile is not null
+        && !_isUploadingCommandFile
+        && State.IsConnected;
+
+    private bool CanRefreshTesterFiles =>
+        CanManageTesterFiles
+        && State.IsConnected
+        && !_isTesterFileBusy;
+
+    private bool CanRefreshLocalTempFiles =>
+        CanManageTesterFiles
+        && !_isLocalTempBusy
+        && !_isTesterFileBusy;
+
+    private bool CanUploadSelectedLocalTempFiles =>
+        CanManageTesterFiles
+        && State.IsConnected
+        && !_isLocalTempBusy
+        && !_isTesterFileBusy
+        && SelectedLocalTempFileCount > 0;
+
+    private int SelectedLocalTempFileCount =>
+        _localTempFiles.Count(static file => file.IsSelected);
+
+    private string LocalTempFolderPath => LocalTempFileService.GetTempFolderPath();
+
+    private bool IsTesterFileEditorDirty =>
+        _openedTesterFileName is not null
+        && !string.Equals(_testerFileEditorText, _testerFileOriginalText, StringComparison.Ordinal);
+
+    private bool CanSaveTesterFile =>
+        CanManageTesterFiles
+        && State.IsConnected
+        && !_isTesterFileBusy
+        && _openedTesterFileName is not null
+        && IsTesterFileEditorDirty;
+
+    private int TesterFileEditorByteCount => Encoding.UTF8.GetByteCount(_testerFileEditorText);
+
+    private int TesterFileEditorLineCount => CountTextLines(_testerFileEditorText);
+
+    private bool CanUsePresetCommands =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.CommandSendPreset);
+
+    private bool CanUseManualCommand =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.CommandSendManualAllowed);
+
+    private bool ShowCommandSection =>
+        IsAuthenticated
+        && (CanUseManualCommand || CanUsePresetCommands);
+
+    // Seguridad visual: firmware/backend debe validar permisos antes de ejecutar acciones criticas.
+    private bool ShowRawCommandButton =>
+        ShowCommandSection
+        && PermissionService.HasPermission(UserPermission.CommandSendRaw);
+
+    private bool CanSendRawCommand => State.CanSend && ShowRawCommandButton;
+
+    private bool ShowClearLogsButton =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.LogClear);
+
+    private bool CanClearLogs => ShowClearLogsButton;
+
+    private bool ShowDevModeButton =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.SystemDevMode);
+
+    private bool CanEnableDevMode => ShowDevModeButton;
+
+    private bool CanLaunchGraphicInterface =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.TestOpenGraphicInterface);
+
+    private string CurrentUsername => AuthState.CurrentUser?.DisplayName ?? AuthState.CurrentUser?.Username ?? "Sin sesion";
+
+    private string CurrentRoleLabel => AuthState.CurrentRole?.Name ?? "Sin rol";
+
+    private enum MainPanelView
+    {
+        Dashboard,
+        Console,
+        Users,
+        Config
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para enganchar la vista a los eventos externos al arrancar.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama Blazor al crear el componente.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta una vez al inicializar la pantalla principal.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parámetros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Suscribe eventos y valida qué vista puede verse.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Blazor -> OnInitialized -> eventos y permisos.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a registrar interrupciones y estado inicial en `setup()`.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La pantalla no reaccionaría a cambios de conexión o perfil.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        // [ACURATEX] La vista se suscribe antes del primer render para reaccionar a cambios del host y de la sesión.
+        Host.StateChanged += HandleStateChanged;
+        AuthState.StateChanged += HandleAuthStateChanged;
+        HeadProfileService.StateChanged += HandleHeadProfileStateChanged;
+        EnsureViewIsAllowedForRole();
+    }
+
+    // [ACURATEX] Después de pintar, la vista puede pedir scroll del log si hace falta.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para mover el log al final cuando la consola ya se dibujo.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama Blazor despues de un render.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta despues del primer pintado o cuando una bandera interna pide scroll.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la bandera `firstRender`.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede invocar JavaScript para hacer scroll en la terminal.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Render de consola -> `OnAfterRenderAsync()` -> scroll del log.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a reubicar el cursor de un monitor serial al final de la traza.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El usuario no veria automaticamente las ultimas lineas del log.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_currentView != MainPanelView.Console) {
+            return;
+        }
+
+        if (!firstRender && !_pendingLogScroll) {
+            return;
+        }
+
+        _pendingLogScroll = false;
+
+        try {
+            await JS.InvokeVoidAsync("acuratexMainPanel.scrollLog", "main-log");
+        } catch {
+            // The host page can still be initializing during the first hybrid render.
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para centralizar el repintado cuando cambia el estado del host.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama la suscripción a `StateChanged`.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cada vez que cambia la conexión, el log o una bandera visual importante.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede pedir refresco de programas y fuerza `StateHasChanged`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Host.StateChanged -> HandleStateChanged -> refresco/repaint.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a una ISR de “cambio de condición” que obliga a recomponer el panel.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Cada botón tendría que repintar por su cuenta y la UI quedaría inconsistente.
+    /// </summary>
+    // [ACURATEX] Reacciona a cambios de estado sin duplicar lógica en cada botón.
+    private void HandleStateChanged()
+    {
+        // [C#] `InvokeAsync(StateHasChanged)` lleva el repintado al hilo correcto de Blazor.
+        // [ACURATEX] El host cambia estado y esta vista solo pide repintado.
+        // [FLUJO] Host.StateChanged -> MainControlPanel -> StateHasChanged.
+        if (_currentView == MainPanelView.Config
+            && CanManageHeadPrograms
+            && State.IsConnected
+            && !_isHeadProgramBusy
+            && _unifiedHeadPrograms.Count == 0
+            && _modularHeadPrograms.Count == 0) {
+            _ = RefreshHeadProgramsAsync();
+        }
+
+        _pendingLogScroll = _currentView == MainPanelView.Console;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para revisar qué vistas y listas siguen permitidas cuando cambia
+    /// la sesión.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama la suscripción a cambios de autenticación.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta después de un login o logout.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede vaciar listas y volver al dashboard.
+    ///
+    /// [FLUJO ACURATEX]
+    /// AuthState -> HandleAuthStateChanged -> permisos -> vista visible.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a volver a evaluar una máscara de habilitación tras cambiar de operador.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La pantalla podría quedarse mostrando funciones que ya no están autorizadas.
+    /// </summary>
+    // [ACURATEX] Reacciona cuando cambia la sesión o el rol activo.
+    private void HandleAuthStateChanged()
+    {
+        // [ACURATEX] Un login o logout puede quitar permisos y ocultar partes enteras del panel.
+        // [ACURATEX] Un cambio de login puede ocultar vistas completas.
+        // [FLUJO] AuthState -> permisos -> vista permitida.
+        EnsureViewIsAllowedForRole();
+        if (!CanManageHeadPrograms) {
+            _unifiedHeadPrograms = Array.Empty<HeadProgramInfo>();
+            _modularHeadPrograms = Array.Empty<HeadProgramInfo>();
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para refrescar la sección de programas cuando cambia el perfil de
+    /// cabezal activo.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama la suscripción al `StateChanged` del servicio de perfiles.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el perfil activo se carga, cambia o se limpia.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede iniciar una recarga de programas o repintar la UI.
+    ///
+    /// [FLUJO ACURATEX]
+    /// HeadProfileService -> HandleHeadProfileStateChanged -> lista de programas.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a actualizar la tabla de presets cuando cambia el programa activo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La vista de configuración podría quedarse con datos viejos.
+    /// </summary>
+    // [ACURATEX] Reacciona cuando cambia el perfil activo de cabezal.
+    private void HandleHeadProfileStateChanged()
+    {
+        // [ACURATEX] El perfil de cabezal cambia botones visibles, programas y estado de configuración.
+        // [ACURATEX] Cuando cambia el perfil activo, la seccion de configuracion debe refrescarse.
+        // [FLUJO] HeadProfileService -> config -> repintado.
+        if (_currentView == MainPanelView.Config && CanManageHeadPrograms && State.IsConnected && !_isHeadProgramBusy) {
+            _ = RefreshHeadProgramsAsync();
+        } else {
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para pedir al host WinForms que abra el formulario de login.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón de acceso del panel.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario pulsa iniciar sesión.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// Devuelve la tarea de apertura.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Abre una ventana externa controlada por el host.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Botón login -> HandleLoginAsync -> Host.OpenLoginAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a pedirle a la máquina que cambie a una pantalla de autenticación.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podría iniciar sesión sin conocer WinForms.
+    /// </summary>
+    // [ACURATEX] Pide al host WinForms que abra el login.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para pedir al host WinForms que abra la ventana de login.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton de iniciar sesion.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador quiere autenticarse de nuevo.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Dispara la apertura del formulario de login en el host.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Boton login -> `HandleLoginAsync()` -> `Host.OpenLoginAsync()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a pedir un cambio de pantalla a un menu de arranque.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podria iniciar sesion sin conocer WinForms.
+    /// </summary>
+    private async Task HandleLoginAsync()
+    {
+        // [ACURATEX] La vista delega el inicio de sesión al host para no mezclar UI con lógica WinForms.
+        // [ACURATEX] La vista no abre el formulario directamente: se lo pide al host.
+        // [FLUJO] Boton login -> Host.OpenLoginAsync() -> ventana WinForms.
+        // [EQUIV MCU] Se parece a pedirle al sistema que cambie a una pantalla de acceso.
+        await Host.OpenLoginAsync();
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para cerrar la sesión y volver a evaluar permisos y vistas.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón de salir.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el operador pulsa cerrar sesión.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task` ya completada.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Limpia la sesión, vuelve al dashboard y puede disparar repintado.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Botón logout -> AuthState.Logout() -> EnsureViewIsAllowedForRole() -> UI.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a borrar el contexto del operador antes de volver al menú principal.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La sesión quedaría activa hasta que otra parte la invalidara.
+    /// </summary>
+    // [ACURATEX] Cierra sesión y vuelve a validar qué vistas están permitidas.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para cerrar la sesion actual y volver a evaluar permisos y vistas.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton de cerrar sesion.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador decide salir.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea ya completada.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Limpia la sesion y obliga a reevaluar vistas permitidas.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Boton logout -> `AuthState.Logout()` -> reevaluacion de panel.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a borrar el contexto del operador antes de volver al menu principal.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La sesion quedaria activa hasta que otra parte la invalidara.
+    /// </summary>
+    private Task HandleLogoutAsync()
+    {
+        // [ACURATEX] Cerrar sesión hace que la UI vuelva a evaluar qué vistas siguen permitidas.
+        // [ACURATEX] Cerrar sesion limpia permisos y fuerza reevaluacion visual.
+        // [FLUJO] Logout -> AuthState -> permisos -> panel principal.
+        // [EQUIV MCU] Se parece a borrar el contexto del operador antes de volver al menu.
+        AuthState.Logout();
+        EnsureViewIsAllowedForRole();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para asegurar que la vista visible siga siendo válida para el rol
+    /// actual.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman los cambios de autenticación y logout.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando cambia la sesión o el rol activo.
+    ///
+    /// [ENTRADAS]
+    /// No recibe entradas.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede volver al dashboard y limpiar la bandera de scroll.
+    ///
+    /// [FLUJO ACURATEX]
+    /// AuthState -> EnsureViewIsAllowedForRole -> vista permitida.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a un firmware que fuerza volver a un menú seguro cuando cambia el modo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI podría quedarse en una pantalla que el rol actual ya no permite.
+    /// </summary>
+    // [ACURATEX] Evita que una vista permanezca abierta cuando el rol ya no la permite.
+    private void EnsureViewIsAllowedForRole()
+    {
+        if (!IsAuthenticated && _currentView != MainPanelView.Dashboard) {
+            _currentView = MainPanelView.Dashboard;
+            _pendingLogScroll = false;
+            return;
+        }
+
+        if (_currentView == MainPanelView.Console && !CanSeeConsole) {
+            _currentView = MainPanelView.Dashboard;
+            _pendingLogScroll = false;
+            return;
+        }
+
+        if (_currentView == MainPanelView.Users && !CanOpenUsersView) {
+            _currentView = MainPanelView.Dashboard;
+            _pendingLogScroll = false;
+            return;
+        }
+
+        if (_currentView == MainPanelView.Config && !CanViewConfig) {
+            _currentView = MainPanelView.Dashboard;
+            _pendingLogScroll = false;
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para cambiar la pestaña visible sin tocar la conexión ni el
+    /// protocolo.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman los botones laterales del panel.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el operador navega entre vistas.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la vista destino.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Cambia la pestaña visible y, si corresponde, refresca programas de cabezal.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Botón lateral -> SelectView -> vista activa.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a cambiar de página en un menú de supervisión sin alterar el estado del
+    /// periférico.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La navegación entre secciones no estaría centralizada.
+    /// </summary>
+    // [ACURATEX] Cambia la pestaña visible sin afectar el protocolo ni la conexión.
+    private void SelectView(MainPanelView view)
+    {
+        // [FLUJO] La navegación lateral solo cambia la vista activa; no toca el firmware.
+        if (view == MainPanelView.Dashboard) {
+            if (_currentView != MainPanelView.Dashboard) {
+                _currentView = MainPanelView.Dashboard;
+                _pendingLogScroll = false;
+            }
+
+            return;
+        }
+
+        if (!IsAuthenticated) {
+            return;
+        }
+
+        if (view == MainPanelView.Console && !CanSeeConsole) {
+            return;
+        }
+
+        if (view == MainPanelView.Users && !CanOpenUsersView) {
+            return;
+        }
+
+        if (view == MainPanelView.Config && !CanViewConfig) {
+            return;
+        }
+
+        if (_currentView == view) {
+            return;
+        }
+
+        _currentView = view;
+        _pendingLogScroll = view == MainPanelView.Console;
+
+        if (view == MainPanelView.Config
+            && CanManageHeadPrograms
+            && State.IsConnected
+            && !_isHeadProgramBusy) {
+            _ = RefreshHeadProgramsAsync();
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para decidir qué clase CSS recibe cada botón lateral según la
+    /// vista activa.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman los fragmentos Razor que pintan el menú lateral.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta durante el render del panel.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la vista que se está evaluando.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una cadena CSS.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Vista activa -> SidebarButtonClass -> estilo visual.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a iluminar un LED de menú según la posición actual.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Habría lógica duplicada en cada botón para saber si está activo.
+    /// </summary>
+    // [ACURATEX] Devuelve la clase CSS del botón lateral según la vista activa.
+    private string SidebarButtonClass(MainPanelView view)
+    {
+        return _currentView == view
+            ? "sidebar-icon-active p-3 text-blue-400"
+            : "p-3 text-gray-400 hover:text-white";
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para guardar el modo de conexión seleccionado por el operador.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el combo de modo de conexión.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario cambia el tipo de enlace.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el valor del evento de UI.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asíncrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el estado compartido del host.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Combo -> OnModeChanged -> Host.SetConnectionModeAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a reconfigurar el periférico de comunicación antes de usarlo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El panel no tendría forma centralizada de cambiar el modo de conexión.
+    /// </summary>
+    // [ACURATEX] Cambia el modo de conexión a través del host principal.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para guardar el modo de conexion elegido por el operador.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el selector de tipo de conexion.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario cambia entre USB y WiFi.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el valor seleccionado en la UI.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el estado compartido del host.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Combo de modo -> `OnModeChanged()` -> `Host.SetConnectionModeAsync()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a reconfigurar el periférico de comunicación antes de usarlo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El panel no tendria forma centralizada de cambiar el modo de conexion.
+    /// </summary>
+    private async Task OnModeChanged(ChangeEventArgs args)
+    {
+        // [ACURATEX] El modo seleccionado reconfigura qué campos de conexión tienen sentido.
+        // [ACURATEX] El selector solo actualiza el modo; la conexion real ocurre despues.
+        // [FLUJO] Combo de modo -> Host.SetConnectionModeAsync -> estado compartido.
+        // [EQUIV MCU] Se parece a cambiar un bit de configuración antes de iniciar un periférico.
+        if (Enum.TryParse(args.Value?.ToString(), out ConnectionMode mode)) {
+            await Host.SetConnectionModeAsync(mode);
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para guardar el endpoint seleccionado antes de conectar.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el selector de endpoint.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario cambia la dirección de destino.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nuevo texto del endpoint.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asíncrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el estado compartido.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Selector endpoint -> OnEndpointChanged -> Host.SetSelectedEndpointAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a programar la dirección de un bus antes de enviar una trama.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El host no sabría qué destino usar al conectar.
+    /// </summary>
+    // [ACURATEX] Guarda el endpoint seleccionado sin hablar todavía con el firmware.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para guardar el endpoint seleccionado antes de conectar.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el selector de endpoint.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario cambia la direccion de destino.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el endpoint elegido.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el estado compartido.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Selector endpoint -> `OnEndpointChanged()` -> `Host.SetSelectedEndpointAsync()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a programar la direccion de un bus antes de enviar una trama.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El host no sabria que destino usar al conectar.
+    /// </summary>
+    private async Task OnEndpointChanged(ChangeEventArgs args)
+    {
+        // [ACURATEX] El endpoint seleccionado queda guardado en el host para usarse al conectar.
+        // [ACURATEX] El endpoint elegido se guarda para usarlo luego al conectar.
+        await Host.SetSelectedEndpointAsync(args.Value?.ToString() ?? string.Empty);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para guardar el host textual que el usuario escribió.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el campo de texto del host.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cada vez que el texto del host cambia.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el texto introducido por el usuario.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asíncrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el valor pendiente en el host.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Campo host -> OnHostChanged -> Host.SetHostAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a escribir una dirección IP/host en una pantalla de configuración.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El host no podría recordar el destino textual configurado.
+    /// </summary>
+    // [ACURATEX] Guarda el host textual que el usuario escribió.
+    private async Task OnHostChanged(ChangeEventArgs args)
+    {
+        // [ACURATEX] El host TCP se edita como texto y luego el host principal lo validará.
+        // [ACURATEX] El host textual es solo configuracion diferida.
+        await Host.SetHostAsync(args.Value?.ToString() ?? string.Empty);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para guardar el puerto textual que el usuario escribió.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el campo de texto del puerto.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al editar el puerto de conexión.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el texto del puerto.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asíncrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el estado compartido.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Campo puerto -> OnPortChanged -> Host.SetPortAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a ajustar un puerto serie antes de abrir el canal.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El host no tendría dónde guardar el puerto escrito.
+    /// </summary>
+    // [ACURATEX] Guarda el puerto textual que el usuario escribió.
+    private async Task OnPortChanged(ChangeEventArgs args)
+    {
+        // [ACURATEX] El puerto TCP también entra como texto porque así trabaja el input HTML.
+        // [ACURATEX] El puerto se guarda como texto hasta el momento de conectar.
+        await Host.SetPortAsync(args.Value?.ToString() ?? string.Empty);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para guardar el baudrate textual cuando el modo es Serial.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el campo de baudrate.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario cambia la velocidad serie.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el texto del baudrate.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asíncrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el valor pendiente en el host.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Campo baud -> OnBaudChanged -> Host.SetBaudAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a programar la velocidad de un UART antes de activarlo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La app no podría recordar la velocidad serie elegida.
+    /// </summary>
+    // [ACURATEX] Guarda el baudrate textual que el usuario escribió.
+    private async Task OnBaudChanged(ChangeEventArgs args)
+    {
+        // [ACURATEX] El baudrate solo importa cuando el modo activo es Serial.
+        // [ACURATEX] El baudrate se reserva para el momento en que se abra Serial.
+        await Host.SetBaudAsync(args.Value?.ToString() ?? string.Empty);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para guardar el comando manual que el operador está escribiendo.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el campo de texto del comando manual.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta mientras el usuario edita la línea manual.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el texto del comando.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asíncrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza el comando pendiente.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Campo comando -> OnCommandChanged -> Host.SetCommandAsync().
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a preparar una trama manual antes de emitirla por serial.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podría conservar el comando que el usuario escribió.
+    /// </summary>
+    // [ACURATEX] Guarda el comando manual editable.
+    private async Task OnCommandChanged(ChangeEventArgs args)
+    {
+        // [ACURATEX] La línea manual se guarda primero en el estado compartido antes del envío.
+        // [ACURATEX] El comando manual se queda en estado hasta que el operador lo envía.
+        await Host.SetCommandAsync(args.Value?.ToString() ?? string.Empty);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para recibir el archivo .txt elegido en el navegador y preparar su
+    /// subida al tester.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama `<InputFile>` cuando el usuario selecciona un archivo.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al elegir un archivo para subir.
+    ///
+    /// [ENTRADAS]
+    /// Recibe `InputFileChangeEventArgs`.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Lee el archivo, valida nombre y tamaño, y prepara una vista previa.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Navegador -> OnCommandFileSelectedAsync -> preview -> subida posterior.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a leer un archivo desde SD antes de pasarlo a un buffer de envío.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podría preparar la carga de comandos desde el navegador.
+    /// </summary>
+    private async Task OnCommandFileSelectedAsync(InputFileChangeEventArgs args)
+    {
+        // [ACURATEX] Elegir un archivo no lo manda todavía; primero se valida y se prepara la vista previa.
+        // [ACURATEX] El navegador entrega el archivo, pero la vista todavía no lo sube: solo lo valida y prepara.
+        if (!CanUploadCommandScript || _isUploadingCommandFile) {
+            return;
+        }
+
+        if (args.FileCount == 0) {
+            ClearSelectedCommandFile();
+            _uploadStatusMessage = "Sin archivo seleccionado.";
+            return;
+        }
+
+        IBrowserFile file = args.File;
+        string fileName = Path.GetFileName(file.Name ?? string.Empty).Trim();
+        string? validationError = ValidateCommandFileSelection(fileName, file.Size);
+        if (!string.IsNullOrEmpty(validationError)) {
+            ClearSelectedCommandFile();
+            _uploadStatusMessage = validationError;
+            return;
+        }
+
+        try {
+            // [ACURATEX] Primero se lee todo el archivo para poder mostrar una vista previa local.
+            byte[] bytes = await ReadBrowserFileAsync(file, CancellationToken.None);
+            if (bytes.Length == 0) {
+                ClearSelectedCommandFile();
+                _uploadStatusMessage = "El archivo esta vacio";
+                return;
+            }
+
+            if (bytes.Length > MaxCommandFileSizeBytes) {
+                ClearSelectedCommandFile();
+                _uploadStatusMessage = $"El archivo supera {MaxCommandFileSizeBytes} bytes";
+                return;
+            }
+
+            (int lineCount, IReadOnlyList<string> previewLines) = BuildFilePreview(bytes);
+
+            // [ACURATEX] Este estado queda listo para que el boton de subir use exactamente el mismo contenido.
+            _selectedCommandFile = new SelectedCommandFile(
+                fileName,
+                bytes,
+                bytes.Length,
+                lineCount,
+                previewLines);
+
+            _uploadProgressPercent = 0;
+            _uploadStatusMessage = "Archivo listo para subir al tester.";
+        } catch {
+            ClearSelectedCommandFile();
+            _uploadStatusMessage = "No se pudo leer el archivo";
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para subir el archivo .txt que quedó seleccionado.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón de subir archivo de comandos.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario confirma que quiere subir el TXT.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parámetros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Usa `CommandFileTransferService.UploadTextFileAsync` y actualiza la barra de progreso.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> UploadSelectedCommandFileAsync -> FILE_* -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a grabar un bloque de datos en memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No se podría subir el archivo preparado desde la UI.
+    /// </summary>
+    private async Task UploadSelectedCommandFileAsync()
+    {
+        // [ACURATEX] La subida real usa el archivo ya validado y lo entrega al servicio de FILE_*.
+        // [ACURATEX] La subida real solo ocurre cuando ya hay un archivo seleccionado y validado.
+        if (!CanUploadSelectedCommandFile || _selectedCommandFile is null) {
+            return;
+        }
+
+        _isUploadingCommandFile = true;
+        _uploadProgressPercent = 0;
+        _uploadStatusMessage = "Preparando subida al tester...";
+        // [C#] `InvokeAsync(StateHasChanged)` pide un repintado seguro desde Blazor antes de iniciar la carga.
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            // [C#] `Progress<T>` encapsula una lambda que recibe actualizaciones de avance.
+            // [ACURATEX] El servicio de transferencia llama a este callback cada vez que cambia el progreso.
+            Progress<CommandFileUploadProgress> progress = new(report =>
+            {
+                // [FLUJO] El progreso viene del servicio y solo se refleja en pantalla.
+                _uploadProgressPercent = Math.Clamp(report.ProgressPercent, 0, 100);
+                _uploadStatusMessage = report.Stage;
+                _ = InvokeAsync(StateHasChanged);
+            });
+
+            CommandFileUploadResult result = await CommandFileTransferService.UploadTextFileAsync(
+                _selectedCommandFile.FileName,
+                _selectedCommandFile.FileBytes,
+                progress,
+                CancellationToken.None);
+
+            _uploadProgressPercent = 100;
+            _uploadStatusMessage = result.Message;
+        } catch (Exception ex) {
+            _uploadStatusMessage = string.IsNullOrWhiteSpace(ex.Message)
+                ? "No se pudo completar la subida al tester"
+                : ex.Message;
+        } finally {
+            _isUploadingCommandFile = false;
+        }
+    }
+
+    // [ACURATEX] Dispara una prueba mínima de subida con `test.txt` y `hola`.
+    private async Task RunMinimalFileUploadTestAsync()
+    {
+        if (!CanUploadCommandScript || _isUploadingCommandFile || !State.IsConnected) {
+            return;
+        }
+
+        _isUploadingCommandFile = true;
+        _uploadProgressPercent = 0;
+        _uploadStatusMessage = "Ejecutando prueba minima: test.txt (hola)...";
+        // [ACURATEX] Se repinta antes de arrancar para que el usuario vea que la accion ya empezo.
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            Progress<CommandFileUploadProgress> progress = new(report =>
+            {
+                _uploadProgressPercent = Math.Clamp(report.ProgressPercent, 0, 100);
+                _uploadStatusMessage = report.Stage;
+                _ = InvokeAsync(StateHasChanged);
+            });
+
+            CommandFileUploadResult result = await CommandFileTransferService.UploadMinimalTestFileAsync(
+                progress,
+                CancellationToken.None);
+
+            _uploadProgressPercent = 100;
+            _uploadStatusMessage = $"Prueba minima OK: {result.Message}";
+        } catch (Exception ex) {
+            _uploadStatusMessage = string.IsNullOrWhiteSpace(ex.Message)
+                ? "Fallo prueba minima FILE"
+                : ex.Message;
+        } finally {
+            _isUploadingCommandFile = false;
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para cargar la lista de programas de cabezal desde el tester y
+    /// mostrarlos por sistema.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman el botón de actualizar y el evento de estado.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al refrescar el catálogo de programas.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parámetros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Cambia listas de programas unificados y modulares.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> RefreshHeadProgramsAsync -> HeadProfileService -> catálogos.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a consultar un catálogo de perfiles desde una memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El panel no podría mostrar programas de cabezal.
+    /// </summary>
+    private async Task RefreshHeadProgramsAsync()
+    {
+        // [ACURATEX] Este refresco solo consulta el tester; no altera el perfil activo.
+        // [FLUJO] Boton refrescar -> HeadProfileService.ListProgramsAsync -> listas locales.
+        if (!CanManageHeadPrograms || _isHeadProgramBusy) {
+            return;
+        }
+
+        if (!State.IsConnected) {
+            _headProgramStatusMessage = "Conecta el tester para actualizar programas de cabezal.";
+            return;
+        }
+
+        _isHeadProgramBusy = true;
+        _headProgramStatusMessage = "Consultando programas de cabezal en el tester...";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            Task<IReadOnlyList<HeadProgramInfo>> unifiedTask = HeadProfileService.ListProgramsAsync(HeadSystemKind.Unified, CancellationToken.None);
+            Task<IReadOnlyList<HeadProgramInfo>> modularTask = HeadProfileService.ListProgramsAsync(HeadSystemKind.Modular, CancellationToken.None);
+            await Task.WhenAll(unifiedTask, modularTask);
+
+            _unifiedHeadPrograms = unifiedTask.Result;
+            _modularHeadPrograms = modularTask.Result;
+            _headProgramStatusMessage =
+                $"Programas cargados. UNI={_unifiedHeadPrograms.Count}, MOD={_modularHeadPrograms.Count}.";
+        } catch (Exception ex) {
+            _headProgramStatusMessage = BuildUserErrorMessage(ex, "No se pudieron actualizar los programas de cabezal.");
+        } finally {
+            _isHeadProgramBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para aplicar el programa elegido al sistema de cabezal correcto.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón Aplicar de cada programa.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al seleccionar un programa de cabezal.
+    ///
+    /// [ENTRADAS]
+    /// Recibe sistema y nombre de archivo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Activa el perfil en firmware y refresca los listados.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> ApplyHeadProgramAsync -> HeadProfileService -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a elegir y activar un programa operativo guardado.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El panel no podría activar programas.
+    /// </summary>
+    private async Task ApplyHeadProgramAsync(HeadSystemKind systemKind, string fileName)
+    {
+        // [ACURATEX] Aplicar un programa de cabezal significa pedirle al servicio que lo valide
+        // y luego lo deje activo en firmware y en la UI.
+        // [FLUJO] Boton aplicar -> HeadProfileService.ApplyProgramAsync -> HEAD_PROGRAM_SELECT.
+        if (!CanManageHeadPrograms || _isHeadProgramBusy) {
+            return;
+        }
+
+        if (!State.IsConnected) {
+            _headProgramStatusMessage = "Conecta el tester antes de aplicar un programa de cabezal.";
+            return;
+        }
+
+        _isHeadProgramBusy = true;
+        _headProgramStatusMessage = $"Aplicando {fileName} en {BuildSystemLabel(systemKind)}...";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            HeadProfileLoadResult result = await HeadProfileService.ApplyProgramAsync(systemKind, fileName, CancellationToken.None);
+            _headProgramStatusMessage = result.Warnings.Count > 0
+                ? $"{result.Message} Advertencias: {result.Warnings.Count}."
+                : result.Message;
+
+            Task<IReadOnlyList<HeadProgramInfo>> unifiedTask = HeadProfileService.ListProgramsAsync(HeadSystemKind.Unified, CancellationToken.None);
+            Task<IReadOnlyList<HeadProgramInfo>> modularTask = HeadProfileService.ListProgramsAsync(HeadSystemKind.Modular, CancellationToken.None);
+            await Task.WhenAll(unifiedTask, modularTask);
+            _unifiedHeadPrograms = unifiedTask.Result;
+            _modularHeadPrograms = modularTask.Result;
+        } catch (Exception ex) {
+            _headProgramStatusMessage = BuildUserErrorMessage(ex, "No se pudo aplicar el programa de cabezal.");
+        } finally {
+            _isHeadProgramBusy = false;
+        }
+    }
+
+    // [ACURATEX] Abre la carpeta temporal local para inspección manual.
+    private async Task OpenLocalTempFolderAsync()
+    {
+        // [ACURATEX] Esta accion solo abre la carpeta local para inspeccion humana.
+        if (!CanManageTesterFiles || _isLocalTempBusy) {
+            return;
+        }
+
+        try {
+            await LocalTempFileService.OpenTempFolderAsync(CancellationToken.None);
+            _localTempStatusMessage = "Carpeta temporal abierta.";
+        } catch (Exception ex) {
+            _localTempStatusMessage = BuildUserErrorMessage(ex, "No se pudo abrir la carpeta temporal.");
+        }
+    }
+
+    // [ACURATEX] Copia la ruta de la carpeta temporal para el usuario.
+    private async Task CopyLocalTempFolderPathAsync()
+    {
+        // [ACURATEX] Copiar la ruta ayuda al operador a ubicar la carpeta sin navegar por el sistema.
+        if (!CanManageTesterFiles || _isLocalTempBusy) {
+            return;
+        }
+
+        try {
+            await LocalTempFileService.CopyTempFolderPathAsync(CancellationToken.None);
+            _localTempStatusMessage = "Ruta temporal copiada al portapapeles.";
+        } catch (Exception ex) {
+            _localTempStatusMessage = BuildUserErrorMessage(ex, "No se pudo copiar la ruta temporal.");
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para refrescar la lista de archivos temporales locales.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón de refrescar carpeta temporal.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al actualizar la vista local.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parámetros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Relee la carpeta temporal y reevalúa estados.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> RefreshLocalTempFilesAsync -> carpeta temporal -> tabla local.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a listar una memoria local y marcar qué archivos son válidos.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podría refrescar la carpeta temporal.
+    /// </summary>
+    private async Task RefreshLocalTempFilesAsync()
+    {
+        // [ACURATEX] Este refresco sincroniza la carpeta local con lo que hay en el tester.
+        // [FLUJO] Click refrescar -> ListTempFilesAsync -> tabla local + estados visuales.
+        if (!CanManageTesterFiles || _isLocalTempBusy) {
+            return;
+        }
+
+        _isLocalTempBusy = true;
+        _localTempGlobalProgressPercent = 10;
+        _localTempCurrentFileProgressPercent = 0;
+        _localTempStatusMessage = "Actualizando lista temporal local...";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            await RefreshLocalTempFilesCoreAsync();
+            _localTempGlobalProgressPercent = 100;
+            _localTempStatusMessage = _localTempFiles.Count == 0
+                ? "No hay archivos .txt en la carpeta temporal."
+                : $"Lista temporal actualizada: {_localTempFiles.Count} archivo(s).";
+        } catch (Exception ex) {
+            _localTempGlobalProgressPercent = 0;
+            _localTempStatusMessage = BuildUserErrorMessage(ex, "No se pudo actualizar la lista temporal.");
+        } finally {
+            _isLocalTempBusy = false;
+        }
+    }
+
+    // [ACURATEX] Selecciona todos los archivos temporales válidos.
+    private void SelectAllLocalTempFiles()
+    {
+        if (_isLocalTempBusy) {
+            return;
+        }
+
+        // [C#] `static` en la lambda indica que no necesita capturar variables del entorno.
+        // [ACURATEX] Solo se marcan como seleccionables los archivos locales que realmente son validos.
+        _localTempFiles = _localTempFiles
+            .Select(static file => file.IsValid
+                ? file with { IsSelected = true, UploadState = "Seleccionado" }
+                : file with { IsSelected = false })
+            .ToArray();
+        _localTempStatusMessage = $"{SelectedLocalTempFileCount} archivo(s) seleccionado(s).";
+    }
+
+    // [ACURATEX] Limpia la selección temporal.
+    private void DeselectAllLocalTempFiles()
+    {
+        if (_isLocalTempBusy) {
+            return;
+        }
+
+        // [C#] `with` crea una copia del registro/record cambiando solo las propiedades indicadas.
+        // [ACURATEX] Se conserva si ya existia en tester o si es nuevo, solo se quita la marca visual de seleccion.
+        _localTempFiles = _localTempFiles
+            .Select(static file => file with { IsSelected = false, UploadState = file.ExistsOnTester ? "Existe en tester" : "Nuevo" })
+            .ToArray();
+        _localTempStatusMessage = "Seleccion temporal limpiada.";
+    }
+
+    // [ACURATEX] Cambia la selección de un archivo local concreto.
+    private void ToggleLocalTempSelection(string fileName, ChangeEventArgs args)
+    {
+        if (_isLocalTempBusy) {
+            return;
+        }
+
+        // [C#] `is bool value && value` extrae el booleano del evento si el DOM realmente lo entrego asi.
+        bool selected = args.Value is bool value && value;
+        _localTempFiles = _localTempFiles
+            .Select(file =>
+            {
+                // [ACURATEX] Solo cambia el archivo que coincide por nombre y ademas sea utilizable.
+                if (!string.Equals(file.FileName, fileName, StringComparison.OrdinalIgnoreCase) || !file.IsValid) {
+                    return file;
+                }
+
+                return file with
+                {
+                    IsSelected = selected,
+                    UploadState = selected ? "Seleccionado" : (file.ExistsOnTester ? "Existe en tester" : "Nuevo")
+                };
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para subir en lote los archivos temporales seleccionados.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón de subir archivos locales.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario confirma la subida de uno o varios TXT locales.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parámetros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Compara duplicados, abre diálogo de conflicto y llama a la subida secuencial.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> UploadSelectedLocalTempFilesAsync -> carpeta local -> FILE_* -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a enviar varios bloques de datos guardados localmente a una memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No habría una subida por lotes desde archivos temporales.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para subir al tester los archivos temporales que el operador selecciono.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton de subir archivos locales.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario confirma una subida por lotes.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Consulta si hay duplicados, abre un dialogo de conflicto o inicia la subida secuencial.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `UploadSelectedLocalTempFilesAsync()` -> archivos locales -> `FILE_*` -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a tomar varios bloques de una carpeta local y escribirlos en memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no tendria una accion central para subir varios TXT temporales.
+    /// </summary>
+    private async Task UploadSelectedLocalTempFilesAsync()
+    {
+        if (!CanManageTesterFiles || _isLocalTempBusy || _isTesterFileBusy) {
+            return;
+        }
+
+        if (!State.IsConnected) {
+            _localTempStatusMessage = "Conecta el tester antes de subir archivos.";
+            return;
+        }
+
+        IReadOnlyList<LocalTempFileEntry> selectedFiles = _localTempFiles
+            .Where(static file => file.IsSelected && file.IsValid)
+            .ToArray();
+        if (selectedFiles.Count == 0) {
+            _localTempStatusMessage = "Selecciona al menos un archivo temporal valido.";
+            return;
+        }
+
+        _isLocalTempBusy = true;
+        _isTesterFileBusy = true;
+        _localTempGlobalProgressPercent = 5;
+        _localTempCurrentFileProgressPercent = 0;
+        _localTempStatusMessage = "Consultando archivos existentes en tester...";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            HashSet<string> testerNames = await GetTesterFileNameSetAsync();
+            selectedFiles = selectedFiles
+                .Select(file => file with { ExistsOnTester = testerNames.Contains(file.FileName) })
+                .ToArray();
+
+            _localTempFiles = _localTempFiles
+                .Select(file => file with { ExistsOnTester = testerNames.Contains(file.FileName) })
+                .ToArray();
+
+            IReadOnlyList<LocalTempFileEntry> duplicates = selectedFiles
+                .Where(static file => file.ExistsOnTester)
+                .ToArray();
+
+            if (duplicates.Count > 0) {
+                _duplicateUploadDialog = new LocalTempDuplicateDialog(selectedFiles, duplicates);
+                _localTempGlobalProgressPercent = 0;
+                _localTempStatusMessage = "Hay archivos seleccionados que ya existen en el tester.";
+                return;
+            }
+
+            await UploadLocalTempFilesSequentialAsync(selectedFiles, omittedCount: 0);
+        } catch (Exception ex) {
+            _localTempGlobalProgressPercent = 0;
+            _localTempStatusMessage = BuildUserErrorMessage(ex, "No se pudo iniciar la subida seleccionada.");
+        } finally {
+            _isLocalTempBusy = false;
+            _isTesterFileBusy = false;
+        }
+    }
+
+    // [ACURATEX] Sobrescribe los duplicados detectados en el tester.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para volver a intentar la subida cuando el operador decide sobrescribir duplicados.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el dialogo de duplicados.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador confirma que quiere reemplazar archivos ya existentes.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Reutiliza la misma lista seleccionada y arranca la subida secuencial.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Dialogo duplicados -> `OverwriteDuplicateLocalTempFilesAsync()` -> subida.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a reescribir un bloque de memoria ya ocupado.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El usuario no tendria una ruta directa para sobrescribir duplicados.
+    /// </summary>
+    private async Task OverwriteDuplicateLocalTempFilesAsync()
+    {
+        if (_duplicateUploadDialog is null) {
+            return;
+        }
+
+        IReadOnlyList<LocalTempFileEntry> files = _duplicateUploadDialog.SelectedFiles;
+        _duplicateUploadDialog = null;
+        await UploadLocalTempFilesSequentialAsync(files, omittedCount: 0);
+    }
+
+    // [ACURATEX] Omite los duplicados detectados y sube solo lo nuevo.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para continuar la subida saltando los archivos que ya existen en el tester.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el dialogo de duplicados cuando el operador elige omitir.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al confirmar la omision de duplicados.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Marca duplicados como omitidos y lanza la subida solo de los nuevos.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Dialogo duplicados -> `SkipDuplicateLocalTempFilesAsync()` -> solo nuevos -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a saltar bloques ya escritos y continuar con los pendientes.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podria continuar una carga parcial sin sobrescribir.
+    /// </summary>
+    private async Task SkipDuplicateLocalTempFilesAsync()
+    {
+        if (_duplicateUploadDialog is null) {
+            return;
+        }
+
+        IReadOnlyList<LocalTempFileEntry> duplicates = _duplicateUploadDialog.Duplicates;
+        IReadOnlyList<LocalTempFileEntry> files = _duplicateUploadDialog.SelectedFiles
+            .Where(static file => !file.ExistsOnTester)
+            .ToArray();
+        _duplicateUploadDialog = null;
+
+        SetLocalTempUploadState(duplicates.Select(static file => file.FileName), "Omitido");
+        if (files.Count == 0) {
+            _localTempGlobalProgressPercent = 100;
+            _localTempCurrentFileProgressPercent = 0;
+            _localTempStatusMessage = $"Subida finalizada: 0 correctos, {duplicates.Count} omitido(s), 0 errores.";
+            return;
+        }
+
+        await UploadLocalTempFilesSequentialAsync(files, omittedCount: duplicates.Count);
+    }
+
+    // [ACURATEX] Cancela la subida por conflicto de duplicados.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para cancelar la subida local cuando el dialogo de duplicados no se acepta.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton de cancelar del dialogo.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta si el operador decide no subir nada.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Limpia el dialogo y actualiza el mensaje visible.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Dialogo duplicados -> `CancelDuplicateLocalTempUpload()` -> no se sube nada.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a abortar una secuencia antes de escribir en memoria.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El usuario no tendria una salida clara del conflicto.
+    /// </summary>
+    private void CancelDuplicateLocalTempUpload()
+    {
+        _duplicateUploadDialog = null;
+        _localTempStatusMessage = "Subida cancelada. No se subio ningun archivo.";
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para subir los archivos locales uno por uno con progreso agregado.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman los flujos de subida local y los diálogos de duplicados.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al confirmar una subida de archivos temporales.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la lista de archivos y cuántos se omitieron.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Lee archivos locales, manda FILE_* y actualiza progreso por lote.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> UploadLocalTempFilesSequentialAsync -> archivo local -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a enviar varios bloques de memoria en secuencia con estado agregado.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La subida por lotes no tendría una rutina central.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para subir los archivos locales uno por uno y mantener un progreso agregado.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llaman la subida directa y los dialogos de duplicados.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al confirmar una subida por lotes desde la carpeta temporal.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la lista de archivos y cuántos se omitieron.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Lee archivos locales, manda `FILE_*` y actualiza progreso por lote.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `UploadLocalTempFilesSequentialAsync()` -> archivo local -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a enviar varios bloques de datos en secuencia con una barra global.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La subida por lotes no tendría una rutina central.
+    /// </summary>
+    private async Task UploadLocalTempFilesSequentialAsync(IReadOnlyList<LocalTempFileEntry> files, int omittedCount)
+    {
+        // [ACURATEX] La subida es secuencial para que el operador vea el progreso archivo por archivo.
+        // [FLUJO] Lista local -> FILE_BEGIN/DATA/END repetidos -> firmware.
+        if (files.Count == 0) {
+            return;
+        }
+
+        _isLocalTempBusy = true;
+        _isTesterFileBusy = true;
+        _localTempUploadIssues = Array.Empty<LocalTempUploadIssue>();
+        _localTempTotalFiles = files.Count;
+        _localTempCurrentFileIndex = 0;
+        _localTempCurrentFileProgressPercent = 0;
+        _localTempGlobalProgressPercent = 0;
+        _localTempCurrentFileName = string.Empty;
+        SetLocalTempUploadState(files.Select(static file => file.FileName), "Pendiente");
+        await InvokeAsync(StateHasChanged);
+
+        int successCount = 0;
+        int errorCount = 0;
+        List<LocalTempUploadIssue> issues = new();
+
+        try {
+            for (int index = 0; index < files.Count; index++) {
+                LocalTempFileEntry file = files[index];
+                _localTempCurrentFileIndex = index + 1;
+                _localTempCurrentFileName = file.FileName;
+                _localTempCurrentFileProgressPercent = 0;
+                _localTempStatusMessage = $"Subiendo archivo {_localTempCurrentFileIndex} de {_localTempTotalFiles}: {file.FileName}";
+                UpdateLocalTempUploadState(file.FileName, "Subiendo");
+                await InvokeAsync(StateHasChanged);
+
+                try {
+                    byte[] bytes = await LocalTempFileService.ReadTempFileBytesAsync(file.FileName, CancellationToken.None);
+                    Progress<CommandFileUploadProgress> progress = new(report =>
+                    {
+                        _localTempCurrentFileProgressPercent = Math.Clamp(report.ProgressPercent, 0, 100);
+                        _localTempGlobalProgressPercent = CalculateBatchProgress(index, files.Count, _localTempCurrentFileProgressPercent);
+                        _localTempStatusMessage = $"Archivo {_localTempCurrentFileIndex} de {_localTempTotalFiles}: {file.FileName} - {report.Stage}";
+                        _ = InvokeAsync(StateHasChanged);
+                    });
+
+                    await CommandFileTransferService.UploadTextFileAsync(
+                        file.FileName,
+                        bytes,
+                        progress,
+                        CancellationToken.None);
+
+                    successCount++;
+                    _localTempCurrentFileProgressPercent = 100;
+                    _localTempGlobalProgressPercent = CalculateBatchProgress(index + 1, files.Count, 0);
+                    UpdateLocalTempUploadState(file.FileName, "Subido correctamente");
+                } catch (Exception ex) {
+                    errorCount++;
+                    string message = BuildUserErrorMessage(ex, "No se pudo subir el archivo.");
+                    issues.Add(new LocalTempUploadIssue(file.FileName, message));
+                    UpdateLocalTempUploadState(file.FileName, "Error");
+                }
+            }
+
+            _localTempUploadIssues = issues;
+            await ReloadTesterFilesCoreAsync();
+            await RefreshLocalTempFilesCoreAsync();
+            _localTempGlobalProgressPercent = 100;
+            _localTempStatusMessage = $"Subida finalizada: {successCount} correctos, {omittedCount} omitido(s), {errorCount} errores.";
+        } finally {
+            _localTempCurrentFileName = string.Empty;
+            _isLocalTempBusy = false;
+            _isTesterFileBusy = false;
+        }
+    }
+
+    // [ACURATEX] Abre un archivo temporal local dentro del editor de texto.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para abrir una copia temporal local dentro del editor de texto.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama la UI de archivos temporales cuando el operador pulsa Abrir.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario quiere mirar o editar una copia local.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre del archivo temporal.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Lee bytes locales, llena el editor y recuerda la copia de trabajo.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `OpenLocalTempFileInEditorAsync()` -> archivo local -> editor.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a cargar un bloque de texto desde una tarjeta SD hacia un buffer editable.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No se podria abrir una copia temporal para editarla.
+    /// </summary>
+    private async Task OpenLocalTempFileInEditorAsync(string fileName)
+    {
+        // [ACURATEX] Abrir una copia local no toca el tester; solo carga la copia de trabajo en el editor.
+        if (!CanManageTesterFiles || _isLocalTempBusy) {
+            return;
+        }
+
+        if (!await ConfirmDiscardTesterFileChangesAsync()) {
+            return;
+        }
+
+        try {
+            byte[] bytes = await LocalTempFileService.ReadTempFileBytesAsync(fileName, CancellationToken.None);
+            string fullPath = _localTempFiles.FirstOrDefault(file => string.Equals(file.FileName, fileName, StringComparison.OrdinalIgnoreCase))?.FullPath
+                ?? Path.Combine(LocalTempFileService.GetTempFolderPath(), fileName);
+
+            _openedTesterFileName = fileName;
+            _selectedTesterFileName = fileName;
+            _testerFileEditorText = Encoding.UTF8.GetString(bytes);
+            _testerFileOriginalText = _testerFileEditorText;
+            _testerFileTempPath = fullPath;
+            _testerFileEditorOrigin = "Archivo temporal local";
+            _testerFileStatusMessage = "Archivo temporal local abierto en editor.";
+        } catch (Exception ex) {
+            _localTempStatusMessage = BuildUserErrorMessage(ex, "No se pudo abrir el archivo temporal.");
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para refrescar la tabla de archivos remotos del tester.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón de actualizar archivos del tester.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario quiere volver a leer FILE_LIST.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parámetros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Relee la lista remota y actualiza la barra de progreso.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> RefreshTesterFilesAsync -> FILE_LIST -> tabla remota.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a consultar un índice de archivos en memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podría refrescar la lista remota.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para volver a leer `FILE_LIST` y refrescar la tabla de archivos remotos.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton de actualizar archivos del tester.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario quiere refrescar la lista remota.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Actualiza progreso y vuelve a consultar la lista remota.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `RefreshTesterFilesAsync()` -> `FILE_LIST` -> tabla remota.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a consultar un indice de archivos en memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podria refrescar la lista remota.
+    /// </summary>
+    private async Task RefreshTesterFilesAsync()
+    {
+        // [ACURATEX] Esta ruta vuelve a leer FILE_LIST y refresca la tabla remota visible.
+        if (!CanManageTesterFiles) {
+            return;
+        }
+
+        if (!State.IsConnected) {
+            _testerFileStatusMessage = "Conecta el tester antes de actualizar la lista.";
+            _testerFileProgressPercent = 0;
+            return;
+        }
+
+        _isTesterFileBusy = true;
+        _testerFileProgressPercent = 10;
+        _testerFileStatusMessage = "Actualizando lista de archivos del tester...";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            await ReloadTesterFilesCoreAsync();
+            _testerFileProgressPercent = 100;
+            _testerFileStatusMessage = _testerFiles.Count == 0
+                ? "El tester no reporto archivos guardados."
+                : $"Lista actualizada: {_testerFiles.Count} archivo(s).";
+        } catch (Exception ex) {
+            _testerFileProgressPercent = 0;
+            _testerFileStatusMessage = BuildUserErrorMessage(ex, "No se pudo actualizar la lista de archivos.");
+        } finally {
+            _isTesterFileBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para descargar y abrir un archivo del tester en el editor.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón Abrir de cada archivo remoto.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario quiere editar o copiar un TXT remoto.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre del archivo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Descarga el archivo, llena el editor y marca la copia local.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> OpenTesterFileAsync -> FILE_GET -> editor.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a leer un archivo externo y cargarlo en un buffer editable.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No se podrían abrir archivos remotos para editarlos.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para descargar un archivo remoto y abrirlo en el editor.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton Abrir de cada fila remota.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador quiere editar o copiar un TXT del tester.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre del archivo remoto.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Descarga el texto, llena el editor y marca la copia local temporal.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `OpenTesterFileAsync()` -> `FILE_GET` -> editor.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a leer un archivo externo y cargarlo en un buffer editable.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No se podrian abrir archivos remotos para editarlos.
+    /// </summary>
+    private async Task OpenTesterFileAsync(string fileName)
+    {
+        // [ACURATEX] Abrir un remoto significa descargarlo, mostrarlo y recordar su copia local.
+        // [ACURATEX] Abrir un archivo remoto significa descargarlo y llevarlo al editor local.
+        // [FLUJO] Click Abrir -> DownloadFileAsync -> FILE_GET -> editor de texto.
+        // [EQUIV MCU] Es como cargar un bloque de memoria externa en un buffer editable.
+        if (!CanManageTesterFiles || _isTesterFileBusy || !State.IsConnected) {
+            return;
+        }
+
+        if (!await ConfirmDiscardTesterFileChangesAsync()) {
+            return;
+        }
+
+        _isTesterFileBusy = true;
+        _testerFileProgressPercent = 10;
+        _testerFileStatusMessage = $"Descargando {fileName} desde el tester...";
+        // [C#] `InvokeAsync(StateHasChanged)` vuelve a pintar la UI antes de iniciar la descarga.
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            CommandFileDownloadResult result = await CommandFileTransferService.DownloadFileAsync(
+                fileName,
+                CancellationToken.None);
+
+            if (!result.Success) {
+                _testerFileProgressPercent = 0;
+                _testerFileStatusMessage = result.ErrorMessage ?? "No se pudo descargar el archivo del tester.";
+                return;
+            }
+
+            _selectedTesterFileName = result.FileName;
+            _openedTesterFileName = result.FileName;
+            _testerFileEditorText = result.Text;
+            _testerFileOriginalText = result.Text;
+            _testerFileTempPath = result.TempPath;
+            _testerFileEditorOrigin = "Archivo abierto desde tester";
+            _testerFileDownloadTimes[result.FileName] = DateTime.Now;
+            _testerFiles = ApplyLocalDownloadTimes(_testerFiles);
+            _testerFileProgressPercent = 100;
+            _testerFileStatusMessage = "Archivo abierto desde tester.";
+        } catch (Exception ex) {
+            _testerFileProgressPercent = 0;
+            _testerFileStatusMessage = BuildUserErrorMessage(ex, "No se pudo abrir el archivo del tester.");
+        } finally {
+            _isTesterFileBusy = false;
+        }
+    }
+
+    // [ACURATEX] Selecciona un archivo remoto como activo en el tester.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para marcar un archivo remoto como activo en el tester sin abrirlo en el editor.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton Seleccionar de cada archivo remoto.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador quiere cambiar el archivo activo sin editarlo.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre del archivo remoto.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Envia `SelectFileAsync` y actualiza la fila seleccionada en pantalla.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `SelectTesterFileAsync()` -> `FILE_SELECT` -> tester activo.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a seleccionar qué programa queda activo en una memoria de control.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podria cambiar el archivo activo sin abrirlo.
+    /// </summary>
+    private async Task SelectTesterFileAsync(string fileName)
+    {
+        // [ACURATEX] Seleccionar un archivo remoto solo cambia el activo en el tester; no abre el editor.
+        // [ACURATEX] Esta accion solo marca un archivo como activo en el tester.
+        // [FLUJO] Click Seleccionar -> SelectFileAsync -> tester confirma archivo activo.
+        if (!CanManageTesterFiles || _isTesterFileBusy || !State.IsConnected) {
+            return;
+        }
+
+        _isTesterFileBusy = true;
+        _testerFileProgressPercent = 25;
+        _testerFileStatusMessage = $"Seleccionando {fileName} en el tester...";
+        // [ACURATEX] El estado cambia primero para que el operador vea que la orden ya fue enviada.
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            bool selected = await CommandFileTransferService.SelectFileAsync(fileName, CancellationToken.None);
+            if (!selected) {
+                _testerFileProgressPercent = 0;
+                _testerFileStatusMessage = "El tester no confirmo la seleccion del archivo.";
+                return;
+            }
+
+            _testerFiles = _testerFiles
+                .Select(entry => entry with
+                {
+                    IsSelected = string.Equals(entry.FileName, fileName, StringComparison.OrdinalIgnoreCase)
+                })
+                .ToArray();
+            _selectedTesterFileName = fileName;
+            _testerFileProgressPercent = 100;
+            _testerFileStatusMessage = "Archivo seleccionado en tester correctamente.";
+        } catch (Exception ex) {
+            _testerFileProgressPercent = 0;
+            _testerFileStatusMessage = BuildUserErrorMessage(ex, "No se pudo seleccionar el archivo en el tester.");
+        } finally {
+            _isTesterFileBusy = false;
+        }
+    }
+
+    // [ACURATEX] Guarda en tester el archivo actualmente abierto.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para guardar el archivo que ya esta abierto usando su mismo nombre.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton Guardar del editor.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador quiere sobrescribir el mismo archivo abierto.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Reutiliza el nombre abierto y delega el guardado real al helper comun.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Editor -> `SaveOpenTesterFileAsync()` -> `SaveTesterFileTextAsync()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a presionar Save en un editor clasico sin cambiar el nombre del archivo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Guardar tendria que duplicar la logica de "guardar como".
+    /// </summary>
+    private async Task SaveOpenTesterFileAsync()
+    {
+        // [ACURATEX] Guardar reutiliza el nombre ya abierto, igual que presionar Save en un editor clásico.
+        // [ACURATEX] Guardar usa el nombre actualmente abierto.
+        // [FLUJO] El texto ya editado se reenvía sin volver a pedir el archivo.
+        if (_openedTesterFileName is null) {
+            return;
+        }
+
+        // [ACURATEX] El editor no duplica el flujo de guardado; llama al helper que ya conoce el nombre.
+        await SaveTesterFileTextAsync(_openedTesterFileName);
+    }
+
+    // [ACURATEX] Guarda el texto actual con otro nombre.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para guardar el texto del editor con un nombre nuevo elegido por el usuario.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton Guardar como.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el operador decide guardar una copia con otro nombre.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros directos; pide el nuevo nombre al navegador.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Pide un nombre por `prompt`, valida y reusa el flujo de guardado.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Editor -> `SaveOpenTesterFileAsAsync()` -> nombre nuevo -> `SaveTesterFileTextAsync()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a escribir un archivo con otro nombre en una memoria externa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No se podria hacer una copia con nombre distinto desde el editor.
+    /// </summary>
+    private async Task SaveOpenTesterFileAsAsync()
+    {
+        // [ACURATEX] Guardar como pide un nombre nuevo y luego vuelve a usar el flujo común de guardado.
+        // [ACURATEX] "Guardar como" solicita un nombre nuevo antes de subir el contenido.
+        // [C#] `is null` evita confundir un nombre vacio con ausencia real de archivo abierto.
+        if (_openedTesterFileName is null || _isTesterFileBusy || !State.IsConnected) {
+            return;
+        }
+
+        // [C#] `JS.InvokeAsync<string?>("prompt", ...)` pide texto al navegador hospedado por Blazor.
+        string? requestedName = await JS.InvokeAsync<string?>("prompt", "Guardar como", _openedTesterFileName);
+        if (requestedName is null) {
+            return;
+        }
+
+        string newName = NormalizeTesterFileName(requestedName);
+        string? validationError = ValidateTesterFileNameForUi(newName);
+        if (!string.IsNullOrWhiteSpace(validationError)) {
+            _testerFileStatusMessage = validationError;
+            await AlertService.ShowAsync("Guardar como", validationError, AppAlertKind.Warning);
+            return;
+        }
+
+        await SaveTesterFileTextAsync(newName);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para subir al tester el texto del editor, ya sea como guardar
+    /// normal o guardar como.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman los botones de guardado del editor.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario decide persistir cambios.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre destino.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Llama al servicio FILE_* y actualiza el estado del editor.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Editor -> SaveTesterFileTextAsync -> FILE_* -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a regrabar un bloque de memoria externa con el texto modificado.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El editor no podría guardar sus cambios en el tester.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para subir al tester el texto que quedo en el editor.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llaman Guardar y Guardar como.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario decide persistir cambios en el tester.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre de destino.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Envía `FILE_*`, actualiza estado del editor y refresca listados.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Editor -> `SaveTesterFileTextAsync()` -> `FILE_BEGIN/DATA/END` -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a regrabar un bloque de memoria externa con el texto modificado.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El editor no podría guardar sus cambios en el tester.
+    /// </summary>
+    private async Task SaveTesterFileTextAsync(string fileName)
+    {
+        // [ACURATEX] El texto del editor es una copia de trabajo; esta rutina lo sube al tester.
+        // [FLUJO] Editor -> SaveTesterFileTextAsync -> FILE_BEGIN/DATA/END -> firmware.
+        if (!CanManageTesterFiles || _isTesterFileBusy || !State.IsConnected) {
+            return;
+        }
+
+        string? validationError = ValidateTesterFileNameForUi(fileName);
+        if (!string.IsNullOrWhiteSpace(validationError)) {
+            _testerFileStatusMessage = validationError;
+            await AlertService.ShowAsync("Guardar archivo", validationError, AppAlertKind.Warning);
+            return;
+        }
+
+        int byteCount = Encoding.UTF8.GetByteCount(_testerFileEditorText);
+        if (byteCount > MaxCommandFileSizeBytes) {
+            _testerFileStatusMessage = $"El archivo supera {MaxCommandFileSizeBytes} bytes en UTF-8.";
+            await AlertService.ShowAsync("Guardar archivo", _testerFileStatusMessage, AppAlertKind.Warning);
+            return;
+        }
+
+        _isTesterFileBusy = true;
+        _testerFileProgressPercent = 0;
+        _testerFileStatusMessage = $"Subiendo {fileName} al tester...";
+        // [C#] La actualización visual ocurre antes de la E/S para que el usuario vea el cambio inmediato.
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            // [ACURATEX] Igual que en la subida de comando, el progreso vuelve desde el servicio como callback.
+            Progress<CommandFileUploadProgress> progress = new(report =>
+            {
+                _testerFileProgressPercent = Math.Clamp(report.ProgressPercent, 0, 100);
+                _testerFileStatusMessage = report.Stage;
+                _ = InvokeAsync(StateHasChanged);
+            });
+
+            CommandFileSaveResult result = await CommandFileTransferService.SaveEditedTextAsync(
+                fileName,
+                _testerFileEditorText,
+                progress,
+                CancellationToken.None);
+
+            if (!result.Success) {
+                _testerFileProgressPercent = 0;
+                _testerFileStatusMessage = result.ErrorMessage ?? "No se pudo guardar el archivo en el tester.";
+                return;
+            }
+
+            _openedTesterFileName = result.FileName;
+            _selectedTesterFileName = result.FileName;
+            _testerFileOriginalText = _testerFileEditorText;
+            _testerFileTempPath = result.TempPath;
+            _testerFileEditorOrigin = "Archivo guardado en tester";
+            _testerFileDownloadTimes[result.FileName] = DateTime.Now;
+            await ReloadTesterFilesCoreAsync();
+            if (_localTempFiles.Count > 0) {
+                await RefreshLocalTempFilesCoreAsync();
+            }
+            _testerFileProgressPercent = 100;
+            _testerFileStatusMessage = "Archivo guardado en tester correctamente.";
+        } catch (Exception ex) {
+            _testerFileProgressPercent = 0;
+            _testerFileStatusMessage = BuildUserErrorMessage(ex, "No se pudo guardar el archivo en el tester.");
+        } finally {
+            _isTesterFileBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para borrar un archivo remoto con confirmación explícita.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llama el botón Eliminar de cada archivo remoto.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario confirma que quiere borrar el archivo.
+    ///
+    /// [ENTRADAS]
+    /// Recibe nombre de archivo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `Task`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Llama `DeleteFileAsync` y refresca vistas.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> DeleteTesterFileAsync -> FILE_DELETE -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a borrar un archivo de la memoria externa bajo confirmación.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podría eliminar archivos remotos.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para borrar un archivo remoto con confirmacion explicita.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el boton Eliminar de cada fila remota.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando el usuario confirma que quiere borrar el archivo.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre de archivo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una tarea asincrona.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Llama a `DeleteFileAsync` y refresca vistas.
+    ///
+    /// [FLUJO ACURATEX]
+    /// UI -> `DeleteTesterFileAsync()` -> `FILE_DELETE` -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a borrar un archivo de memoria externa bajo confirmacion.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no podria eliminar archivos remotos.
+    /// </summary>
+    private async Task DeleteTesterFileAsync(string fileName)
+    {
+        if (!CanManageTesterFiles || _isTesterFileBusy || !State.IsConnected) {
+            return;
+        }
+
+        // [ACURATEX] El `confirm` del navegador actua como barrera simple antes de una eliminacion real.
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"Eliminar archivo {fileName} del tester?");
+        if (!confirmed) {
+            return;
+        }
+
+        _isTesterFileBusy = true;
+        _testerFileProgressPercent = 25;
+        _testerFileStatusMessage = $"Eliminando {fileName} del tester...";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            bool deleted = await CommandFileTransferService.DeleteFileAsync(fileName, CancellationToken.None);
+            if (!deleted) {
+                _testerFileProgressPercent = 0;
+                _testerFileStatusMessage = "El tester no confirmo la eliminacion del archivo.";
+                return;
+            }
+
+            if (IsOpenedTesterFile(fileName)) {
+                ClearTesterFileEditor();
+            }
+
+            await ReloadTesterFilesCoreAsync();
+            if (_localTempFiles.Count > 0) {
+                await RefreshLocalTempFilesCoreAsync();
+            }
+            _testerFileProgressPercent = 100;
+            _testerFileStatusMessage = "Archivo eliminado del tester.";
+        } catch (Exception ex) {
+            _testerFileProgressPercent = 0;
+            _testerFileStatusMessage = BuildUserErrorMessage(ex, "No se pudo eliminar el archivo del tester.");
+        } finally {
+            _isTesterFileBusy = false;
+        }
+    }
+
+    // [ACURATEX] Guarda el texto editable sin ejecutar todavía una subida.
+    private void OnTesterFileEditorInput(ChangeEventArgs args)
+    {
+        _testerFileEditorText = args.Value?.ToString() ?? string.Empty;
+    }
+
+    // [ACURATEX] Restaura el texto original abierto desde el tester.
+    private void DiscardTesterFileChanges()
+    {
+        if (_openedTesterFileName is null || _isTesterFileBusy) {
+            return;
+        }
+
+        _testerFileEditorText = _testerFileOriginalText;
+        _testerFileStatusMessage = "Cambios descartados.";
+    }
+
+    // [ACURATEX] Marca una fila remota como seleccionada visualmente.
+    private void SelectTesterFileRow(string fileName)
+    {
+        _selectedTesterFileName = fileName;
+    }
+
+    // [ACURATEX] Núcleo de recarga remota de archivos.
+    private async Task ReloadTesterFilesCoreAsync()
+    {
+        // [ACURATEX] Esta rutina concentra la recarga remota para no repetir la misma secuencia en varios botones.
+        IReadOnlyList<TesterFileEntry> files = await CommandFileTransferService.ListTesterFilesAsync(CancellationToken.None);
+        _testerFiles = ApplyLocalDownloadTimes(files);
+
+        if (_selectedTesterFileName is not null
+            && !_testerFiles.Any(entry => string.Equals(entry.FileName, _selectedTesterFileName, StringComparison.OrdinalIgnoreCase))) {
+            _selectedTesterFileName = null;
+        }
+    }
+
+    // [ACURATEX] Núcleo de recarga de la carpeta temporal local.
+    private async Task RefreshLocalTempFilesCoreAsync()
+    {
+        // [ACURATEX] La carpeta temporal se reconstruye combinando disco local con nombres remotos del tester.
+        // [ACURATEX] El estado de la carpeta temporal se reconstruye a partir de disco y del tester.
+        // [FLUJO] carpeta local + nombres remotos -> tabla visual combinada.
+        Dictionary<string, LocalTempFileEntry> previous = _localTempFiles.ToDictionary(
+            static file => file.FileName,
+            StringComparer.OrdinalIgnoreCase);
+        HashSet<string> testerNames = State.IsConnected
+            ? await GetTesterFileNameSetAsync()
+            : new HashSet<string>(_testerFiles.Select(static file => file.FileName), StringComparer.OrdinalIgnoreCase);
+
+        IReadOnlyList<LocalTempFileEntry> localFiles = await LocalTempFileService.ListTempFilesAsync(CancellationToken.None);
+        _localTempFiles = localFiles
+            .Select(file =>
+            {
+                previous.TryGetValue(file.FileName, out LocalTempFileEntry? old);
+                bool existsOnTester = testerNames.Contains(file.FileName);
+                bool keepSelected = old?.IsSelected == true && file.IsValid;
+                string uploadState = old is null
+                    ? (existsOnTester ? "Existe en tester" : "Nuevo")
+                    : KeepLocalTempUploadState(old.UploadState, existsOnTester);
+
+                return file with
+                {
+                    ExistsOnTester = existsOnTester,
+                    IsSelected = keepSelected,
+                    UploadState = keepSelected ? "Seleccionado" : uploadState
+                };
+            })
+            .ToArray();
+    }
+
+    // [ACURATEX] Obtiene nombres remotos para comparar con la carpeta local.
+    private async Task<HashSet<string>> GetTesterFileNameSetAsync()
+    {
+        // [C#] `CancellationToken.None` significa que esta consulta puntual no se cancela desde la UI.
+        IReadOnlyList<string> testerFiles = await CommandFileTransferService.ListFilesAsync(CancellationToken.None);
+        // [ACURATEX] Se guarda en `HashSet` para comparar nombres rapido al actualizar estados visuales.
+        return new HashSet<string>(testerFiles, StringComparer.OrdinalIgnoreCase);
+    }
+
+    // [ACURATEX] Conserva el estado visual de subida cuando refresca la lista.
+    private static string KeepLocalTempUploadState(string uploadState, bool existsOnTester)
+    {
+        // [C#] El `switch` por expresion transforma estados conocidos sin repetir `if` encadenados.
+        return uploadState switch
+        {
+            "Pendiente" or "Subiendo" or "Subido correctamente" or "Omitido" or "Error" => uploadState,
+            _ => existsOnTester ? "Existe en tester" : "Nuevo"
+        };
+    }
+
+    // [ACURATEX] Aplica un estado de subida a varios archivos locales a la vez.
+    private void SetLocalTempUploadState(IEnumerable<string> fileNames, string uploadState)
+    {
+        // [C#] `IEnumerable<string>` permite recibir cualquier secuencia de nombres sin exigir un tipo concreto.
+        HashSet<string> names = new(fileNames, StringComparer.OrdinalIgnoreCase);
+        _localTempFiles = _localTempFiles
+            .Select(file => names.Contains(file.FileName)
+                ? file with { UploadState = uploadState, IsSelected = uploadState is "Seleccionado" or "Pendiente" or "Subiendo" }
+                : file)
+            .ToArray();
+    }
+
+    // [ACURATEX] Aplica un estado de subida a un archivo local concreto.
+    private void UpdateLocalTempUploadState(string fileName, string uploadState)
+    {
+        // [ACURATEX] Este helper cambia solo un registro para que el progreso individual se vea correcto.
+        _localTempFiles = _localTempFiles
+            .Select(file => string.Equals(file.FileName, fileName, StringComparison.OrdinalIgnoreCase)
+                ? file with { UploadState = uploadState, IsSelected = uploadState is "Pendiente" or "Subiendo" }
+                : file)
+            .ToArray();
+    }
+
+    // [ACURATEX] Convierte progreso por archivo en progreso agregado de lote.
+    private static int CalculateBatchProgress(int completedFileCount, int totalFiles, int currentFileProgress)
+    {
+        if (totalFiles <= 0) {
+            return 0;
+        }
+
+        // [C#] `Math.Clamp` mantiene el porcentaje dentro de 0..100 aunque el calculo intermedio se salga.
+        double progress = (completedFileCount + Math.Clamp(currentFileProgress, 0, 100) / 100d) * 100d / totalFiles;
+        return Math.Clamp((int)Math.Round(progress), 0, 100);
+    }
+
+    // [ACURATEX] Vuelve a pegar la hora local de descarga sobre la lista remota.
+    private IReadOnlyList<TesterFileEntry> ApplyLocalDownloadTimes(IReadOnlyList<TesterFileEntry> files)
+    {
+        // [ACURATEX] La marca temporal local no viene del tester; se pega aqui desde memoria temporal de la UI.
+        return files
+            .Select(entry => entry with
+            {
+                LocalDownloadedAt = _testerFileDownloadTimes.TryGetValue(entry.FileName, out DateTime downloadedAt)
+                    ? downloadedAt
+                    : null
+            })
+            .ToArray();
+    }
+
+    // [ACURATEX] Pide confirmación antes de perder cambios no guardados.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para pedir confirmacion antes de perder cambios no guardados del editor.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llaman las rutas que abren otro archivo o cambian de contexto.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando hay texto editado y el operador intenta salir de ese archivo.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `true` si se pueden descartar los cambios.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede mostrar una confirmacion en el navegador.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Cambio de archivo -> `ConfirmDiscardTesterFileChangesAsync()` -> confirmar o cancelar.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a un aviso antes de perder una copia de trabajo en RAM.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El usuario podria perder edicion sin darse cuenta.
+    /// </summary>
+    private async Task<bool> ConfirmDiscardTesterFileChangesAsync()
+    {
+        // [ACURATEX] Descartar cambios es una barrera de seguridad para no perder edición manual.
+        if (!IsTesterFileEditorDirty) {
+            return true;
+        }
+
+        return await JS.InvokeAsync<bool>("confirm", "Hay cambios sin guardar. Descartarlos?");
+    }
+
+    // [ACURATEX] Comprueba si el archivo remoto ya está abierto en el editor.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para comparar si un archivo remoto es el mismo que esta abierto en el editor.
+    ///
+    /// [QUIEN LO USA]
+    /// Lo usan las acciones de guardado, seleccion y borrado.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando la UI necesita saber si esta actuando sobre el archivo abierto.
+    ///
+    /// [ENTRADAS]
+    /// Recibe el nombre del archivo a comparar.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `true` si coincide con el archivo abierto.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Archivo candidato -> `IsOpenedTesterFile()` -> coincide o no con el editor.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a comprobar si el registro activo es el mismo que el que se quiere operar.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no sabria si una accion afecta al archivo abierto.
+    /// </summary>
+    private bool IsOpenedTesterFile(string fileName)
+    {
+        return _openedTesterFileName is not null
+            && string.Equals(_openedTesterFileName, fileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [ACURATEX] Devuelve la clase CSS de un archivo remoto según su estado.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para decidir que clase CSS corresponde a cada archivo remoto.
+    ///
+    /// [QUIEN LO USA]
+    /// Lo usa el listado de archivos del tester.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al renderizar cada fila remota.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la fila del archivo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve una clase CSS.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Fila remota -> `TesterFileEntryClass()` -> estilo visible.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a encender un LED de estado según un flag.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI no resaltaria de forma uniforme cada archivo.
+    /// </summary>
+    private string TesterFileEntryClass(TesterFileEntry file)
+    {
+        // [ACURATEX] La clase CSS refleja selección y también si el archivo ya fue marcado como activo.
+        string css = "tester-file-entry";
+        if (string.Equals(_selectedTesterFileName, file.FileName, StringComparison.OrdinalIgnoreCase)) {
+            css += " selected";
+        }
+
+        if (file.IsSelected) {
+            css += " active";
+        }
+
+        return css;
+    }
+
+    // [ACURATEX] Devuelve la clase CSS de un archivo local temporal.
+    private static string LocalTempEntryClass(LocalTempFileEntry file)
+    {
+        string css = "local-temp-entry";
+        if (file.IsSelected) {
+            css += " selected";
+        }
+
+        if (!file.IsValid) {
+            css += " invalid";
+        }
+
+        return css;
+    }
+
+    // [ACURATEX] Resume el estado visual de un archivo temporal local.
+    private static string BuildLocalTempStatus(LocalTempFileEntry file)
+    {
+        if (!file.IsValid) {
+            return "Invalido";
+        }
+
+        if (file.UploadState is "Pendiente" or "Subiendo" or "Subido correctamente" or "Omitido" or "Error") {
+            return file.UploadState;
+        }
+
+        if (file.IsSelected) {
+            return "Seleccionado";
+        }
+
+        if (DateTime.Now - file.LastModified <= TimeSpan.FromMinutes(30)) {
+            return "Modificado recientemente";
+        }
+
+        return file.ExistsOnTester ? "Existe en tester" : "Nuevo";
+    }
+
+    // [ACURATEX] Devuelve la clase CSS del indicador de estado local.
+    private static string LocalTempStatusBadgeClass(LocalTempFileEntry file)
+    {
+        string status = BuildLocalTempStatus(file);
+        return status switch
+        {
+            "Invalido" or "Error" => "local-temp-status-badge danger",
+            "Subido correctamente" => "local-temp-status-badge success",
+            "Existe en tester" or "Omitido" => "local-temp-status-badge warning",
+            "Seleccionado" or "Subiendo" or "Pendiente" => "local-temp-status-badge selected",
+            _ => "local-temp-status-badge"
+        };
+    }
+
+    // [ACURATEX] Traduce el enum del sistema a una etiqueta humana.
+    private static string BuildSystemLabel(HeadSystemKind systemKind)
+    {
+        return systemKind == HeadSystemKind.Unified
+            ? "Sistema Unificado"
+            : "Sistema Modular";
+    }
+
+    // [ACURATEX] Resume qué programa de cabezal está activo en cada sistema.
+    private string BuildActiveHeadProgramSummary(HeadSystemKind systemKind)
+    {
+        HeadProfile? profile = HeadProfileService.GetActiveProfile(systemKind);
+        if (profile is null) {
+            return "Sin programa activo";
+        }
+
+        return $"Activo: Programa {profile.ProgramNumber}";
+    }
+
+    // [ACURATEX] Devuelve la clase CSS de una fila de programa según su estado.
+    private static string HeadProgramRowClass(HeadProgramInfo program)
+    {
+        string css = "head-program-admin-row";
+        if (program.IsActive) {
+            css += " active";
+        }
+
+        if (!program.IsValid) {
+            css += " invalid";
+        }
+
+        if (program.Warnings.Count > 0) {
+            css += " warning";
+        }
+
+        return css;
+    }
+
+    // [ACURATEX] Formatea el tamaño de archivo para mostrarlo al usuario.
+    private static string FormatFileSize(long? sizeBytes)
+    {
+        return sizeBytes.HasValue ? $"{sizeBytes.Value} bytes" : "Tamano no disponible";
+    }
+
+    // [ACURATEX] Describe cuándo se descargó localmente un archivo remoto.
+    private static string FormatLocalDownload(TesterFileEntry file)
+    {
+        return file.LocalDownloadedAt.HasValue
+            ? $"Descargado local {file.LocalDownloadedAt.Value:yyyy-MM-dd HH:mm}"
+            : "Sin copia local";
+    }
+
+    // [ACURATEX] Cuenta líneas de texto sin usar el parser de archivos completo.
+    private static int CountTextLines(string text)
+    {
+        if (string.IsNullOrEmpty(text)) {
+            return 0;
+        }
+
+        int count = 1;
+        foreach (char c in text) {
+            if (c == '\n') {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    // [ACURATEX] Normaliza el nombre para el flujo "guardar como".
+    private static string NormalizeTesterFileName(string fileName)
+    {
+        string cleanName = (fileName ?? string.Empty).Trim();
+        if (cleanName.Length > 0 && Path.GetExtension(cleanName).Length == 0) {
+            cleanName += ".txt";
+        }
+
+        return cleanName;
+    }
+
+    // [ACURATEX] Valida nombres de archivo desde la UI antes de mandar FILE_*.
+    private static string? ValidateTesterFileNameForUi(string fileName)
+    {
+        // [ACURATEX] La UI bloquea nombres peligrosos antes de que lleguen al protocolo FILE_*.
+        // [C#] `string.IsNullOrWhiteSpace` cubre null, vacio y espacios.
+        if (string.IsNullOrWhiteSpace(fileName)
+            || fileName.Length > 48
+            || fileName.Contains('/')
+            || fileName.Contains('\\')
+            || fileName.Contains('|')
+            || fileName.Contains("..", StringComparison.Ordinal)
+            || fileName.Contains('\r')
+            || fileName.Contains('\n')
+            || string.Equals(fileName, ".selected", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, ".upload.tmp", StringComparison.OrdinalIgnoreCase)) {
+            return "Nombre de archivo invalido.";
+        }
+
+        return null;
+    }
+
+    // [ACURATEX] Limpia el editor y deja la vista sin archivo abierto.
+    private void ClearTesterFileEditor()
+    {
+        // [ACURATEX] Limpiar el editor también borra la referencia al archivo abierto.
+        // [C#] Esta rutina centraliza el reset para no repetir asignaciones en varios puntos.
+        _openedTesterFileName = null;
+        _selectedTesterFileName = null;
+        _testerFileTempPath = null;
+        _testerFileEditorOrigin = string.Empty;
+        _testerFileEditorText = string.Empty;
+        _testerFileOriginalText = string.Empty;
+    }
+
+    // [ACURATEX] Borra la copia local en caché sin comprometer la fuente oficial remota.
+    private void TryDeleteTesterFileCache(string fileName)
+    {
+        // [ACURATEX] Borrar la copia local no altera la verdad del tester, solo limpia la cache.
+        try {
+            // [C#] `Path.Combine` construye una ruta temporal coherente con Windows.
+            string cachePath = Path.Combine(Path.GetTempPath(), "AccuratexControlApp", "firmware-files", fileName);
+            if (File.Exists(cachePath)) {
+                File.Delete(cachePath);
+            }
+
+            _testerFileDownloadTimes.Remove(fileName);
+        } catch {
+            // La cache local no es fuente oficial; FILE_LIST del tester sigue siendo la verdad.
+        }
+    }
+
+    // [ACURATEX] Convierte una excepción en un mensaje legible para el usuario.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para convertir excepciones en mensajes legibles para el operador.
+    ///
+    /// [QUIEN LO USA]
+    /// Lo usan las rutas de archivos y edicion cuando capturan errores.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al transformar un error tecnico en mensaje de UI.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la excepcion y un texto de respaldo.
+    ///
+    /// [SALIDAS]
+    /// Devuelve el mensaje util para mostrar.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// No tiene.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Excepcion -> `BuildUserErrorMessage()` -> texto visible.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a convertir un codigo de error en una etiqueta de diagnostico comprensible.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI tendria que mostrar mensajes vacios o tecnicos crudos.
+    /// </summary>
+    private static string BuildUserErrorMessage(Exception ex, string fallback)
+    {
+        // [ACURATEX] Si la excepción no trae mensaje útil, la UI muestra un texto de respaldo.
+        // [C#] `string.IsNullOrWhiteSpace` evita mostrar vacios al usuario.
+        return string.IsNullOrWhiteSpace(ex.Message) ? fallback : ex.Message;
+    }
+
+    // [ACURATEX] Limpia la selección del archivo .txt preparado para subir.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para limpiar la seleccion del archivo preparado para subir.
+    ///
+    /// [QUIEN LO USA]
+    /// Lo usan los flujos de seleccion, error y reinicio de carga.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando ya no hay un archivo valido listo para enviar.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Borra la seleccion y reinicia el progreso visual.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Archivo seleccionado -> `ClearSelectedCommandFile()` -> estado limpio.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a borrar un buffer de trabajo antes de cargar otro.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La UI podria creer que aun hay un archivo listo para subir.
+    /// </summary>
+    private void ClearSelectedCommandFile()
+    {
+        // [ACURATEX] Quitar la selección también reinicia el progreso visual.
+        // [C#] Esta limpieza evita que la UI crea que aún hay un archivo listo para subir.
+        _selectedCommandFile = null;
+        _uploadProgressPercent = 0;
+    }
+
+    // [ACURATEX] Valida el archivo elegido desde el navegador antes de leerlo.
+    private static string? ValidateCommandFileSelection(string fileName, long fileSize)
+    {
+        // [ACURATEX] Se valida igual que en el tester: nombre limpio, extensión TXT y tamaño razonable.
+        // [C#] `Contains(..., StringComparison.Ordinal)` impide confundir secuencias peligrosas con texto normal.
+        if (string.IsNullOrWhiteSpace(fileName)
+            || fileName.Length > 48
+            || fileName.Contains('/')
+            || fileName.Contains('\\')
+            || fileName.Contains('|')
+            || fileName.Contains("..", StringComparison.Ordinal)
+            || fileName.Contains('\r')
+            || fileName.Contains('\n')
+            || string.Equals(fileName, ".selected", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, ".upload.tmp", StringComparison.OrdinalIgnoreCase)) {
+            return "Nombre de archivo invalido";
+        }
+
+        if (!fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) {
+            return "Solo se permiten archivos .txt";
+        }
+
+        if (fileSize <= 0) {
+            return "El archivo esta vacio";
+        }
+
+        if (fileSize > MaxCommandFileSizeBytes) {
+            return $"El archivo supera {MaxCommandFileSizeBytes} bytes";
+        }
+
+        return null;
+    }
+
+    // [ACURATEX] Lee bytes del archivo del navegador sin cargarlo completo fuera de control.
+    private static async Task<byte[]> ReadBrowserFileAsync(IBrowserFile file, CancellationToken cancellationToken)
+    {
+        // [ACURATEX] El archivo del navegador se lee con límite para no cargar bytes ilimitados en memoria.
+        await using Stream input = file.OpenReadStream(MaxCommandFileSizeBytes, cancellationToken);
+        using MemoryStream buffer = new((int)Math.Min(file.Size, MaxCommandFileSizeBytes));
+        await input.CopyToAsync(buffer, cancellationToken);
+        return buffer.ToArray();
+    }
+
+    // [ACURATEX] Construye una vista previa textual del archivo seleccionado.
+    private static (int LineCount, IReadOnlyList<string> PreviewLines) BuildFilePreview(byte[] fileBytes)
+    {
+        // [ACURATEX] La vista previa enseña solo un resumen, no todo el archivo.
+        string content = Encoding.UTF8.GetString(fileBytes);
+        using StringReader reader = new(content);
+
+        int lineCount = 0;
+        List<string> preview = new(CommandFilePreviewLimit);
+        string? line;
+
+        while ((line = reader.ReadLine()) != null) {
+            lineCount++;
+            if (preview.Count < CommandFilePreviewLimit) {
+                preview.Add(line);
+            }
+        }
+
+        if (lineCount == 0 && fileBytes.Length > 0) {
+            lineCount = 1;
+            preview.Add(content);
+        }
+
+        return (lineCount, preview);
+    }
+
+    // [ACURATEX] Formatea la vista previa para mostrar líneas numeradas.
+    private static string BuildPreviewText(IReadOnlyList<string> lines)
+    {
+        // [ACURATEX] Esta función convierte la vista previa en texto numerado para leerlo rápido.
+        if (lines == null || lines.Count == 0) {
+            return "(sin contenido visible)";
+        }
+
+        StringBuilder builder = new();
+        for (int i = 0; i < lines.Count; i++) {
+            if (i > 0) {
+                builder.AppendLine();
+            }
+
+            builder.Append((i + 1).ToString("00"));
+            builder.Append(": ");
+            builder.Append(lines[i]);
+        }
+
+        return builder.ToString();
+    }
+
+    // [ACURATEX] Envía el preset START si la vista de consola lo permite.
+    private async Task SendStartAsync()
+    {
+        if (!CanUsePresetCommands) {
+            return;
+        }
+
+        await Host.SendPresetAsync("start");
+    }
+
+    // [ACURATEX] Envía el preset STOP si la vista de consola lo permite.
+    private async Task SendStopAsync()
+    {
+        if (!CanUsePresetCommands) {
+            return;
+        }
+
+        await Host.SendPresetAsync("stop");
+    }
+
+    // [ACURATEX] Envía el preset TESTEO si la vista de consola lo permite.
+    private async Task SendTestAsync()
+    {
+        if (!CanUsePresetCommands) {
+            return;
+        }
+
+        await Host.SendPresetAsync("testeo");
+    }
+
+    // [ACURATEX] Maneja el comando RAW crítico con confirmación previa.
+    private async Task HandleSendRawCommandAsync()
+    {
+        if (!ShowRawCommandButton) {
+            return;
+        }
+
+        if (!await EnsureCriticalActionConfirmedAsync(CriticalUserAction.SendCriticalRawCommand, "Enviar RAW critico")) {
+            return;
+        }
+
+        await AlertService.ShowAsync(
+            "Enviar RAW",
+            "Funcion preparada para proxima etapa. La validacion final debe ejecutarse en firmware/backend.",
+            AppAlertKind.Warning);
+    }
+
+    // [ACURATEX] Maneja el borrado de logs críticos con confirmación.
+    private async Task HandleClearLogsAsync()
+    {
+        // [ACURATEX] Borrar logs elimina trazabilidad visible, por eso se trata como acción crítica.
+        // [FLUJO] Borrar logs exige confirmacion porque elimina trazabilidad visible para el operador.
+        if (!ShowClearLogsButton) {
+            return;
+        }
+
+        if (!await EnsureCriticalActionConfirmedAsync(CriticalUserAction.ClearLogs, "Borrar logs")) {
+            return;
+        }
+
+        await AlertService.ShowAsync(
+            "Borrar logs",
+            "Funcion preparada para proxima etapa. Aun no se elimina el historial en esta etapa.",
+            AppAlertKind.Warning);
+    }
+
+    // [ACURATEX] Maneja la activación del modo desarrollo con confirmación.
+    private async Task HandleEnableDevModeAsync()
+    {
+        // [ACURATEX] Activar modo desarrollo cambia qué información queda expuesta en pantalla.
+        // [ACURATEX] El modo desarrollo cambia la cantidad de informacion visible en la UI.
+        if (!ShowDevModeButton) {
+            return;
+        }
+
+        if (!await EnsureCriticalActionConfirmedAsync(CriticalUserAction.EnableDevMode, "Activar modo desarrollo")) {
+            return;
+        }
+
+        await AlertService.ShowAsync(
+            "Modo desarrollo",
+            "Funcion preparada para proxima etapa. No se aplicaron cambios de modo en esta etapa.",
+            AppAlertKind.Warning);
+    }
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta función existe para aplicar una segunda pulsación de confirmación sobre acciones
+    /// críticas.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman los botones críticos de la sección de consola.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta al intentar una acción peligrosa o irreversible.
+    ///
+    /// [ENTRADAS]
+    /// Recibe una clave de acción y una etiqueta de usuario.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `bool` indicando si la acción ya está confirmada.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Guarda expiración temporal y muestra una alerta de confirmación.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Botón crítico -> EnsureCriticalActionConfirmedAsync -> confirmación -> acción final.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a una doble validación antes de activar una salida peligrosa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Las acciones críticas no tendrían barrera de seguridad de doble click.
+    /// </summary>
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para pedir una confirmacion doble antes de ejecutar acciones criticas.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llaman los botones de RAW, borrar logs y modo desarrollo.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando una accion marcada como critica esta por dispararse.
+    ///
+    /// [ENTRADAS]
+    /// Recibe la clave de la accion y su etiqueta visible.
+    ///
+    /// [SALIDAS]
+    /// Devuelve `true` si ya esta confirmada o `false` si apenas se pidio la primera pulsacion.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Puede mostrar una alerta y guardar una ventana temporal de confirmacion.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Boton critico -> `EnsureCriticalActionConfirmedAsync()` -> confirmacion -> accion final.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a una doble validacion antes de activar una salida peligrosa.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Las acciones criticas no tendrian barrera de seguridad de doble click.
+    /// </summary>
+    private async Task<bool> EnsureCriticalActionConfirmedAsync(string actionKey, string actionLabel)
+    {
+        // [ACURATEX] `TryGetValue` evita crear una confirmación falsa y permite recordar la primera pulsación.
+        // [C#] `TryGetValue` evita crear entradas falsas cuando no hay confirmacion previa.
+        if (!PermissionService.RequiresConfirmation(actionKey)) {
+            return true;
+        }
+
+        // [ACURATEX] La primera pulsación solo arma una ventana temporal; la segunda dentro del plazo autoriza la acción.
+        DateTime now = DateTime.UtcNow;
+        if (_pendingCriticalActionConfirmations.TryGetValue(actionKey, out DateTime expiresAt) && expiresAt > now) {
+            _pendingCriticalActionConfirmations.Remove(actionKey);
+            return true;
+        }
+
+        _pendingCriticalActionConfirmations[actionKey] = now.AddSeconds(12);
+        await AlertService.ShowAsync(
+            "Confirmacion requerida",
+            $"Accion critica: {actionLabel}. Presiona de nuevo en los proximos 12 segundos para confirmar.",
+            AppAlertKind.Warning);
+        return false;
+    }
+
+    // [ACURATEX] Desuscribe eventos cuando el componente sale de vida.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para desuscribir eventos cuando el componente sale de vida.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el ciclo de vida de Blazor al destruir el componente.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al cerrar el panel o al cambiar la pagina hospedada.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Elimina los handlers de sesión y host para evitar callbacks sobre un componente muerto.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Cierre del panel -> `Dispose()` -> desuscripcion -> no mas callbacks.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a quitar interrupciones registradas antes de apagar un modulo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Quedarian handlers colgados intentando repintar la UI.
+    /// </summary>
+    public void Dispose()
+    {
+        // [ACURATEX] Se quitan las suscripciones para no dejar callbacks vivos cuando el panel ya no existe.
+        // [ACURATEX] Quitamos la suscripcion para no disparar StateHasChanged en un componente muerto.
+        // [C#] `-=` elimina el handler que se registro con `+=` durante la inicializacion.
+        Host.StateChanged -= HandleStateChanged;
+        AuthState.StateChanged -= HandleAuthStateChanged;
+        HeadProfileService.StateChanged -= HandleHeadProfileStateChanged;
+    }
+
+    private sealed record SelectedCommandFile(
+        string FileName,
+        byte[] FileBytes,
+        int SizeBytes,
+        int LineCount,
+        IReadOnlyList<string> PreviewLines);
+
+    private sealed record LocalTempUploadIssue(string FileName, string Message);
+
+    private sealed record LocalTempDuplicateDialog(
+        IReadOnlyList<LocalTempFileEntry> SelectedFiles,
+        IReadOnlyList<LocalTempFileEntry> Duplicates);
+}

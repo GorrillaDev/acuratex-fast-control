@@ -1,0 +1,288 @@
+@* [ACURATEX] Vista de login embebida.
+   [FLUJO] El usuario escribe credenciales -> `SubmitAsync()` -> `ILoginDialogHost.SubmitAsync()` -> cierre si es valido.
+   [EQUIV MCU] Se parece a un formulario de acceso que valida una clave antes de dejar pasar.
+   [ACURATEX] La vista no valida usuarios por si misma; solo captura datos y llama al host. *@
+@* [C#] `@implements IDisposable` indica que el componente tiene una rutina de limpieza al salir.
+   [C#] `@inject` pide al contenedor de Blazor una implementacion de `ILoginDialogHost`.
+   [ACURATEX] La vista no conoce la ventana WinForms; solo habla con el host por este contrato. *@
+@implements IDisposable
+@inject ILoginDialogHost Host
+
+<main class="login-window-shell">
+    <AcuratexWindowChrome />
+
+    <section class="login-content-shell">
+        <section class="container">
+            <section class="info-panel">
+                <div class="logo-crop">
+                    <img alt="Acuratex Logo"
+                         class="logo"
+                         src="https://www.accuratex.com/wp-content/uploads/2021/02/maquinas_tejedoras_FINAL-001.png" />
+                </div>
+
+                <h1>Acceso seguro al sistema de pruebas</h1>
+                <p class="description">
+                    Plataforma de control para tarjetas, cabezales, servodrives y rutinas de diagn&oacute;stico mediante conexi&oacute;n USB/TCP.
+                </p>
+
+                <div class="status-card">
+                    <h3>Estado del entorno</h3>
+
+                    <div class="status-item">
+                        <span class="dot"></span>
+                        <span>USB/WinUSB listo</span>
+                    </div>
+
+                    <div class="status-item">
+                        <span class="dot"></span>
+                        <span>TCP/WiFi disponible</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="form-panel">
+                <h2>Iniciar sesi&oacute;n</h2>
+                <p class="subtitle">
+                    Ingresa ID y contrase&ntilde;a para acceder al panel de control Acuratex.
+                </p>
+
+                @if (Host.State.HasError)
+                {
+                    <div class="error">@Host.State.ErrorMessage</div>
+                }
+
+                <form @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+                    <div class="form-group">
+                        <label for="user">Usuario / ID</label>
+                        <input id="user"
+                               type="text"
+                               placeholder="Ingrese usuario o ID"
+                               autocomplete="username"
+                               @bind="UserId"
+                               @bind:event="oninput" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pass">Contrase&ntilde;a</label>
+                        <input id="pass"
+                               type="password"
+                               placeholder="Ingrese contrase&ntilde;a"
+                               autocomplete="current-password"
+                               @bind="Password"
+                               @bind:event="oninput" />
+                    </div>
+
+                    <div class="checkbox-group">
+                        <input id="local-access"
+                               type="checkbox"
+                               checked
+                               @onkeydown="HandleCheckboxKeyDownAsync" />
+                        <label for="local-access">Acceso visual local</label>
+                    </div>
+
+                    <button class="btn-submit" type="submit" disabled="@_isSubmitting">ENTRAR</button>
+                </form>
+
+                <p class="footer-note">
+                    Demo temporal: root/root, admin/admin, tecnico/tecnico.
+                </p>
+            </section>
+        </section>
+    </section>
+</main>
+
+@code {
+    // [ACURATEX] Estos campos guardan lo que el usuario va escribiendo antes de pulsar Entrar.
+    // [C#] `string.Empty` evita trabajar con `null` en controles enlazados.
+    private string UserId { get; set; } = string.Empty;
+    private string Password { get; set; } = string.Empty;
+    // [ACURATEX] Esta bandera evita que el usuario dispare dos envios simultaneos.
+    private bool _isSubmitting;
+
+    // [ACURATEX] La UI del host informa si cambian errores o resultado del login.
+    // [FLUJO] Host.StateChanged -> LoginView -> StateHasChanged.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para suscribirse al evento del host que avisa cuando cambia el estado del login.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama Blazor automaticamente cuando el componente entra en escena.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta una sola vez al iniciar la vista.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Agrega `HandleStateChanged` al evento `Host.StateChanged`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Host cambia -> evento -> LoginView -> repintado.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a conectar una interrupcion/callback que despierta a la interfaz cuando cambia una bandera.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La pantalla no se enteraria de los cambios de estado y quedaria desactualizada.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        Host.StateChanged += HandleStateChanged;
+    }
+
+    // [ACURATEX] Evita reentradas si el usuario presiona Enter varias veces.
+    // [C#] `_isSubmitting` funciona como bandera simple de exclusión visual.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para enviar las credenciales al host sin permitir doble envio simultaneo.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el formulario cuando el usuario pulsa Enter o hace submit.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta durante el envio del formulario de login.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros; usa `UserId` y `Password` ya escritos por el usuario.
+    ///
+    /// [SALIDAS]
+    /// No devuelve un valor util para la UI; su efecto es disparar la validacion del host.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Cambia `_isSubmitting` mientras la operacion esta en curso.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Formulario -> `SubmitAsync()` -> host -> resultado del login.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a levantar una bandera de "peticion en curso" para evitar reentradas.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El usuario podria disparar varios intentos de acceso a la vez.
+    /// </summary>
+    private async Task SubmitAsync()
+    {
+        if (_isSubmitting) {
+            return;
+        }
+
+        _isSubmitting = true;
+
+        try {
+            await Host.SubmitAsync(UserId, Password);
+        } finally {
+            _isSubmitting = false;
+        }
+    }
+
+    // [ACURATEX] El checkbox usa Enter como atajo de envio.
+    // [FLUJO] Tecla Enter -> vista -> SubmitAsync() -> host de login.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para convertir la tecla Enter sobre el checkbox en un envio normal del formulario.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama Blazor cuando el usuario presiona una tecla sobre el checkbox.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta en respuesta a un evento de teclado.
+    ///
+    /// [ENTRADAS]
+    /// Recibe `KeyboardEventArgs` con la tecla pulsada.
+    ///
+    /// [SALIDAS]
+    /// No devuelve un resultado visible; solo puede disparar `SubmitAsync()`.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Si la tecla es Enter, inicia el mismo flujo que el boton Entrar.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Tecla -> vista -> `SubmitAsync()` -> host de login.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a un atajo de teclado que dispara la misma rutina que un boton fisico.
+    ///
+    /// [SI NO EXISTIERA]
+    /// Enter sobre ese control no haria nada y la experiencia quedaria inconsistente.
+    /// </summary>
+    private async Task HandleCheckboxKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") {
+            await SubmitAsync();
+        }
+    }
+
+    // [ACURATEX] `InvokeAsync(StateHasChanged)` asegura repintado seguro en Blazor.
+    // [EQUIV MCU] Es como pedir una refrescada de pantalla desde un evento externo.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para pedirle a Blazor que repinte la vista cuando el host notifica un cambio.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el evento `Host.StateChanged`.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta cuando cambia el estado del login desde fuera del componente.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Llama a `InvokeAsync(StateHasChanged)` para repintar en el contexto correcto.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Evento externo -> `HandleStateChanged()` -> `StateHasChanged()`.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a una interrupcion que pide refrescar una pantalla de estado.
+    ///
+    /// [SI NO EXISTIERA]
+    /// La vista podria quedar con datos viejos hasta que ocurriera otro render.
+    /// </summary>
+    private void HandleStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] Se desuscribe al salir de la vista.
+    // [FLUJO] Dispose -> quita callback -> evita repintados despues del cierre.
+    /// <summary>
+    /// [POR QUE EXISTE]
+    /// Este metodo existe para desuscribir la vista del evento del host y evitar callbacks despues del cierre.
+    ///
+    /// [QUIEN LO LLAMA]
+    /// Lo llama el ciclo de vida de Blazor cuando el componente se destruye.
+    ///
+    /// [CUANDO SE EJECUTA]
+    /// Se ejecuta al salir de la vista o al reemplazar el componente.
+    ///
+    /// [ENTRADAS]
+    /// No recibe parametros.
+    ///
+    /// [SALIDAS]
+    /// No devuelve valor.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Quita `HandleStateChanged` de `Host.StateChanged`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Cierre de vista -> `Dispose()` -> desuscripcion -> no mas repintados.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a quitar una interrupcion registrada antes de apagar un modulo.
+    ///
+    /// [SI NO EXISTIERA]
+    /// El host podria intentar repintar un componente ya destruido.
+    /// </summary>
+    public void Dispose()
+    {
+        Host.StateChanged -= HandleStateChanged;
+    }
+}

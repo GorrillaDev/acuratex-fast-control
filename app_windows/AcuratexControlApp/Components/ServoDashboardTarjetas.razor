@@ -1,0 +1,600 @@
+@* [ACURATEX] Panel servo del sistema modular con posiciones, rutina y toggles.
+   [FLUJO] La UI cambia estado -> servicio modular -> firmware.
+   [EQUIV MCU] Se parece a un panel alterno con la misma logica de actuacion. *@
+@implements IDisposable
+@inject IServoDashboardTarjetasCommandService CommandService
+@inject IEmergencyStopService EmergencyStop
+
+<main class="servo-dashboard">
+    <section class="servo-control-header">
+        @* [ACURATEX] La cabecera agrupa modo, init y bloqueo de seguridad. *@
+        <div class="servo-control-left">
+            <h1 class="servo-control-title">Panel de control</h1>
+            <div class="mode-row">
+                <button class="@ModeClass("LINE DRIVE")" type="button" disabled="@IsEmergencyLocked" @onclick="SetLineDriveModeAsync">LINE DRIVE</button>
+                <button class="@ModeClass("CAN")" type="button" disabled="@IsEmergencyLocked" @onclick="SetCanModeAsync">CAN</button>
+            </div>
+        </div>
+        <button class="@InitClass" type="button" @onclick="ToggleInitAsync">INIT</button>
+    </section>
+
+    @if (IsEmergencyLocked)
+    {
+        <section class="system-emergency-inline">
+            PARADA DE EMERGENCIA ACTIVADA. Acciones bloqueadas hasta ejecutar INIT.
+        </section>
+    }
+
+    <section class="@DashboardGridClass">
+        <ServoDriveCardTarjetas Title="Servo Drive 1"
+                                Subtitle="PULSE / DIR / SON"
+                                Toggles="@Servo1Toggles"
+                                ToggleClicked="ToggleOutputAsync"
+                                FrequencyLabel="Frecuencia servo (Hz)"
+                                FrequencyHz="@Servo1FrequencyHz"
+                                FrequencyMin="1"
+                                FrequencyMax="160000"
+                                ShowRealFrequency="true"
+                                Disabled="@IsEmergencyLocked"
+                                FrequencyChanged="SetServo1FrequencyAsync" />
+
+        <ServoDriveCardTarjetas Title="Stepper"
+                                Subtitle="STEP / DIR"
+                                Toggles="@StepperToggles"
+                                ToggleClicked="ToggleOutputAsync"
+                                FrequencyLabel="Frecuencia stepper (Hz)"
+                                FrequencyHz="@StepperFrequencyHz"
+                                FrequencyMin="1"
+                                FrequencyMax="50000"
+                                HelpText="REV suave: baja a ~200 Hz, cambia DIR, vuelve a subir."
+                                Disabled="@IsEmergencyLocked"
+                                FrequencyChanged="SetStepperFrequencyAsync" />
+
+        <section class="servo-card card-servo2">
+            <div class="servo-drive2-head">
+                <div>
+                    <h2>Servo Drive 2</h2>
+                    <p>Control por posiciones</p>
+                </div>
+                <button class="@(RoutineEnabled ? "routine-toggle on" : "routine-toggle off")"
+                        type="button"
+                        disabled="@(!ShowRoutinePanel || IsEmergencyLocked)"
+                        @onclick="ToggleRoutineAsync">
+                    RUTINA @(RoutineEnabled ? "ON" : "OFF")
+                </button>
+            </div>
+
+            <section class="servo2-toggle-grid">
+                @* [ACURATEX] Estos tiles representan salidas logicas, no controles de hardware directos en la vista. *@
+                @foreach (ServoDashboardTarjetasToggle toggle in Servo2Toggles)
+                {
+                    <div class="servo-control-tile compact">
+                        <span class="servo-control-label">@ControlLabel(toggle)</span>
+                        <button class="@RoundButtonClass(toggle)"
+                                type="button"
+                                disabled="@IsEmergencyLocked"
+                                @onclick="() => ToggleOutputAsync(toggle.Key)"
+                                aria-label="@ControlLabel(toggle)">
+                            @if (IsDirectionToggle(toggle))
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                                </svg>
+                            }
+                            else if (IsSonToggle(toggle))
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M13 10V3L4 14h7v7l9-11h-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                                </svg>
+                            }
+                        </button>
+                        <span class="servo-control-state">@(toggle.Enabled ? "ON" : "OFF")</span>
+                    </div>
+                }
+            </section>
+
+            @if (ShowRoutinePanel)
+            {
+                <section class="servo-drive2-topgrid">
+                    <section class="servo-preset-card">
+                        <div class="servo-preset-title">Posiciones predefinidas</div>
+                        <div class="routine-list">
+                            @foreach (int positionNumber in VisibleRoutineOrder)
+                            {
+                                <button class="@RoutineStepClass(positionNumber)"
+                                        type="button"
+                                        disabled="@IsEmergencyLocked"
+                                        draggable="@RoutineDraggable"
+                                        @ondragstart="() => StartDragging(positionNumber)"
+                                        @ondragend="StopDragging"
+                                        @ondragover:preventDefault="true"
+                                        @ondragover="() => DragOverAsync(positionNumber)">
+                                    POS @positionNumber
+                                </button>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="speed-panel">
+                        <div class="speed-top">
+                            <div class="speed-label">Velocidad de rutina</div>
+                            <div class="speed-value">@SpeedLabel</div>
+                        </div>
+
+                        <div class="speed-buttons">
+                            @foreach (int speed in SpeedLevels)
+                            {
+                                <button class="@(RoutineSpeedLevel == speed ? "speed-btn active" : "speed-btn")"
+                                        type="button"
+                                        disabled="@IsEmergencyLocked"
+                                        @onclick="() => SetSpeedAsync(speed)">
+                                    VEL. @speed
+                                </button>
+                            }
+                        </div>
+
+                        <div class="speed-visual">
+                            <div class="speed-track">
+                                <div class="speed-fill" style="width: @SpeedFill"></div>
+                            </div>
+
+                            <div class="speed-ticks">
+                                <span>1.00 s</span>
+                                <span>0.75 s</span>
+                                <span>0.50 s</span>
+                                <span>0.25 s</span>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+            }
+
+            @if (!ShowRoutinePanel)
+            {
+                <section class="servo-drive2-topgrid single">
+                    <section class="servo-preset-card muted">
+                        <div class="servo-preset-title">Posiciones predefinidas</div>
+                        <div class="servo-preset-empty">Agrega otra posicion para habilitar rutina.</div>
+                    </section>
+                </section>
+            }
+
+            <section class="positions-area">
+                <div class="positions-scroll">
+                    <div class="@PositionsGridClass">
+                        @foreach (ServoDashboardTarjetasPosition position in Positions)
+                        {
+                            <ServoPositionBlockTarjetas Position="@position"
+                                                        CanClose="@(position.Number > 1)"
+                                                        Disabled="@IsEmergencyLocked"
+                                                        CloseClicked="ClosePositionAsync"
+                                                        GoToClicked="GoToPositionAsync"
+                                                        TurnsChanged="ChangeTurnsAsync"
+                                                        TargetChanged="SetPositionTargetAsync" />
+                        }
+                    </div>
+                </div>
+
+                @if (Positions.Count < MaxPositions)
+                {
+                    <div class="add-position-row">
+                        <button class="add-position-btn" type="button" disabled="@IsEmergencyLocked" @onclick="AddPositionAsync">+</button>
+                    </div>
+                }
+            </section>
+        </section>
+    </section>
+</main>
+
+@code {
+    private const int MaxPositions = 3;
+    private const int MaxTurns = 15;
+    private const int MinTurns = -15;
+
+    private static readonly int[] SpeedLevels = new[] { 1, 2, 3, 4 };
+    private static readonly string[] OutputKeys =
+    {
+        "s1-son",
+        "s1-run",
+        "s1-dir",
+        "step-run",
+        "step-dir",
+        "step-rev",
+        "s2-son",
+        "s2-run",
+        "s2-dir"
+    };
+
+    // [ACURATEX] El estado interno mantiene posiciones, rutina y toggles visibles.
+    private readonly List<ServoDashboardTarjetasPosition> _positions = new() { new ServoDashboardTarjetasPosition(1) };
+    private readonly List<int> _routineOrder = new() { 1, 2, 3 };
+    private readonly Dictionary<string, ServoDashboardTarjetasToggle> _toggleMap = new()
+    {
+        ["s1-son"] = new ServoDashboardTarjetasToggle("s1-son", "SON: ON", "SON: OFF"),
+        ["s1-run"] = new ServoDashboardTarjetasToggle("s1-run", "RUN PULSE: ON", "RUN PULSE: OFF"),
+        ["s1-dir"] = new ServoDashboardTarjetasToggle("s1-dir", "DIR: 1", "DIR: 0"),
+        ["step-run"] = new ServoDashboardTarjetasToggle("step-run", "RUN: ON", "RUN: OFF"),
+        ["step-dir"] = new ServoDashboardTarjetasToggle("step-dir", "DIR: 1", "DIR: 0"),
+        ["step-rev"] = new ServoDashboardTarjetasToggle("step-rev", "REV suave: ON", "REV suave: OFF"),
+        ["s2-son"] = new ServoDashboardTarjetasToggle("s2-son", "SON: ON", "SON: OFF"),
+        ["s2-run"] = new ServoDashboardTarjetasToggle("s2-run", "RUN PULSE: ON", "RUN PULSE: OFF"),
+        ["s2-dir"] = new ServoDashboardTarjetasToggle("s2-dir", "DIR: 1", "DIR: 0"),
+    };
+
+    private string _selectedMode = "LINE DRIVE";
+    private bool _initEnabled;
+    private bool _routineEnabled;
+    private int _draggingPositionNumber;
+
+    private int Servo1FrequencyHz { get; set; } = 1000;
+
+    private int StepperFrequencyHz { get; set; } = 200;
+
+    private int RoutineSpeedLevel { get; set; } = 1;
+
+    private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
+
+    private IReadOnlyList<ServoDashboardTarjetasPosition> Positions => _positions;
+
+    private IReadOnlyList<ServoDashboardTarjetasToggle> Servo1Toggles => GetToggles("s1-son", "s1-run", "s1-dir");
+
+    private IReadOnlyList<ServoDashboardTarjetasToggle> StepperToggles => GetToggles("step-run", "step-dir", "step-rev");
+
+    private IReadOnlyList<ServoDashboardTarjetasToggle> Servo2Toggles => GetToggles("s2-son", "s2-run", "s2-dir");
+
+    private bool RoutineEnabled
+    {
+        get => _routineEnabled;
+        set => _routineEnabled = value && ShowRoutinePanel;
+    }
+
+    private bool ShowRoutinePanel => _positions.Count >= 2;
+
+    private IEnumerable<int> VisibleRoutineOrder => _routineOrder.Where(positionNumber => positionNumber <= _positions.Count);
+
+    private string InitClass => _initEnabled ? "init-btn on" : "init-btn";
+
+    private string DashboardGridClass => IsEmergencyLocked
+        ? "dashboard-grid emergency-lock-scope is-locked"
+        : "dashboard-grid emergency-lock-scope";
+
+    private string PositionsGridClass => $"positions-grid count-{_positions.Count}";
+
+    private string RoutineDraggable => IsEmergencyLocked ? "false" : "true";
+
+    private string SpeedLabel => RoutineSpeedLevel switch
+    {
+        1 => "VEL. 1 - 1.00 s",
+        2 => "VEL. 2 - 0.75 s",
+        3 => "VEL. 3 - 0.50 s",
+        4 => "VEL. 4 - 0.25 s",
+        _ => "VEL. 1 - 1.00 s"
+    };
+
+    private string SpeedFill => RoutineSpeedLevel switch
+    {
+        1 => "25%",
+        2 => "50%",
+        3 => "75%",
+        4 => "100%",
+        _ => "25%"
+    };
+
+    protected override void OnInitialized()
+    {
+        // [ACURATEX] La emergencia notifica aqui para repintar y apagar secuencias si hace falta.
+        EmergencyStop.StateChanged += HandleEmergencyStateChanged;
+        EmergencyStop.EmergencyStopTriggered += HandleEmergencyStopAsync;
+    }
+
+    private string ModeClass(string mode)
+    {
+        return _selectedMode == mode ? "mode-btn active" : "mode-btn";
+    }
+
+    private Task SetLineDriveModeAsync()
+    {
+        // [ACURATEX] Cambiar modo solo altera la etiqueta seleccionada y el comando que se manda.
+        return SetModeAsync("LINE DRIVE");
+    }
+
+    private Task SetCanModeAsync()
+    {
+        return SetModeAsync("CAN");
+    }
+
+    private async Task SetModeAsync(string mode)
+    {
+        // [ACURATEX] El modo se guarda en la vista para que el botón activo refleje lo último elegido.
+        // [ACURATEX] El modo solo cambia si no hay bloqueo activo.
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        _selectedMode = mode;
+        await CommandService.SetModeAsync(mode);
+    }
+
+    private async Task ToggleInitAsync()
+    {
+        // [ACURATEX] INIT también sirve para salir del estado de emergencia en esta pantalla.
+        if (IsEmergencyLocked) {
+            EmergencyStop.ResetEmergencyStop("INIT");
+            _initEnabled = true;
+            await CommandService.SetInitAsync(true);
+            return;
+        }
+
+        _initEnabled = !_initEnabled;
+        await CommandService.SetInitAsync(_initEnabled);
+    }
+
+    private async Task ToggleOutputAsync(string key)
+    {
+        // [ACURATEX] Cada toggle conserva su estado local antes de mandar la orden al servicio.
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        ServoDashboardTarjetasToggle toggle = _toggleMap[key];
+        toggle.Enabled = !toggle.Enabled;
+        await CommandService.SetOutputAsync(key, toggle.Enabled);
+    }
+
+    private async Task SetServo1FrequencyAsync(int frequencyHz)
+    {
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        Servo1FrequencyHz = frequencyHz;
+        await CommandService.SetFrequencyAsync("servo1", frequencyHz);
+    }
+
+    private async Task SetStepperFrequencyAsync(int frequencyHz)
+    {
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        StepperFrequencyHz = frequencyHz;
+        await CommandService.SetFrequencyAsync("stepper", frequencyHz);
+    }
+
+    private async Task AddPositionAsync()
+    {
+        // [ACURATEX] Agregar una posición solo modifica la rutina visible; no mueve hardware todavía.
+        // [FLUJO] Agregar una posicion amplía la rutina visible, pero no altera hardware por si sola.
+        if (IsEmergencyLocked || _positions.Count >= MaxPositions) {
+            return;
+        }
+
+        _positions.Add(new ServoDashboardTarjetasPosition(_positions.Count + 1));
+        await PublishRoutineAsync();
+    }
+
+    private async Task ClosePositionAsync(int positionNumber)
+    {
+        // [ACURATEX] Cerrar una posición recorta la lista local y luego republica la rutina.
+        if (IsEmergencyLocked || positionNumber <= 1) {
+            return;
+        }
+
+        _positions.RemoveAll(position => position.Number >= positionNumber);
+
+        if (!ShowRoutinePanel) {
+            RoutineEnabled = false;
+        }
+
+        await PublishRoutineAsync();
+    }
+
+    private Task SetPositionTargetAsync(ServoDashboardTarjetasTargetChange change)
+    {
+        // [ACURATEX] La vista guarda el objetivo para que el servicio construya el comando luego.
+        if (IsEmergencyLocked) {
+            return Task.CompletedTask;
+        }
+
+        ServoDashboardTarjetasPosition? position = _positions.FirstOrDefault(item => item.Number == change.PositionNumber);
+        if (position != null) {
+            position.Target = change.Target;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task GoToPositionAsync(int positionNumber)
+    {
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        ServoDashboardTarjetasPosition? position = _positions.FirstOrDefault(item => item.Number == positionNumber);
+        if (position == null) {
+            return;
+        }
+
+        await CommandService.GoToPositionAsync(position.Number, position.Target);
+    }
+
+    private async Task ChangeTurnsAsync(ServoDashboardTarjetasTurnsChange change)
+    {
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        ServoDashboardTarjetasPosition? position = _positions.FirstOrDefault(item => item.Number == change.PositionNumber);
+        if (position == null) {
+            return;
+        }
+
+        int nextTurns = Math.Clamp(position.Turns + change.Delta, MinTurns, MaxTurns);
+        if (nextTurns == position.Turns) {
+            return;
+        }
+
+        position.Turns = nextTurns;
+        await CommandService.SetTurnsAsync(position.Number, position.Turns);
+    }
+
+    private async Task ToggleRoutineAsync()
+    {
+        // [ACURATEX] La rutina se construye desde la vista, pero el servicio la transforma en comandos.
+        // [EQUIV MCU] Activar rutina se parece a cargar una secuencia completa en una tabla de pasos.
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        RoutineEnabled = !RoutineEnabled;
+        await PublishRoutineAsync();
+    }
+
+    private async Task SetSpeedAsync(int speed)
+    {
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        RoutineSpeedLevel = speed;
+        await PublishRoutineAsync();
+    }
+
+    private void StartDragging(int positionNumber)
+    {
+        if (IsEmergencyLocked) {
+            return;
+        }
+
+        _draggingPositionNumber = positionNumber;
+    }
+
+    private void StopDragging()
+    {
+        _draggingPositionNumber = 0;
+    }
+
+    private async Task DragOverAsync(int targetPositionNumber)
+    {
+        // [ACURATEX] El arrastre solo reordena índices locales, no escribe nada en el firmware todavía.
+        // [ACURATEX] El orden de rutina se modifica localmente para que el siguiente envio lo respete.
+        if (IsEmergencyLocked || _draggingPositionNumber == 0 || _draggingPositionNumber == targetPositionNumber) {
+            return;
+        }
+
+        int sourceIndex = _routineOrder.IndexOf(_draggingPositionNumber);
+        int targetIndex = _routineOrder.IndexOf(targetPositionNumber);
+        if (sourceIndex < 0 || targetIndex < 0) {
+            return;
+        }
+
+        _routineOrder.RemoveAt(sourceIndex);
+        _routineOrder.Insert(targetIndex, _draggingPositionNumber);
+        await PublishRoutineAsync();
+    }
+
+    private string RoutineStepClass(int positionNumber)
+    {
+        if (IsEmergencyLocked) {
+            return "routine-step locked";
+        }
+
+        return _draggingPositionNumber == positionNumber ? "routine-step dragging" : "routine-step";
+    }
+
+    private async Task PublishRoutineAsync(bool bypassLock = false)
+    {
+        // [ACURATEX] La rutina se publica como una lista ordenada de pasos al servicio.
+        if (IsEmergencyLocked && !bypassLock) {
+            return;
+        }
+
+        await CommandService.SetRoutineAsync(
+            RoutineEnabled,
+            VisibleRoutineOrder.ToArray(),
+            RoutineSpeedLevel);
+    }
+
+    private IReadOnlyList<ServoDashboardTarjetasToggle> GetToggles(params string[] keys)
+    {
+        // [C#] `params` deja llamar a este helper con varios literales sin construir un arreglo manual.
+        return keys.Select(key => _toggleMap[key]).ToArray();
+    }
+
+    private async Task HandleEmergencyStopAsync()
+    {
+        // [ACURATEX] La emergencia deja la vista en estado seguro antes de volver a publicar cualquier cosa.
+        // [ACURATEX] La emergencia fuerza init off, rutina off y toggles apagados.
+        _initEnabled = false;
+        _routineEnabled = false;
+        _draggingPositionNumber = 0;
+
+        foreach (ServoDashboardTarjetasToggle toggle in _toggleMap.Values) {
+            toggle.Enabled = false;
+        }
+
+        await PublishRoutineAsync(bypassLock: true);
+        await CommandService.SetInitAsync(false);
+
+        foreach (string key in OutputKeys) {
+            await CommandService.SetOutputAsync(key, false);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleEmergencyStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string RoundButtonClass(ServoDashboardTarjetasToggle toggle)
+    {
+        return toggle.Enabled ? "servo-round-button on" : "servo-round-button off";
+    }
+
+    private static string ControlLabel(ServoDashboardTarjetasToggle toggle)
+    {
+        if (toggle.Key.Contains("dir", StringComparison.OrdinalIgnoreCase)) {
+            return "DIR";
+        }
+
+        if (toggle.Key.Contains("son", StringComparison.OrdinalIgnoreCase)) {
+            return "SON";
+        }
+
+        if (toggle.Key.Contains("rev", StringComparison.OrdinalIgnoreCase)) {
+            return "REV SUAVE";
+        }
+
+        if (toggle.Key.StartsWith("step", StringComparison.OrdinalIgnoreCase)) {
+            return "STEP";
+        }
+
+        return "PULSE";
+    }
+
+    private static bool IsDirectionToggle(ServoDashboardTarjetasToggle toggle)
+    {
+        return toggle.Key.Contains("dir", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSonToggle(ServoDashboardTarjetasToggle toggle)
+    {
+        return toggle.Key.Contains("son", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        // [ACURATEX] Quitamos handlers para que el componente no siga escuchando eventos.
+        // [ACURATEX] Quitamos handlers para que el componente no siga escuchando eventos.
+        EmergencyStop.StateChanged -= HandleEmergencyStateChanged;
+        EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
+    }
+}

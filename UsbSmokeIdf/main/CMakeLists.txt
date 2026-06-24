@@ -1,0 +1,36 @@
+idf_component_register(
+    SRCS
+        "usb_smoketest_main.cpp"
+        "command_processor.cpp"
+        "command_head_program_runner.cpp"
+        "head_state_manager.cpp"
+        "can_driver_twai.cpp"
+        "line_codec.cpp"
+        "file_transfer.cpp"
+        "wifi_manager.cpp"
+        "tcp_server.cpp"
+        "network_discovery.cpp"
+        "command_ingress_queue.cpp"
+        "reply_dispatcher.cpp"
+        "head_runtime.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        AcuratexUsb
+        tinyusb
+        freertos
+        esp_common
+        esp_system
+        esp_timer
+        esp_hw_support
+        driver
+        esp_driver_gpio
+        esp_driver_twai
+        esp_driver_uart
+        esp_wifi
+        esp_netif
+        esp_event
+        nvs_flash
+        lwip
+        littlefs
+)

@@ -1,0 +1,98 @@
+@* [ACURATEX] Este bloque dibuja un grupo de pines de salida para el cabezal unificado.
+   [FLUJO] UI Razor -> evento de click -> componente padre -> servicio -> firmware. *@
+<section class="cabezal-block">
+    <div class="blk-head">
+        <div>
+            <div class="blk-title">@Block.Title</div>
+        </div>
+    </div>
+
+    <div class="blk-actions">
+        <button type="button" @onclick="() => SetAllAsync(false)" disabled="@ActionsDisabled">OFF ALL</button>
+        <button type="button" @onclick="() => SetAllAsync(true)" disabled="@ActionsDisabled">ON ALL</button>
+        @if (!string.IsNullOrWhiteSpace(Block.RunCommand))
+        {
+            <button class="mini-btn run" type="button" @onclick="RunAsync" disabled="@ActionsDisabled">RUN</button>
+        }
+        @if (!string.IsNullOrWhiteSpace(Block.StopCommand))
+        {
+            <button class="mini-btn stop" type="button" @onclick="StopAsync" disabled="@ActionsDisabled">STOP</button>
+        }
+    </div>
+
+    <div class="pin-grid">
+        @for (int pin = 1; pin <= Block.PinCount; pin++)
+        {
+            int currentPin = pin;
+            <button class="@PinClass(currentPin)"
+                    type="button"
+                    disabled="@ActionsDisabled"
+                    @onclick="() => TogglePinAsync(currentPin)">
+                @currentPin
+            </button>
+        }
+    </div>
+</section>
+
+@code {
+    // [C#] `[Parameter]` indica que el valor llega desde el componente padre.
+    // [ACURATEX] `Block` trae el título, el número de pines y el estado visual de cada pin.
+    [Parameter]
+    public CabezalOutputBlockUnificado Block { get; set; } = new(string.Empty, string.Empty, string.Empty, Array.Empty<int>(), null, null);
+
+    [Parameter]
+    public Func<CabezalBlockPinChangeUnificado, Task>? PinClicked { get; set; }
+
+    [Parameter]
+    public Func<CabezalBlockAllChangeUnificado, Task>? AllClicked { get; set; }
+
+    [Parameter]
+    public Func<string, Task>? RunClicked { get; set; }
+
+    [Parameter]
+    public Func<string, Task>? StopClicked { get; set; }
+
+    // [ACURATEX] Cuando esto es `true`, la UI deshabilita botones y no deja tocar el bloque.
+    [Parameter]
+    public bool ActionsDisabled { get; set; }
+
+    // [ACURATEX] Traduce el estado lógico del pin a una clase CSS.
+    private string PinClass(int pinIndex)
+    {
+        return Block.States[pinIndex - 1] ? "pin-btn on" : "pin-btn";
+    }
+
+    // [ACURATEX] Este handler no calcula el registro físico; solo invierte el estado local y
+    // se lo entrega al padre como intención de cambio.
+    private async Task TogglePinAsync(int pinIndex)
+    {
+        if (PinClicked != null) {
+            bool nextState = !Block.States[pinIndex - 1];
+            await PinClicked(new CabezalBlockPinChangeUnificado(Block.Key, pinIndex, nextState));
+        }
+    }
+
+    // [ACURATEX] "OFF ALL" y "ON ALL" son atajos visuales para que el padre publique un cambio masivo.
+    private async Task SetAllAsync(bool on)
+    {
+        if (AllClicked != null) {
+            await AllClicked(new CabezalBlockAllChangeUnificado(Block.Key, on));
+        }
+    }
+
+    // [ACURATEX] RUN manda el comando de arranque del bloque al padre; el bloque no conoce firmware.
+    private async Task RunAsync()
+    {
+        if (RunClicked != null && Block.RunCommand != null) {
+            await RunClicked(Block.RunCommand);
+        }
+    }
+
+    // [ACURATEX] STOP es el reverso de RUN y se canaliza por el mismo puente padre/servicio.
+    private async Task StopAsync()
+    {
+        if (StopClicked != null && Block.StopCommand != null) {
+            await StopClicked(Block.StopCommand);
+        }
+    }
+}

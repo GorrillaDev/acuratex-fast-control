@@ -1,0 +1,153 @@
+@* [ACURATEX] Tarjeta de motor para el sistema unificado.
+   [FLUJO] Botón o slider -> evento -> dashboard padre -> servicio -> firmware. *@
+<section class="cabezal-mcard">
+    <div class="mhead">
+        <div>
+            <div class="mtitle">@Motor.Title</div>
+        </div>
+        @if (!string.IsNullOrEmpty(Motor.RunMode))
+        {
+            <span class="run-state">@Motor.RunMode</span>
+        }
+    </div>
+
+    <div class="run-row">
+        <button class="@RunButtonClass("RUN")" type="button" @onclick="RunAsync" disabled="@ActionsDisabled">RUN</button>
+        <button class="mini-btn stop" type="button" @onclick="StopAsync" disabled="@ActionsDisabled">STOP</button>
+        @if (Motor.HasRun1)
+        {
+            <button class="@RunButtonClass("RUN1")" type="button" @onclick="Run1Async" disabled="@ActionsDisabled">RUN1</button>
+            <button class="mini-btn stop" type="button" @onclick="Stop1Async" disabled="@ActionsDisabled">STOP1</button>
+        }
+    </div>
+
+    <div class="pos-buttons">
+        @foreach (CabezalPositionUnificado option in Motor.Positions)
+        {
+            <button class="@PositionButtonClass(option.Number)"
+                    type="button"
+                    disabled="@ActionsDisabled"
+                    @onclick="() => SendPositionAsync(option.Number)">
+                POS @option.Number
+            </button>
+        }
+    </div>
+
+    <div class="slider-wrap">
+        <input type="range"
+               min="0"
+               max="@Motor.MaxPosition"
+               step="1"
+               value="@Motor.Position"
+               disabled="@ActionsDisabled"
+               @oninput="PreviewSlider"
+               @onchange="CommitSliderAsync" />
+        <div class="sval">Posicion: @Motor.Position</div>
+    </div>
+</section>
+
+@code {
+    // [C#] `[Parameter]` recibe la estructura completa del motor desde el padre.
+    // [ACURATEX] El componente solo presenta el estado; no decide el registro físico.
+    [Parameter]
+    public CabezalMotorUnificado Motor { get; set; } = new();
+
+    [Parameter]
+    public Func<int, Task>? PositionClicked { get; set; }
+
+    [Parameter]
+    public Func<int, Task>? SliderCommitted { get; set; }
+
+    [Parameter]
+    public Func<Task>? RunClicked { get; set; }
+
+    [Parameter]
+    public Func<Task>? StopClicked { get; set; }
+
+    [Parameter]
+    public Func<Task>? Run1Clicked { get; set; }
+
+    [Parameter]
+    public Func<Task>? Stop1Clicked { get; set; }
+
+    // [ACURATEX] Cuando `ActionsDisabled` es `true`, la UI queda congelada pero visible.
+    [Parameter]
+    public bool ActionsDisabled { get; set; }
+
+    // [ACURATEX] Este helper convierte el número lógico de posición en una clase CSS.
+    private string PositionButtonClass(int positionNumber)
+    {
+        return Motor.SelectedPositionNumber == positionNumber ? "pos-btn on" : "pos-btn";
+    }
+
+    // [ACURATEX] RUN y RUN1 solo cambian la apariencia; el comando real lo manda el padre.
+    private string RunButtonClass(string mode)
+    {
+        return Motor.RunMode == mode ? "mini-btn run active" : "mini-btn run";
+    }
+
+    // [ACURATEX] El click sale como callback asíncrono hacia el componente superior.
+    private async Task SendPositionAsync(int positionNumber)
+    {
+        if (PositionClicked != null) {
+            await PositionClicked(positionNumber);
+        }
+    }
+
+    // [ACURATEX] El slider mueve un valor local para que la UI se vea inmediata.
+    private void PreviewSlider(ChangeEventArgs args)
+    {
+        if (ActionsDisabled) {
+            return;
+        }
+
+        Motor.Position = ParseSliderValue(args);
+        Motor.SelectedPositionNumber = 0;
+    }
+
+    // [ACURATEX] Al soltar el slider se confirma la intención al padre.
+    private async Task CommitSliderAsync(ChangeEventArgs args)
+    {
+        PreviewSlider(args);
+        if (SliderCommitted != null) {
+            await SliderCommitted(Motor.Position);
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        if (RunClicked != null) {
+            await RunClicked();
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        if (StopClicked != null) {
+            await StopClicked();
+        }
+    }
+
+    private async Task Run1Async()
+    {
+        if (Run1Clicked != null) {
+            await Run1Clicked();
+        }
+    }
+
+    private async Task Stop1Async()
+    {
+        if (Stop1Clicked != null) {
+            await Stop1Clicked();
+        }
+    }
+
+    private int ParseSliderValue(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out int value)) {
+            return Math.Clamp(value, 0, Motor.MaxPosition);
+        }
+
+        return 0;
+    }
+}

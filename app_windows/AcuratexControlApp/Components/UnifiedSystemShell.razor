@@ -1,0 +1,207 @@
+@* [ACURATEX] Shell raíz del sistema unificado.
+   [FLUJO] Estado de sesión/emergencia -> Razor -> eventos -> servicios -> firmware. *@
+@implements IDisposable
+@implements IAsyncDisposable
+@inject IUnifiedSystemShellHost Host
+@inject IEmergencyStopService EmergencyStop
+@inject IJSRuntime JS
+
+<main class="acuratex-system-shell system-shell-unified">
+    <AcuratexWindowChrome />
+
+    @if (EmergencyStop.IsEmergencyStopActive)
+    {
+        <section class="system-emergency-banner" role="status" aria-live="assertive">
+            <strong>PARADA DE EMERGENCIA ACTIVADA</strong>
+            <span>@EmergencyStatusLine</span>
+        </section>
+    }
+
+    <section class="system-shell-main unified-shell">
+        <aside class="unified-sidebar">
+            <div class="unified-sidebar-brand">
+                <div class="unified-sidebar-logo-crop">
+                    <img src="https://www.accuratex.com/wp-content/uploads/2021/02/maquinas_tejedoras_FINAL-001.png"
+                         alt="Accuratex Logo"
+                         class="unified-sidebar-logo" />
+                </div>
+            </div>
+
+            <nav class="unified-nav" aria-label="Vistas Sistema Unificado">
+                <button class="@UnifiedNavItemClass("servo")" type="button" @onclick='() => SelectTab("servo")'>
+                    <span class="unified-nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M4 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6zM14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6zM4 16a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2zM14 16a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                        </svg>
+                    </span>
+                    <span>Dashboard Servo</span>
+                </button>
+                <button class="@UnifiedNavItemClass("cabezal")" type="button" @onclick='() => SelectTab("cabezal")'>
+                    <span class="unified-nav-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2zM9 9h6v6H9V9z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                        </svg>
+                    </span>
+                    <span>Cabezal</span>
+                </button>
+            </nav>
+
+            <div class="unified-user-box">
+                <span>Admin | Usuario</span>
+            </div>
+        </aside>
+
+        <section class="system-panel-host unified-main">
+            <div class="system-panel" hidden="@(_selectedTab != "servo")">
+                <ServoDashboardUnificado />
+            </div>
+
+            <div class="system-panel" hidden="@(_selectedTab != "cabezal")">
+                <CabezalDashboardUnificado />
+            </div>
+
+            <div class="system-panel command-panel-wrap" hidden="@(_selectedTab != "motor")">
+                <SystemCommandPanel Title="Motor Tester"
+                                    Subtitle="Comandos directos del catalogo actual"
+                                    Commands="@MotorCommands"
+                                    CommandClicked="Host.SendCommandAsync" />
+            </div>
+
+            <div class="system-panel command-panel-wrap" hidden="@(_selectedTab != "head")">
+                <SystemCommandPanel Title="Cabezal Tester"
+                                    Subtitle="Comandos directos del catalogo actual"
+                                    Commands="@HeadCommands"
+                                    CommandClicked="Host.SendCommandAsync" />
+            </div>
+
+            <div class="system-panel command-panel-wrap" hidden="@(_selectedTab != "custom")">
+                <SystemCommandPanel Title="Comandos Personalizados"
+                                    Subtitle="Catalogo completo con detalle de categoria y comando especial"
+                                    Commands="@Host.Commands"
+                                    ShowDetails="true"
+                                    CommandClicked="Host.SendCommandAsync" />
+            </div>
+        </section>
+    </section>
+
+    <AppAlertModal />
+</main>
+
+@code {
+    // [C#] Este campo guarda la pestaña activa para que la shell no muestre todo a la vez.
+    // [ACURATEX] La vista solo cambia de panel; no decide lógica de control.
+    // [FLUJO] Click en navegación -> cambia este valor -> el panel visible se recalcula.
+    private string _selectedTab = "servo";
+    // [C#] `DotNetObjectReference` permite que JavaScript llame de vuelta a este componente.
+    // [ACURATEX] Se usa para registrar el atajo ESC en el navegador/host WebView.
+    private DotNetObjectReference<UnifiedSystemShell>? _selfReference;
+    private int _escapeHotkeyHandle;
+    private bool _escapeRegistered;
+
+    // [ACURATEX] El catálogo de comandos se filtra por categoría para alimentar la vista.
+    // [FLUJO] Host.Commands -> filtro por categoría -> panel de botones visibles.
+    private IReadOnlyList<CommandDefinition> MotorCommands =>
+        CommandCatalog.ForCategory(Host.Commands, CommandCatalog.MotorCategory).ToArray();
+
+    private IReadOnlyList<CommandDefinition> HeadCommands =>
+        CommandCatalog.ForCategory(Host.Commands, CommandCatalog.HeadCategory).ToArray();
+
+    // [ACURATEX] Este texto resume el último evento de emergencia para que el operador vea contexto.
+    // [EQUIV MCU] Se parece a una línea de diagnóstico persistente en una HMI.
+    private string EmergencyStatusLine
+    {
+        get
+        {
+            EmergencyStopAuditEntry? entry = EmergencyStop.LastAuditEntry;
+            if (entry == null) {
+                return "Origen ESCAPE. Presiona ESC nuevamente o INIT para desbloquear la app.";
+            }
+
+            return $"{entry.TimestampLocal:yyyy-MM-dd HH:mm:ss} | Usuario: {entry.Username} | Rol: {entry.Role} | Origen: {entry.Origin}. Presiona ESC nuevamente o INIT para desbloquear la app.";
+        }
+    }
+
+    // [ACURATEX] `OnInitialized` es el punto donde Blazor conecta eventos antes del primer render.
+    // [FLUJO] Esta suscripción existe antes de que el usuario vea la pantalla.
+    protected override void OnInitialized()
+    {
+        EmergencyStop.StateChanged += HandleEmergencyStateChanged;
+    }
+
+    // [ACURATEX] `firstRender` evita registrar el atajo varias veces.
+    // [FLUJO] Solo en el primer render se registra el callback JS para ESC.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _escapeRegistered) {
+            return;
+        }
+
+        // [C#] La referencia administrada permite que JS llame este componente cuando el usuario pulsa ESC.
+        _selfReference = DotNetObjectReference.Create(this);
+
+        try {
+            _escapeHotkeyHandle = await JS.InvokeAsync<int>("acuratexHotkeys.registerEscape", _selfReference, nameof(OnEscapePressed));
+            _escapeRegistered = _escapeHotkeyHandle != 0;
+        } catch {
+            _escapeHotkeyHandle = 0;
+            _escapeRegistered = false;
+        }
+    }
+
+    // [ACURATEX] `[JSInvokable]` hace que JavaScript pueda llamar a este método.
+    // [EQUIV MCU] Se parece a un callback de interrupción desde la capa de entrada.
+    [JSInvokable]
+    public async Task OnEscapePressed()
+    {
+        // [ACURATEX] El atajo ESC activa la parada de emergencia porque la shell unificada expone esa capacidad.
+        await EmergencyStop.ToggleEmergencyStopAsync("ESC");
+    }
+
+    // [ACURATEX] Cambia solo la pestaña visible; el contenido ya existe en memoria.
+    // [FLUJO] No crea ni destruye vistas: solo decide cuál mostrar.
+    private void SelectTab(string tab)
+    {
+        _selectedTab = tab;
+    }
+
+    // [ACURATEX] Convierte la pestaña elegida en clase CSS activa o inactiva.
+    // [C#] La comparación de strings decide si la clase incluye el marcador `active`.
+    private string UnifiedNavItemClass(string tab)
+    {
+        return _selectedTab == tab ? "unified-nav-item active" : "unified-nav-item";
+    }
+
+    // [ACURATEX] `InvokeAsync(StateHasChanged)` sube la actualización al hilo correcto de Blazor.
+    // [FLUJO] Evento de emergencia -> este handler -> cambio de UI.
+    private void HandleEmergencyStateChanged()
+    {
+        // [ACURATEX] El estado de emergencia cambia fuera de este componente; aquí solo se repinta.
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // [ACURATEX] La shell se desuscribe para no dejar callbacks vivos al cerrar.
+    // [EQUIV MCU] Se parece a limpiar una interrupción antes de apagar el periférico.
+    public void Dispose()
+    {
+        // [ACURATEX] Desuscribirse evita callbacks colgantes cuando la shell sale de pantalla.
+        EmergencyStop.StateChanged -= HandleEmergencyStateChanged;
+    }
+
+    // [ACURATEX] Se libera el manejador JS del atajo ESC y la referencia administrada.
+    // [EQUIV MCU] Se parece a desregistrar una interrupción de teclado al apagar el panel.
+    public async ValueTask DisposeAsync()
+    {
+        // [ACURATEX] Si el JS del atajo ESC fue registrado, se libera antes de perder la referencia.
+        if (_escapeRegistered && _escapeHotkeyHandle != 0) {
+            try {
+                await JS.InvokeVoidAsync("acuratexHotkeys.unregister", _escapeHotkeyHandle);
+            } catch {
+            }
+        }
+
+        _selfReference?.Dispose();
+        _selfReference = null;
+        _escapeRegistered = false;
+        _escapeHotkeyHandle = 0;
+    }
+}

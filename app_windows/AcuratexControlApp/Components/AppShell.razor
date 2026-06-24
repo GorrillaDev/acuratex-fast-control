@@ -1,0 +1,7 @@
+@* [ACURATEX] Shell raiz del panel principal.
+   [FLUJO] Esta pagina no hace logica propia: solo entrega el control a `MainControlPanel`.
+   [EQUIV MCU] Se parece a un `main()` de interfaz que llama a un menu principal.
+   [ACURATEX] Sirve como punto de entrada visual para el host Blazor hospedado en WinForms. *@
+@* [FLUJO] WinForms host -> AppShell -> MainControlPanel -> resto de vistas. *@
+@* [C#] Un componente tan corto existe a proposito: su trabajo es ser el nodo raiz de la UI. *@
+<MainControlPanel />

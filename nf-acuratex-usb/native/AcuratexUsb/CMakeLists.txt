@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "acuratex_usb_descriptors.c"
+        "acuratex_usb_bridge.cpp"
+        "acuratex_usb_driver.cpp"
+        "acuratex_usb_interop.cpp"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        espressif__esp_tinyusb
+        tinyusb
+        esp_hw_support
+        esp_system
+        esp_common
+        freertos
+)

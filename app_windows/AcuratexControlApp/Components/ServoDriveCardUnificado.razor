@@ -1,0 +1,177 @@
+@* [ACURATEX] Tarjeta reutilizable del servo drive para el sistema unificado.
+   [FLUJO] UI -> callback -> dashboard padre -> servicio -> firmware. *@
+<section class="@CardClass">
+    <div class="servo-card-head">
+        <h2>@Title</h2>
+        <span class="servo-state-chip">ESTADO: LISTO</span>
+    </div>
+    <div class="servo-card-subtitle">@Subtitle</div>
+
+    <div class="servo-control-grid">
+        @foreach (ServoDashboardUnificadoToggle toggle in Toggles)
+        {
+            <div class="servo-control-tile">
+                <span class="servo-control-label">@ControlLabel(toggle)</span>
+                <button class="@RoundButtonClass(toggle)"
+                        type="button"
+                        disabled="@Disabled"
+                        @onclick="() => ToggleClicked.InvokeAsync(toggle.Key)"
+                        aria-label="@ControlLabel(toggle)">
+                    @if (IsDirectionToggle(toggle))
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                    }
+                    else if (IsSonToggle(toggle))
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M13 10V3L4 14h7v7l9-11h-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                    }
+                </button>
+                <span class="servo-control-state">@(toggle.Enabled ? "ON" : "OFF")</span>
+            </div>
+        }
+    </div>
+
+    @if (ShowFrequency)
+    {
+        <section class="servo-slider-panel">
+            <div class="servo-slider-head">
+                <p>@FrequencyLabel</p>
+                <span class="servo-slider-value">@FrequencyHz Hz</span>
+            </div>
+            <input type="range"
+                   min="@FrequencyMin"
+                   max="@FrequencyMax"
+                   value="@FrequencyHz"
+                   step="1"
+                   disabled="@Disabled"
+                   @oninput="HandleFrequencyInput" />
+            <div class="servo-slider-ticks">
+                <span>@FrequencyMin</span>
+                <span>@((FrequencyMin + FrequencyMax) / 2)</span>
+                <span>@FrequencyMax</span>
+            </div>
+            @if (ShowRealFrequency)
+            {
+                <div class="servo-slider-note">real @FrequencyHz.ToString("0.0") Hz</div>
+            }
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(HelpText))
+    {
+        <div class="small">@HelpText</div>
+    }
+</section>
+
+@code {
+    // [C#] `[Parameter, EditorRequired]` obliga al padre a pasar un valor.
+    // [ACURATEX] Título y subtítulo identifican visualmente la tarjeta.
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string Subtitle { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? ExtraClass { get; set; }
+
+    // [ACURATEX] Las toggles son interruptores lógicos; el componente solo las muestra.
+    [Parameter]
+    public IReadOnlyList<ServoDashboardUnificadoToggle> Toggles { get; set; } = Array.Empty<ServoDashboardUnificadoToggle>();
+
+    [Parameter]
+    public EventCallback<string> ToggleClicked { get; set; }
+
+    [Parameter]
+    public bool ShowFrequency { get; set; } = true;
+
+    [Parameter]
+    public string FrequencyLabel { get; set; } = string.Empty;
+
+    // [ACURATEX] La frecuencia se publica como número entero y luego el padre decide qué hacer.
+    [Parameter]
+    public int FrequencyHz { get; set; }
+
+    [Parameter]
+    public int FrequencyMin { get; set; } = 1;
+
+    [Parameter]
+    public int FrequencyMax { get; set; } = 1000;
+
+    [Parameter]
+    public bool ShowRealFrequency { get; set; }
+
+    [Parameter]
+    public EventCallback<int> FrequencyChanged { get; set; }
+
+    [Parameter]
+    public string? HelpText { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    private string CardClass => string.IsNullOrWhiteSpace(ExtraClass)
+        ? "servo-card"
+        : $"servo-card {ExtraClass}";
+
+    // [ACURATEX] Traduce el estado lógico del toggle a clases CSS.
+    private static string RoundButtonClass(ServoDashboardUnificadoToggle toggle)
+    {
+        return toggle.Enabled ? "servo-round-button on" : "servo-round-button off";
+    }
+
+    // [ACURATEX] Convierte la clave lógica del toggle en una etiqueta breve.
+    private static string ControlLabel(ServoDashboardUnificadoToggle toggle)
+    {
+        if (toggle.Key.Contains("dir", StringComparison.OrdinalIgnoreCase)) {
+            return "DIR";
+        }
+
+        if (toggle.Key.Contains("son", StringComparison.OrdinalIgnoreCase)) {
+            return "SON";
+        }
+
+        if (toggle.Key.Contains("rev", StringComparison.OrdinalIgnoreCase)) {
+            return "REV SUAVE";
+        }
+
+        if (toggle.Key.StartsWith("step", StringComparison.OrdinalIgnoreCase)) {
+            return "STEP";
+        }
+
+        return "PULSE";
+    }
+
+    // [ACURATEX] Reconoce si el toggle representa dirección.
+    private static bool IsDirectionToggle(ServoDashboardUnificadoToggle toggle)
+    {
+        return toggle.Key.Contains("dir", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSonToggle(ServoDashboardUnificadoToggle toggle)
+    {
+        return toggle.Key.Contains("son", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [ACURATEX] El cambio de frecuencia se envía por `EventCallback`, que es el puente Blazor.
+    private async Task HandleFrequencyInput(ChangeEventArgs args)
+    {
+        if (Disabled) {
+            return;
+        }
+
+        if (int.TryParse(args.Value?.ToString(), out int value)) {
+            await FrequencyChanged.InvokeAsync(value);
+        }
+    }
+}

@@ -1,0 +1,17 @@
+# Default target for this firmware. Required so a clean clone does not fall
+# back to esp32, which is incompatible with the TinyUSB device stack used here.
+CONFIG_IDF_TARGET="esp32s3"
+
+# Versioned partition table. The FILE_* protocol stores program TXT files in
+# the LittleFS partition labelled "storage", mounted at /fs.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+
+# The Acuratex USB bridge exposes a vendor-specific WinUSB interface.
+CONFIG_TINYUSB_VENDOR_COUNT=1
+CONFIG_TINYUSB_VENDOR_RX_BUFSIZE=64
+CONFIG_TINYUSB_VENDOR_TX_BUFSIZE=64
+CONFIG_TINYUSB_VENDOR_EPSIZE=64

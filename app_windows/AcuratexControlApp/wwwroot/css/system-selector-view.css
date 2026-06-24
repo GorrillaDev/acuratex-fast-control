@@ -1,0 +1,340 @@
+:root {
+  --selector-navy: #0b1326;
+  --selector-navy-deep: #091427;
+  --selector-surface-active: #31394d;
+  --selector-bg: #f3f4f6;
+  --selector-card: #ffffff;
+  --selector-border: #d9e0eb;
+  --selector-text: #0f172a;
+  --selector-muted: #64748b;
+  --selector-red: #ff0000;
+  --selector-green: #22c55e;
+  --selector-blue: #0ea5e9;
+  --selector-bg-image: url("../img/selector-background.png");
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--selector-bg);
+  color: var(--selector-text);
+}
+
+button {
+  font: inherit;
+}
+
+.system-selector-window {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(243, 244, 246, 0.9), rgba(243, 244, 246, 0.94)),
+    radial-gradient(700px 300px at 40% -18%, rgba(14, 165, 233, 0.14), transparent 70%),
+    var(--selector-bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Selector usa cierre interno del panel; se oculta la X externa del titlebar. */
+.system-selector-window .acuratex-window-chrome .chrome-button.close {
+  display: none;
+}
+
+.system-selector-shell {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  display: block;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.system-selector-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 22px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--selector-card);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+}
+
+.system-selector-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 92px;
+  background:
+    linear-gradient(180deg, rgba(11, 19, 38, 0.98), rgba(11, 19, 38, 0.95));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  z-index: 0;
+}
+
+.close-button {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: .15s border-color, .15s color, .15s background;
+  z-index: 2;
+}
+
+.close-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.close-button:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.system-selector-header {
+  position: relative;
+  z-index: 1;
+  padding-right: 52px;
+}
+
+.brand-row {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo-crop {
+  width: 132px;
+  height: 44px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.brand-logo {
+  width: 260px;
+  height: auto;
+  display: block;
+  transform: translateX(0);
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-name {
+  font-size: 12px;
+  line-height: 1.15;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: 0.04em;
+}
+
+.brand-sub {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.system-selector-title {
+  margin: 18px 0 0;
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 850;
+  letter-spacing: 0;
+  color: #0b1326;
+}
+
+.system-selector-subtitle {
+  margin: 8px 0 0;
+  color: var(--selector-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.system-option-grid {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.system-option {
+  min-height: 142px;
+  padding: 16px;
+  border: 1px solid #dbe2ec;
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--selector-text);
+  cursor: pointer;
+  text-align: left;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  transition: .14s transform, .14s border-color, .14s box-shadow, .14s background;
+}
+
+.system-option:hover {
+  transform: translateY(-1px);
+  border-color: #bfcbe0;
+  background: #f8fafc;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+}
+
+.option-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: #0b1326;
+}
+
+.system-option.modular .option-icon {
+  background: #31394d;
+}
+
+.option-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.option-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.option-title {
+  font-size: 18px;
+  line-height: 1.15;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.option-desc {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 220px;
+}
+
+.option-arrow {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  color: #0b1326;
+  background: #eef2f7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.option-arrow svg {
+  width: 18px;
+  height: 18px;
+}
+
+.system-selector-status {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #d9e1ec;
+  color: #334155;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--selector-green);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18);
+}
+
+#blazor-error-ui {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  padding: 12px 16px;
+  background: #4b1118;
+  color: #ffe5e5;
+  border-top: 1px solid rgba(239, 68, 68, 0.6);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+#blazor-error-ui .dismiss {
+  cursor: pointer;
+  position: absolute;
+  right: 12px;
+  top: 10px;
+}
+
+@media (max-width: 700px) {
+  .system-selector-shell {
+    padding: 0;
+  }
+
+  .system-selector-card {
+    padding: 18px;
+    border-radius: 12px;
+  }
+
+  .system-option-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .system-option {
+    min-height: 112px;
+  }
+}

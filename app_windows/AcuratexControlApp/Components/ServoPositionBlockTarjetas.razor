@@ -1,0 +1,122 @@
+@* [ACURATEX] Control de una posición servo del sistema modular.
+   [FLUJO] UI -> callbacks -> dashboard padre -> servicio -> firmware. *@
+<section class="position-block">
+    <div class="position-title">
+        <span>Posici&oacute;n @Position.Number</span>
+        @if (CanClose)
+        {
+            <button class="position-close"
+                    type="button"
+                    title="Quitar posicion"
+                    disabled="@Disabled"
+                    @onclick="() => CloseClicked.InvokeAsync(Position.Number)">
+                &times;
+            </button>
+        }
+    </div>
+
+    <div class="goto-row">
+        <input type="number"
+               placeholder="@Placeholder"
+               value="@Position.Target"
+               disabled="@Disabled"
+               @oninput="HandleTargetInput" />
+        <button class="@GotoClass"
+                type="button"
+                disabled="@Disabled"
+                @onpointerdown="SetPressing"
+                @onpointerup="ClearPressing"
+                @onpointerleave="ClearPressing"
+                @onpointercancel="ClearPressing"
+                @onclick="() => GoToClicked.InvokeAsync(Position.Number)">
+            IR A POS. @Position.Number
+        </button>
+    </div>
+
+    <div class="turn-control">
+        <button class="turn-btn minus"
+                type="button"
+                disabled="@Disabled"
+                @onclick="() => TurnsChanged.InvokeAsync(new ServoDashboardTarjetasTurnsChange(Position.Number, -1))">
+            &minus;
+        </button>
+        <div class="turn-display">@TurnsText</div>
+        <button class="turn-btn plus"
+                type="button"
+                disabled="@Disabled"
+                @onclick="() => TurnsChanged.InvokeAsync(new ServoDashboardTarjetasTurnsChange(Position.Number, 1))">
+            +
+        </button>
+    </div>
+</section>
+
+@code {
+    // [C#] Campo privado usado solo para cambiar la apariencia mientras el botón está presionado.
+    // [ACURATEX] No altera el hardware; solo da feedback visual.
+    private bool _isPressing;
+
+    // [ACURATEX] La posición viene armada desde el dashboard padre.
+    [Parameter, EditorRequired]
+    public ServoDashboardTarjetasPosition Position { get; set; } = new(1);
+
+    [Parameter]
+    public bool CanClose { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback<int> CloseClicked { get; set; }
+
+    [Parameter]
+    public EventCallback<int> GoToClicked { get; set; }
+
+    [Parameter]
+    public EventCallback<ServoDashboardTarjetasTurnsChange> TurnsChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<ServoDashboardTarjetasTargetChange> TargetChanged { get; set; }
+
+    // [ACURATEX] Este getter genera el texto que la UI muestra en el campo de posición.
+    private string Placeholder => $"Ingrese posicion {Position.Number}";
+
+    // [ACURATEX] El estilo visual depende de si el botón está presionado o deshabilitado.
+    private string GotoClass => Disabled
+        ? "goto-btn disabled"
+        : _isPressing ? "goto-btn pressing" : "goto-btn";
+
+    private string TurnsText => Position.Turns switch
+    {
+        0 => "0 vueltas",
+        1 => "+1 vuelta",
+        -1 => "-1 vuelta",
+        > 0 => $"+{Position.Turns} vueltas",
+        _ => $"{Position.Turns} vueltas"
+    };
+
+    // [ACURATEX] Aquí se convierte el valor escrito en una intención que el padre entiende.
+    private async Task HandleTargetInput(ChangeEventArgs args)
+    {
+        if (Disabled) {
+            return;
+        }
+
+        if (decimal.TryParse(args.Value?.ToString(), out decimal value)) {
+            await TargetChanged.InvokeAsync(new ServoDashboardTarjetasTargetChange(Position.Number, value));
+        }
+    }
+
+    private void SetPressing()
+    {
+        if (Disabled) {
+            return;
+        }
+
+        _isPressing = true;
+    }
+
+    private void ClearPressing()
+    {
+        _isPressing = false;
+    }
+}

@@ -1,0 +1,127 @@
+html,
+body,
+#app {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+:root {
+    --splash-blue: rgb(0, 36, 85);
+    --splash-red: #e60012;
+    --splash-bar-bg: #d7dde5;
+}
+
+.splash-wrapper {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    display: block;
+    background: transparent;
+}
+
+.splash {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background-image: url("../img/splash-screen.png");
+    background-repeat: no-repeat;
+    background-position: center center;
+    background-size: cover;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.loading-text {
+    position: absolute;
+    left: 50%;
+    bottom: 14.2%;
+    transform: translateX(-50%);
+    color: rgb(0, 36, 85);
+    font-size: clamp(12px, 1.2vw, 20px);
+    font-weight: 700;
+    letter-spacing: 0.42em;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.loading-bar-area {
+    position: absolute;
+    left: 50%;
+    bottom: 9.6%;
+    transform: translateX(-50%);
+    width: min(58%, 340px);
+    height: clamp(5px, 0.68vw, 8px);
+    background: #d7dde5;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.loading-bar-fill {
+    width: 0%;
+    height: 100%;
+    background: #e60012;
+    border-radius: 999px;
+    animation: splashLoading 5s ease-out forwards;
+}
+
+@keyframes splashLoading {
+    0% {
+        width: 0%;
+    }
+
+    28% {
+        width: 34%;
+    }
+
+    62% {
+        width: 72%;
+    }
+
+    100% {
+        width: 100%;
+    }
+}
+
+@media (max-width: 900px) {
+    .loading-text {
+        font-size: clamp(10px, 2.2vw, 14px);
+        letter-spacing: 0.34em;
+        bottom: 15%;
+    }
+
+    .loading-bar-area {
+        width: min(66%, 230px);
+        height: 6px;
+        bottom: 10%;
+    }
+}
+
+/* Variante usada por SplashForm: elimina area externa visible del host. */
+body.splash-form-host {
+    background: transparent;
+}
+
+body.splash-form-host .splash-wrapper {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    display: block;
+}
+
+body.splash-form-host .splash {
+    width: 100%;
+    height: 100%;
+}

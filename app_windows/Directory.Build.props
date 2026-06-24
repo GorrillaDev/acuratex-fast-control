@@ -1,0 +1,10 @@
+<!-- Centraliza la salida intermedia del workspace en .build-temp para evitar mezclar artefactos con el arbol fuente. -->
+<Project>
+  <PropertyGroup>
+    <_AcuratexBuildTempRoot>$(TEMP)\Acuratex_CHISME_APP\msbuild\</_AcuratexBuildTempRoot>
+    <BaseIntermediateOutputPath>$(_AcuratexBuildTempRoot)$(MSBuildProjectName)\obj\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <MSBuildEnableWorkloadResolver>false</MSBuildEnableWorkloadResolver>
+    <BuildInParallel>false</BuildInParallel>
+  </PropertyGroup>
+</Project>
