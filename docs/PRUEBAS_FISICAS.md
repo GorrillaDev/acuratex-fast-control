@@ -69,7 +69,23 @@ Esperado:
 - todos los canales cambian de forma coherente
 - la memoria visual local queda consistente
 
+### 5. Yarn / Stitch
+
+Pasos:
+
+1. Pulsar `Yarn 1 RUN`.
+2. Pulsar `Yarn 2 RUN` mientras `Yarn 1` sigue activo.
+3. Pulsar `Stitch 1 RUN`.
+4. Pulsar `Stitch 2 RUN` y `Stitch 3 RUN`.
+5. Pulsar `STOP ALL (YARN)` y `STOP ALL (STITCH)`.
+
+Esperado:
+
+- cada cascada corre de forma independiente
+- `Yarn 1` y `Yarn 2` no se frenan entre si
+- `Stitch 1..4` no dependen del estado de `J`
+- la parada global corta las cascadas sin esperar `DONE`
+
 ## Observaciones de banco
 
 Completar aqui con el resultado real de la prueba fisica.
-

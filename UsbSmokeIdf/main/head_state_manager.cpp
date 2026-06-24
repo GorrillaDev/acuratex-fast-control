@@ -17,6 +17,16 @@ static const char *TAG = "head_state";
 // [ACURATEX] Estado interno de los modulos J. Cada posicion del arreglo es un
 // modulo independiente: indice 0 = J1, indice 7 = J8.
 typedef struct {
+    bool running;
+    uint8_t phase;
+    uint8_t p;
+    uint32_t next_due_ms;
+    uint16_t delay_ms;
+    int can_bus;
+    uint32_t revision;
+} app_head_cascade_state_t;
+
+typedef struct {
     // [ACURATEX] Registro fisico activo-bajo que se envia hacia hardware.
     // Fisico 0xFF significa todos los bits en 1; logicamente equivale a 0x00.
     uint8_t j_physical_register[APP_HEAD_STATE_MAX_J];
@@ -37,6 +47,8 @@ typedef struct {
     // [CONCURRENCIA] Revision para detectar si otro comando cambio J mientras
     // tick() estaba enviando CAN con el mutex liberado.
     uint32_t j_revision[APP_HEAD_STATE_MAX_J];
+    app_head_cascade_state_t yarn[APP_HEAD_STATE_MAX_YARN];
+    app_head_cascade_state_t stitch[APP_HEAD_STATE_MAX_STITCH];
 } app_head_state_manager_state_t;
 
 // [FREERTOS] Mutex que protege `s_state`.
@@ -153,6 +165,83 @@ static void app_head_state_give_mutex(void)
 static int app_head_state_normalize_bus(int bus)
 {
     return bus == 2 ? 2 : 1;
+}
+
+/**
+ * [POR QUE EXISTE]
+ * Incrementa la version de una cascada Yarn/Stitch.
+ *
+ * [QUIEN LA LLAMA]
+ * Las rutas start/stop y tick() cuando confirma o cancela un paso.
+ */
+static void app_head_state_bump_cascade_revision_locked(app_head_cascade_state_t *cascade)
+{
+    if (cascade == NULL) {
+        return;
+    }
+
+    cascade->revision++;
+    if (cascade->revision == 0) {
+        cascade->revision = 1;
+    }
+}
+
+/**
+ * [POR QUE EXISTE]
+ * Restaura una cascada Yarn/Stitch a su estado neutral.
+ *
+ * [QUIEN LA LLAMA]
+ * app_head_state_manager_init().
+ */
+static void app_head_state_reset_cascade_locked(app_head_cascade_state_t *cascade)
+{
+    if (cascade == NULL) {
+        return;
+    }
+
+    cascade->running = false;
+    cascade->phase = 0;
+    cascade->p = 1;
+    cascade->next_due_ms = 0;
+    cascade->delay_ms = 80;
+    cascade->can_bus = 1;
+}
+
+/**
+ * [POR QUE EXISTE]
+ * Arranca o reinicia una cascada Yarn/Stitch.
+ */
+static void app_head_state_start_cascade_locked(app_head_cascade_state_t *cascade,
+                                                int bus,
+                                                uint32_t now_ms,
+                                                uint16_t delay_ms)
+{
+    if (cascade == NULL) {
+        return;
+    }
+
+    cascade->running = true;
+    cascade->phase = 0;
+    cascade->p = 1;
+    cascade->next_due_ms = now_ms;
+    cascade->delay_ms = delay_ms;
+    cascade->can_bus = app_head_state_normalize_bus(bus);
+    app_head_state_bump_cascade_revision_locked(cascade);
+}
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene una cascada Yarn/Stitch sin cambiar su ultimo estado confirmado.
+ */
+static void app_head_state_stop_cascade_locked(app_head_cascade_state_t *cascade)
+{
+    if (cascade == NULL) {
+        return;
+    }
+
+    cascade->running = false;
+    cascade->next_due_ms = 0;
+    app_head_state_bump_cascade_revision_locked(cascade);
 }
 
 /**
@@ -607,6 +696,14 @@ esp_err_t app_head_state_manager_init(void)
         app_head_state_reset_j_run_locked(i);
     }
 
+    for (int i = 0; i < APP_HEAD_STATE_MAX_YARN; ++i) {
+        app_head_state_reset_cascade_locked(&s_state.yarn[i]);
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_STITCH; ++i) {
+        app_head_state_reset_cascade_locked(&s_state.stitch[i]);
+    }
+
     app_head_state_give_mutex();
     return ESP_OK;
 }
@@ -931,6 +1028,235 @@ void app_head_state_manager_stop_all_j_runs(void)
     app_head_state_give_mutex();
 }
 
+// [ACURATEX] Tablas exactas del Arduino antiguo para Yarn y Stitch.
+static const uint8_t YARN1_ADDR[8] = { 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
+static const uint8_t YARN2_ADDR[8] = { 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23 };
+static const uint8_t STITCH1_ADDR[4] = { 0x00, 0x01, 0x02, 0x05 };
+static const uint8_t STITCH2_ADDR[4] = { 0x06, 0x07, 0x08, 0x0B };
+static const uint8_t STITCH3_ADDR[4] = { 0x0C, 0x0D, 0x0E, 0x11 };
+static const uint8_t STITCH4_ADDR[4] = { 0x12, 0x13, 0x14, 0x17 };
+
+/**
+ * [POR QUE EXISTE]
+ * Ejecuta un paso de cascada Yarn/Stitch si su vencimiento ya llego.
+ *
+ * [QUIEN LA LLAMA]
+ * app_head_state_manager_tick().
+ */
+static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_standard_fn_t can_send_standard,
+                                             app_head_cascade_state_t *states,
+                                             size_t state_count,
+                                             int index,
+                                             const uint8_t *addr_table,
+                                             size_t addr_count,
+                                             const char *kind,
+                                             uint32_t now_ms)
+{
+    app_head_cascade_state_t step = {};
+    uint8_t addr = 0;
+    uint8_t value = 0;
+    int bus = 1;
+    esp_err_t tx_err = ESP_OK;
+
+    if (can_send_standard == NULL || states == NULL || addr_table == NULL || kind == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (index < 0 || index >= (int)state_count || !states[index].running) {
+        app_head_state_give_mutex();
+        return ESP_OK;
+    }
+
+    if ((int32_t)(now_ms - states[index].next_due_ms) < 0) {
+        app_head_state_give_mutex();
+        return ESP_OK;
+    }
+
+    step = states[index];
+    app_head_state_give_mutex();
+
+    if (step.p == 0 || step.p > addr_count) {
+        if (!app_head_state_take_mutex(portMAX_DELAY)) {
+            return ESP_ERR_TIMEOUT;
+        }
+
+        if (index >= 0 && index < (int)state_count && states[index].running && states[index].revision == step.revision) {
+            app_head_state_stop_cascade_locked(&states[index]);
+        }
+
+        app_head_state_give_mutex();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    addr = addr_table[step.p - 1];
+    value = (step.phase == 0) ? 0x01 : 0x00;
+    bus = app_head_state_normalize_bus(step.can_bus);
+
+    {
+        uint8_t data[3] = { 0x1E, addr, value };
+        tx_err = can_send_standard(bus, 0x320, data, sizeof(data));
+    }
+
+    if (tx_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "%s_RUN_TX_FAIL|IDX=%d|BUS=%d|CODE=%s",
+                 kind,
+                 index + 1,
+                 bus,
+                 esp_err_to_name(tx_err));
+
+        if (!app_head_state_take_mutex(portMAX_DELAY)) {
+            return tx_err;
+        }
+
+        if (index >= 0 && index < (int)state_count && states[index].running && states[index].revision == step.revision) {
+            app_head_state_stop_cascade_locked(&states[index]);
+        }
+
+        app_head_state_give_mutex();
+        return tx_err;
+    }
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (index >= 0 && index < (int)state_count && states[index].running && states[index].revision == step.revision) {
+        uint8_t next_p = (uint8_t)(step.p + 1U);
+        uint8_t next_phase = step.phase;
+
+        if (next_p > (uint8_t)addr_count) {
+            next_p = 1;
+            next_phase = (uint8_t)(step.phase == 0 ? 1 : 0);
+        }
+
+        states[index].phase = next_phase;
+        states[index].p = next_p;
+        states[index].next_due_ms = now_ms + step.delay_ms;
+        app_head_state_bump_cascade_revision_locked(&states[index]);
+    }
+
+    app_head_state_give_mutex();
+    return ESP_OK;
+}
+
+/**
+ * [POR QUE EXISTE]
+ * Inicia una cascada Yarn concreta.
+ */
+bool app_head_state_manager_start_yarn_run(uint8_t instance, int can_bus, uint32_t now_ms)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_YARN) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_start_cascade_locked(&s_state.yarn[index], can_bus, now_ms, 80);
+    app_head_state_give_mutex();
+    return true;
+}
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene una cascada Yarn concreta.
+ */
+bool app_head_state_manager_stop_yarn_run(uint8_t instance)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_YARN) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_stop_cascade_locked(&s_state.yarn[index]);
+    app_head_state_give_mutex();
+    return true;
+}
+
+void app_head_state_manager_stop_all_yarn_runs(void)
+{
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_YARN; ++i) {
+        app_head_state_stop_cascade_locked(&s_state.yarn[i]);
+    }
+
+    app_head_state_give_mutex();
+}
+
+bool app_head_state_manager_start_stitch_run(uint8_t instance, int can_bus, uint32_t now_ms)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_STITCH) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_start_cascade_locked(&s_state.stitch[index], can_bus, now_ms, 80);
+    app_head_state_give_mutex();
+    return true;
+}
+
+bool app_head_state_manager_stop_stitch_run(uint8_t instance)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_STITCH) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_stop_cascade_locked(&s_state.stitch[index]);
+    app_head_state_give_mutex();
+    return true;
+}
+
+void app_head_state_manager_stop_all_stitch_runs(void)
+{
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_STITCH; ++i) {
+        app_head_state_stop_cascade_locked(&s_state.stitch[i]);
+    }
+
+    app_head_state_give_mutex();
+}
+
+void app_head_state_manager_stop_all_motion(void)
+{
+    app_head_state_manager_stop_all_j_runs();
+    app_head_state_manager_stop_all_yarn_runs();
+    app_head_state_manager_stop_all_stitch_runs();
+}
+
 // [ACURATEX] Snapshot pequeno de un paso RUN. Se copia bajo mutex y luego se
 // usa fuera del mutex para no bloquear a otras tareas durante el envio CAN.
 typedef struct {
@@ -1094,6 +1420,48 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
         }
 
         app_head_state_give_mutex();
+    }
+
+    {
+        const uint8_t *const yarn_tables[APP_HEAD_STATE_MAX_YARN] = {
+            YARN1_ADDR,
+            YARN2_ADDR,
+        };
+        for (int i = 0; i < APP_HEAD_STATE_MAX_YARN; ++i) {
+            esp_err_t cascade_err = app_head_state_tick_cascade(can_send_standard,
+                                                                 s_state.yarn,
+                                                                 APP_HEAD_STATE_MAX_YARN,
+                                                                 i,
+                                                                 yarn_tables[i],
+                                                                 8,
+                                                                 "YARN",
+                                                                 now_ms);
+            if (cascade_err != ESP_OK) {
+                result = cascade_err;
+            }
+        }
+    }
+
+    {
+        const uint8_t *const stitch_tables[APP_HEAD_STATE_MAX_STITCH] = {
+            STITCH1_ADDR,
+            STITCH2_ADDR,
+            STITCH3_ADDR,
+            STITCH4_ADDR,
+        };
+        for (int i = 0; i < APP_HEAD_STATE_MAX_STITCH; ++i) {
+            esp_err_t cascade_err = app_head_state_tick_cascade(can_send_standard,
+                                                                 s_state.stitch,
+                                                                 APP_HEAD_STATE_MAX_STITCH,
+                                                                 i,
+                                                                 stitch_tables[i],
+                                                                 4,
+                                                                 "STITCH",
+                                                                 now_ms);
+            if (cascade_err != ESP_OK) {
+                result = cascade_err;
+            }
+        }
     }
 
     return result;

@@ -431,6 +431,130 @@ static esp_err_t app_handle_j_short_command(const char *line,
     return reply("ERR|J_CMD", ctx);
 }
 
+static int app_command_active_bus(const app_command_env_t *env)
+{
+    return (env != NULL && env->active_bus == APP_CMD_CAN_BUS_2) ? APP_CMD_CAN_BUS_2 : APP_CMD_CAN_BUS_1;
+}
+
+static esp_err_t app_handle_yarn_short_command(const char *line,
+                                               app_reply_fn_t reply,
+                                               void *ctx,
+                                               const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+
+    if (strcasecmp(line, "y_run_all") == 0) {
+        for (uint8_t y = 1; y <= APP_HEAD_STATE_MAX_YARN; ++y) {
+            if (!app_head_state_manager_start_yarn_run(y, bus, now_ms)) {
+                return reply("ERR|Y_RUN_ALL", ctx);
+            }
+        }
+
+        ESP_LOGI(TAG, "FW_RX|Y_RUN_ALL");
+        return reply("OK y_run_all", ctx);
+    }
+
+    if (strcasecmp(line, "y_stop_all") == 0) {
+        app_head_state_manager_stop_all_yarn_runs();
+        ESP_LOGI(TAG, "FW_RX|Y_STOP_ALL");
+        return reply("OK y_stop_all", ctx);
+    }
+
+    if (strcasecmp(line, "y1_run") == 0) {
+        if (!app_head_state_manager_start_yarn_run(1, bus, now_ms)) {
+            return reply("ERR|Y1_RUN", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y1_RUN");
+        return reply("OK y1_run", ctx);
+    }
+
+    if (strcasecmp(line, "y1_stop") == 0) {
+        if (!app_head_state_manager_stop_yarn_run(1)) {
+            return reply("ERR|Y1_STOP", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y1_STOP");
+        return reply("OK y1_stop", ctx);
+    }
+
+    if (strcasecmp(line, "y2_run") == 0) {
+        if (!app_head_state_manager_start_yarn_run(2, bus, now_ms)) {
+            return reply("ERR|Y2_RUN", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y2_RUN");
+        return reply("OK y2_run", ctx);
+    }
+
+    if (strcasecmp(line, "y2_stop") == 0) {
+        if (!app_head_state_manager_stop_yarn_run(2)) {
+            return reply("ERR|Y2_STOP", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y2_STOP");
+        return reply("OK y2_stop", ctx);
+    }
+
+    return reply("ERR|Y_CMD", ctx);
+}
+
+static esp_err_t app_handle_stitch_short_command(const char *line,
+                                                 app_reply_fn_t reply,
+                                                 void *ctx,
+                                                 const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strcasecmp(line, "s_run_all") == 0) {
+        for (uint8_t s = 1; s <= APP_HEAD_STATE_MAX_STITCH; ++s) {
+            if (!app_head_state_manager_start_stitch_run(s, bus, now_ms)) {
+                return reply("ERR|S_RUN_ALL", ctx);
+            }
+        }
+
+        ESP_LOGI(TAG, "FW_RX|S_RUN_ALL");
+        return reply("OK s_run_all", ctx);
+    }
+
+    if (strcasecmp(line, "s_stop_all") == 0) {
+        app_head_state_manager_stop_all_stitch_runs();
+        ESP_LOGI(TAG, "FW_RX|S_STOP_ALL");
+        return reply("OK s_stop_all", ctx);
+    }
+
+    if (strncasecmp(line, "s_run_", 6) == 0) {
+        int instance = 0;
+        if (sscanf(line + 6, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_STITCH) {
+            return reply("ERR|S_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_stitch_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|S_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK s_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|S_RUN|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "s_stop_", 7) == 0) {
+        int instance = 0;
+        if (sscanf(line + 7, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_STITCH) {
+            return reply("ERR|S_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_stitch_run((uint8_t)instance)) {
+            return reply("ERR|S_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK s_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|S_STOP|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|S_CMD", ctx);
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion existe para que Core 0 pueda reconocer comandos fisicos sin
@@ -448,8 +572,8 @@ static esp_err_t app_handle_j_short_command(const char *line,
  * linea sin prefijo parece trama CAN.
  *
  * [SALIDAS]
- * Devuelve true para can1, can2, j_run_*, j_stop_*, den_pos_*, sic_pos_*,
- * send y tramas CAN directas.
+ * Devuelve true para can1, can2, j_run_*, j_stop_*, y_*, s_*, den_pos_*,
+ * sic_pos_*, send y tramas CAN directas.
  *
  * [ESTADO QUE MODIFICA]
  * No modifica estado. Solo normaliza una copia local y consulta parsers.
@@ -489,9 +613,21 @@ bool app_command_line_is_physical(const char *incoming_line,
 
     if (strncasecmp(line, "j_run_", 6) == 0
         || strncasecmp(line, "j_stop_", 7) == 0
+        || strcasecmp(line, "y_run_all") == 0
+        || strcasecmp(line, "y_stop_all") == 0
+        || strcasecmp(line, "y1_run") == 0
+        || strcasecmp(line, "y1_stop") == 0
+        || strcasecmp(line, "y2_run") == 0
+        || strcasecmp(line, "y2_stop") == 0
+        || strcasecmp(line, "s_run_all") == 0
+        || strcasecmp(line, "s_stop_all") == 0
+        || strncasecmp(line, "s_run_", 6) == 0
+        || strncasecmp(line, "s_stop_", 7) == 0
         || strncasecmp(line, "den_pos_", 8) == 0
         || strncasecmp(line, "sic_pos_", 8) == 0
-        || strncasecmp(line, "send ", 5) == 0) {
+        || strncasecmp(line, "send ", 5) == 0
+        || strcasecmp(line, "stop") == 0
+        || strcasecmp(line, "emergency_stop") == 0) {
         return true;
     }
 
@@ -573,7 +709,7 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "help") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: help", app_transport_name(env));
-        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,j_run_#,j_stop_#,j_run_all,j_stop_all,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
+        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,emergency_stop,j_run_#,j_stop_#,j_run_all,j_stop_all,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,s_run_#,s_stop_#,s_run_all,s_stop_all,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
     }
 
     if (strcasecmp(line, "status") == 0) {
@@ -615,8 +751,14 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "stop") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
-        app_head_state_manager_stop_all_j_runs();
+        app_head_state_manager_stop_all_motion();
         return reply("OK stop", ctx);
+    }
+
+    if (strcasecmp(line, "emergency_stop") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: emergency_stop", app_transport_name(env));
+        app_head_state_manager_stop_all_motion();
+        return reply("OK emergency_stop", ctx);
     }
 
     if (strcasecmp(line, "j_run_all") == 0
@@ -625,6 +767,24 @@ esp_err_t app_command_process_line(const char *incoming_line,
         || strncasecmp(line, "j_stop_", 7) == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: j_short", app_transport_name(env));
         return app_handle_j_short_command(line, reply, ctx, env);
+    }
+
+    if (strcasecmp(line, "y_run_all") == 0
+        || strcasecmp(line, "y_stop_all") == 0
+        || strcasecmp(line, "y1_run") == 0
+        || strcasecmp(line, "y1_stop") == 0
+        || strcasecmp(line, "y2_run") == 0
+        || strcasecmp(line, "y2_stop") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: y_short", app_transport_name(env));
+        return app_handle_yarn_short_command(line, reply, ctx, env);
+    }
+
+    if (strcasecmp(line, "s_run_all") == 0
+        || strcasecmp(line, "s_stop_all") == 0
+        || strncasecmp(line, "s_run_", 6) == 0
+        || strncasecmp(line, "s_stop_", 7) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: s_short", app_transport_name(env));
+        return app_handle_stitch_short_command(line, reply, ctx, env);
     }
 
     if (strncasecmp(line, "den_pos_", 8) == 0) {

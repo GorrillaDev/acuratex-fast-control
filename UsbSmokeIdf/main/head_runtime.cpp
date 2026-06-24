@@ -92,6 +92,7 @@ static bool app_head_runtime_is_priority_stop(const char *line)
 
     if (strcasecmp(clean, "HEAD_STOP") == 0
         || strcasecmp(clean, "stop") == 0
+        || strcasecmp(clean, "emergency_stop") == 0
         || strcasecmp(clean, "j_stop_all") == 0
         || strncasecmp(clean, "j_stop_", 7) == 0
         || strcasecmp(clean, "y_stop_all") == 0

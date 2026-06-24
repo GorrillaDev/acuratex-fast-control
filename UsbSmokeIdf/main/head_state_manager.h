@@ -9,6 +9,8 @@
 // [ACURATEX] El firmware maneja como maximo J1..J8. Este limite mantiene
 // arreglos fijos y evita reservar memoria dinamica para el estado del cabezal.
 #define APP_HEAD_STATE_MAX_J 8
+#define APP_HEAD_STATE_MAX_YARN 2
+#define APP_HEAD_STATE_MAX_STITCH 4
 
 // [C/C++] `typedef` crea un nombre corto para un puntero a funcion.
 // [ACURATEX] El gestor de estado no conoce directamente el driver CAN/TWAI:
@@ -261,6 +263,79 @@ bool app_head_state_manager_stop_j_run(uint8_t instance);
  * Habria que detener cada J individualmente.
  */
 void app_head_state_manager_stop_all_j_runs(void);
+
+/**
+ * [POR QUE EXISTE]
+ * Inicia una secuencia RUN de Yarn.
+ *
+ * [QUIEN LA LLAMA]
+ * command_processor.cpp al recibir `y1_run`, `y2_run` o `y_run_all`.
+ *
+ * [CUANDO SE EJECUTA]
+ * Cuando la app pide que Yarn empiece a barrer sus canales.
+ *
+ * [ENTRADAS]
+ * `instance` es Yarn1 o Yarn2, `can_bus` es CAN1/CAN2 y `now_ms` agenda.
+ *
+ * [SALIDAS]
+ * Devuelve true si el RUN queda activo.
+ *
+ * [ESTADO QUE MODIFICA]
+ * Activa la cascada, reinicia fase y primer indice.
+ *
+ * [CONCURRENCIA]
+ * Usa el mutex interno del gestor de estado.
+ *
+ * [FLUJO ACURATEX]
+ * y1_run/y2_run -> Yarn RUN -> tick envia 0x320/0x1E.
+ */
+bool app_head_state_manager_start_yarn_run(uint8_t instance,
+                                           int can_bus,
+                                           uint32_t now_ms);
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene una secuencia RUN de Yarn.
+ *
+ * [QUIEN LA LLAMA]
+ * command_processor.cpp al recibir `y1_stop`, `y2_stop` o `y_stop_all`.
+ */
+bool app_head_state_manager_stop_yarn_run(uint8_t instance);
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene todas las secuencias RUN de Yarn.
+ */
+void app_head_state_manager_stop_all_yarn_runs(void);
+
+/**
+ * [POR QUE EXISTE]
+ * Inicia una secuencia RUN de Stitch.
+ *
+ * [QUIEN LA LLAMA]
+ * command_processor.cpp al recibir `s_run_1..4` o `s_run_all`.
+ */
+bool app_head_state_manager_start_stitch_run(uint8_t instance,
+                                             int can_bus,
+                                             uint32_t now_ms);
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene una secuencia RUN de Stitch.
+ */
+bool app_head_state_manager_stop_stitch_run(uint8_t instance);
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene todas las secuencias RUN de Stitch.
+ */
+void app_head_state_manager_stop_all_stitch_runs(void);
+
+/**
+ * [POR QUE EXISTE]
+ * Detiene todo RUN fisico del cabezal en una sola llamada.
+ */
+void app_head_state_manager_stop_all_motion(void);
 
 /**
  * [POR QUE EXISTE]
