@@ -225,6 +225,7 @@
 @code {
     private const int TraceMax = 10;
     private const string NoActiveProgramMessage = "No hay programa de Cabezal activo para Sistema Modular.";
+    private readonly record struct MotorVisualSnapshot(int Position, int SelectedPositionNumber, string RunMode);
 
     // [ACURATEX] Los modelos cargan el tablero completo y permiten reflejar el estado del firmware.
     private readonly List<CabezalMotorTarjetas> _denMotors = CabezalDashboardTarjetasProtocol.CreateDenMotors().ToList();
@@ -236,6 +237,8 @@
     private readonly CancellationTokenSource?[] _denRunTokens = new CancellationTokenSource?[8];
     private readonly CancellationTokenSource?[] _sicRunTokens = new CancellationTokenSource?[2];
     private readonly CancellationTokenSource?[] _jRunTokens = new CancellationTokenSource?[8];
+    private readonly MotorVisualSnapshot?[] _denRunSnapshots = new MotorVisualSnapshot?[8];
+    private readonly MotorVisualSnapshot?[] _sicRunSnapshots = new MotorVisualSnapshot?[2];
     private readonly byte[] _jRunPreviousRegisters = Enumerable.Repeat((byte)0xFF, 8).ToArray();
 
     private string _manualCanLine = string.Empty;
@@ -454,6 +457,51 @@
         if (TryParseJDoCommand(command, "j_stop_", out int jStopIndex)) {
             StopJAnimation(jStopIndex, restore: true);
             await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (TryParseIndexedCommand(command, "den_run1_", _denMotors.Count, out int denRun1Index)) {
+            if (sent) {
+                CabezalMotorTarjetas motor = _denMotors[denRun1Index - 1];
+                _ = StartDenLoopAsync(motor, CabezalDashboardTarjetasProtocol.DenRun1Sequence, CabezalDashboardTarjetasProtocol.DenRun1PeriodMs, "RUN1");
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
+
+        if (TryParseIndexedCommand(command, "den_run_", _denMotors.Count, out int denRunIndex)) {
+            if (sent) {
+                CabezalMotorTarjetas motor = _denMotors[denRunIndex - 1];
+                _ = StartDenLoopAsync(motor, CabezalDashboardTarjetasProtocol.DenRunSequence, CabezalDashboardTarjetasProtocol.DenRunPeriodMs, "RUN");
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
+
+        if (TryParseIndexedCommand(command, "den_stop1_", _denMotors.Count, out int denStop1Index)) {
+            StopDenRun(_denMotors[denStop1Index - 1], restore: true);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (TryParseIndexedCommand(command, "den_stop_", _denMotors.Count, out int denStopIndex)) {
+            StopDenRun(_denMotors[denStopIndex - 1], restore: true);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (TryParseIndexedCommand(command, "sic_run_", _sicMotors.Count, out int sicRunIndex)) {
+            if (sent) {
+                CabezalMotorTarjetas motor = _sicMotors[sicRunIndex - 1];
+                _ = StartSicLoopAsync(motor);
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
+
+        if (TryParseIndexedCommand(command, "sic_stop_", _sicMotors.Count, out int sicStopIndex)) {
+            StopSicRun(_sicMotors[sicStopIndex - 1], restore: true);
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -498,7 +546,7 @@
             return Task.CompletedTask;
         }
 
-        return StartDenLoopAsync(motor, CabezalDashboardTarjetasProtocol.DenRunSequence, CabezalDashboardTarjetasProtocol.DenRunPeriodMs, "RUN");
+        return SendDoCommandAsync($"den_run_{motor.LogicalIndex + 1}");
     }
 
     private Task StartDenRun1Async(CabezalMotorTarjetas motor)
@@ -507,13 +555,19 @@
             return Task.CompletedTask;
         }
 
-        return StartDenLoopAsync(motor, CabezalDashboardTarjetasProtocol.DenRun1Sequence, CabezalDashboardTarjetasProtocol.DenRun1PeriodMs, "RUN1");
+        return SendDoCommandAsync($"den_run1_{motor.LogicalIndex + 1}");
     }
 
     private Task StopDenRunAsync(CabezalMotorTarjetas motor)
     {
-        StopDenRun(motor);
-        return Task.CompletedTask;
+        if (!CanExecuteHeadAction()) {
+            return Task.CompletedTask;
+        }
+
+        string command = motor.RunMode.Equals("RUN1", StringComparison.OrdinalIgnoreCase)
+            ? $"den_stop1_{motor.LogicalIndex + 1}"
+            : $"den_stop_{motor.LogicalIndex + 1}";
+        return SendDoCommandAsync(command);
     }
 
     private async Task SetSicPositionAsync(CabezalMotorTarjetas motor, int positionNumber)
@@ -543,22 +597,16 @@
             return Task.CompletedTask;
         }
 
-        if (motor.RunMode == "RUN") {
-            return Task.CompletedTask;
-        }
-
-        StopSicRun(motor);
-        motor.RunMode = "RUN";
-        CancellationTokenSource cts = new();
-        _sicRunTokens[motor.LogicalIndex] = cts;
-        _ = RunSicLoopAsync(motor, cts.Token);
-        return Task.CompletedTask;
+        return SendDoCommandAsync($"sic_run_{motor.LogicalIndex + 1}");
     }
 
     private Task StopSicRunAsync(CabezalMotorTarjetas motor)
     {
-        StopSicRun(motor);
-        return Task.CompletedTask;
+        if (!CanExecuteHeadAction()) {
+            return Task.CompletedTask;
+        }
+
+        return SendDoCommandAsync($"sic_stop_{motor.LogicalIndex + 1}");
     }
 
     private async Task ToggleJPinAsync(CabezalJGroupTarjetas group, int pinIndex)
@@ -750,31 +798,82 @@
         return int.TryParse(suffix, out jIndex) && jIndex >= 1 && jIndex <= 8;
     }
 
+    private static bool TryParseIndexedCommand(string command, string prefix, int maxIndex, out int index)
+    {
+        index = 0;
+        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        string suffix = command[prefix.Length..];
+        return int.TryParse(suffix, out index) && index >= 1 && index <= maxIndex;
+    }
+
     private Task StartDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, string mode)
     {
-        if (motor.RunMode == mode) {
+        int index = motor.LogicalIndex;
+        CancellationTokenSource? previousToken = _denRunTokens[index];
+        if (previousToken != null && motor.RunMode == mode) {
             return Task.CompletedTask;
         }
 
-        StopDenRun(motor);
+        if (_denRunSnapshots[index] is null) {
+            _denRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
+        }
+
+        if (previousToken != null) {
+            previousToken.Cancel();
+            previousToken.Dispose();
+            _denRunTokens[index] = null;
+        }
+
         motor.RunMode = mode;
         CancellationTokenSource cts = new();
-        _denRunTokens[motor.LogicalIndex] = cts;
-        _ = RunDenLoopAsync(motor, sequence, periodMs, cts.Token);
+        _denRunTokens[index] = cts;
+        _ = RunDenLoopAsync(motor, sequence, periodMs, cts.Token, mode);
         return Task.CompletedTask;
     }
 
-    private async Task RunDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, CancellationToken cancellationToken)
+    private Task StartSicLoopAsync(CabezalMotorTarjetas motor)
+    {
+        int index = motor.LogicalIndex;
+        CancellationTokenSource? previousToken = _sicRunTokens[index];
+        if (previousToken != null && string.Equals(motor.RunMode, "RUN", StringComparison.OrdinalIgnoreCase)) {
+            return Task.CompletedTask;
+        }
+
+        if (_sicRunSnapshots[index] is null) {
+            _sicRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
+        }
+
+        if (previousToken != null) {
+            previousToken.Cancel();
+            previousToken.Dispose();
+            _sicRunTokens[index] = null;
+        }
+
+        motor.RunMode = "RUN";
+        CancellationTokenSource cts = new();
+        _sicRunTokens[index] = cts;
+        _ = RunSicLoopAsync(motor, cts.Token);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, CancellationToken cancellationToken, string mode)
     {
         int step = 0;
         try {
             while (!cancellationToken.IsCancellationRequested) {
                 int positionNumber = sequence[step % sequence.Count];
                 CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
-                await InvokeAsync(async () =>
+
+                await InvokeAsync(() =>
                 {
-                    await SendDenPositionAsync(motor, option.Value, option.Number);
+                    motor.Position = option.Value;
+                    motor.SelectedPositionNumber = option.Number;
+                    motor.RunMode = mode;
                     StateHasChanged();
+                    return Task.CompletedTask;
                 });
 
                 step++;
@@ -791,10 +890,13 @@
             while (!cancellationToken.IsCancellationRequested) {
                 int positionNumber = CabezalDashboardTarjetasProtocol.SicRunSequence[step % CabezalDashboardTarjetasProtocol.SicRunSequence.Length];
                 CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
-                await InvokeAsync(async () =>
+                await InvokeAsync(() =>
                 {
-                    await SendSicPositionAsync(motor, option.Value, option.Number);
+                    motor.Position = option.Value;
+                    motor.SelectedPositionNumber = option.Number;
+                    motor.RunMode = "RUN";
                     StateHasChanged();
+                    return Task.CompletedTask;
                 });
 
                 step++;
@@ -836,6 +938,13 @@
             AddTrace("RX", _lastRx);
             if (HeadStateEventParser.TryParse(_lastRx, out HeadStateEvent? stateEvent) && stateEvent is not null) {
                 ApplyHeadStateEvent(stateEvent);
+            } else if (_lastRx.StartsWith("TESTEO|", StringComparison.OrdinalIgnoreCase)
+                || _lastRx.StartsWith("INIT|", StringComparison.OrdinalIgnoreCase)) {
+                _headProgramStatus = _lastRx;
+                if (_lastRx.StartsWith("TESTEO|ERROR", StringComparison.OrdinalIgnoreCase)
+                    || _lastRx.StartsWith("INIT|ERROR", StringComparison.OrdinalIgnoreCase)) {
+                    _ = EmergencyStop.ExecuteEmergencyStopAsync("FAST_DIAG");
+                }
             } else if (_lastRx.Equals("QUEUED", StringComparison.OrdinalIgnoreCase)
                 || _lastRx.Equals("OK", StringComparison.OrdinalIgnoreCase)
                 || (_lastRx.StartsWith("OK ", StringComparison.OrdinalIgnoreCase)
@@ -1094,32 +1203,82 @@
         return AllBlocks().FirstOrDefault(block => block.Key == blockKey);
     }
 
-    private void StopDenRun(CabezalMotorTarjetas motor)
+    private void RestoreDenSnapshot(int index)
     {
-        int index = motor.LogicalIndex;
-        _denRunTokens[index]?.Cancel();
-        _denRunTokens[index]?.Dispose();
-        _denRunTokens[index] = null;
-        motor.RunMode = string.Empty;
+        MotorVisualSnapshot? snapshot = _denRunSnapshots[index];
+        if (snapshot is null) {
+            return;
+        }
+
+        CabezalMotorTarjetas motor = _denMotors[index];
+        motor.Position = snapshot.Value.Position;
+        motor.SelectedPositionNumber = snapshot.Value.SelectedPositionNumber;
+        motor.RunMode = snapshot.Value.RunMode;
+        _denRunSnapshots[index] = null;
     }
 
-    private void StopSicRun(CabezalMotorTarjetas motor)
+    private void RestoreSicSnapshot(int index)
     {
-        int index = motor.LogicalIndex;
-        _sicRunTokens[index]?.Cancel();
-        _sicRunTokens[index]?.Dispose();
-        _sicRunTokens[index] = null;
-        motor.RunMode = string.Empty;
+        MotorVisualSnapshot? snapshot = _sicRunSnapshots[index];
+        if (snapshot is null) {
+            return;
+        }
+
+        CabezalMotorTarjetas motor = _sicMotors[index];
+        motor.Position = snapshot.Value.Position;
+        motor.SelectedPositionNumber = snapshot.Value.SelectedPositionNumber;
+        motor.RunMode = snapshot.Value.RunMode;
+        _sicRunSnapshots[index] = null;
     }
 
-    private void StopAllMotorRuns()
+    private void StopDenRun(CabezalMotorTarjetas motor, bool restore = true)
+    {
+        int index = motor.LogicalIndex;
+        CancellationTokenSource? token = _denRunTokens[index];
+        if (token != null) {
+            token.Cancel();
+            token.Dispose();
+            _denRunTokens[index] = null;
+        }
+
+        if (restore && token != null) {
+            RestoreDenSnapshot(index);
+        } else if (!restore) {
+            _denRunSnapshots[index] = null;
+            motor.RunMode = string.Empty;
+        } else if (token == null) {
+            motor.RunMode = string.Empty;
+        }
+    }
+
+    private void StopSicRun(CabezalMotorTarjetas motor, bool restore = true)
+    {
+        int index = motor.LogicalIndex;
+        CancellationTokenSource? token = _sicRunTokens[index];
+        if (token != null) {
+            token.Cancel();
+            token.Dispose();
+            _sicRunTokens[index] = null;
+        }
+
+        if (restore && token != null) {
+            RestoreSicSnapshot(index);
+        } else if (!restore) {
+            _sicRunSnapshots[index] = null;
+            motor.RunMode = string.Empty;
+        } else if (token == null) {
+            motor.RunMode = string.Empty;
+        }
+    }
+
+    private void StopAllMotorRuns(bool restore = true)
     {
         foreach (CabezalMotorTarjetas motor in _denMotors) {
-            StopDenRun(motor);
+            StopDenRun(motor, restore);
         }
 
         foreach (CabezalMotorTarjetas motor in _sicMotors) {
-            StopSicRun(motor);
+            StopSicRun(motor, restore);
         }
     }
 

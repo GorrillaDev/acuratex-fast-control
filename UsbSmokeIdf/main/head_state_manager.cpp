@@ -49,6 +49,8 @@ typedef struct {
     uint32_t j_revision[APP_HEAD_STATE_MAX_J];
     app_head_cascade_state_t yarn[APP_HEAD_STATE_MAX_YARN];
     app_head_cascade_state_t stitch[APP_HEAD_STATE_MAX_STITCH];
+    app_head_cascade_state_t den[APP_HEAD_STATE_MAX_J];
+    app_head_cascade_state_t sic[APP_HEAD_STATE_MAX_SIC];
 } app_head_state_manager_state_t;
 
 // [FREERTOS] Mutex que protege `s_state`.
@@ -704,6 +706,14 @@ esp_err_t app_head_state_manager_init(void)
         app_head_state_reset_cascade_locked(&s_state.stitch[i]);
     }
 
+    for (int i = 0; i < APP_HEAD_STATE_MAX_J; ++i) {
+        app_head_state_reset_cascade_locked(&s_state.den[i]);
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_SIC; ++i) {
+        app_head_state_reset_cascade_locked(&s_state.sic[i]);
+    }
+
     app_head_state_give_mutex();
     return ESP_OK;
 }
@@ -1035,6 +1045,11 @@ static const uint8_t STITCH1_ADDR[4] = { 0x00, 0x01, 0x02, 0x05 };
 static const uint8_t STITCH2_ADDR[4] = { 0x06, 0x07, 0x08, 0x0B };
 static const uint8_t STITCH3_ADDR[4] = { 0x0C, 0x0D, 0x0E, 0x11 };
 static const uint8_t STITCH4_ADDR[4] = { 0x12, 0x13, 0x14, 0x17 };
+static const uint8_t DEN_RUN_SEQUENCE[5] = { 1, 3, 5, 2, 4 };
+static const uint8_t DEN_RUN1_SEQUENCE[3] = { 1, 3, 5 };
+static const uint8_t SIC_RUN_SEQUENCE[3] = { 1, 2, 3 };
+static const uint16_t DEN_POSITIONS[5] = { 0x0000, 0x00A2, 0x0145, 0x01E7, 0x028A };
+static const uint16_t SIC_POSITIONS[3] = { 0x0000, 0x0176, 0x02EE };
 
 /**
  * [POR QUE EXISTE]
@@ -1250,11 +1265,269 @@ void app_head_state_manager_stop_all_stitch_runs(void)
     app_head_state_give_mutex();
 }
 
+static const uint8_t *app_head_state_select_den_sequence(const app_head_cascade_state_t *state,
+                                                         size_t *count)
+{
+    if (state == NULL || count == NULL) {
+        return NULL;
+    }
+
+    if (state->phase == 0) {
+        *count = sizeof(DEN_RUN_SEQUENCE) / sizeof(DEN_RUN_SEQUENCE[0]);
+        return DEN_RUN_SEQUENCE;
+    }
+
+    *count = sizeof(DEN_RUN1_SEQUENCE) / sizeof(DEN_RUN1_SEQUENCE[0]);
+    return DEN_RUN1_SEQUENCE;
+}
+
+static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_standard_fn_t can_send_standard,
+                                            app_head_cascade_state_t *states,
+                                            size_t state_count,
+                                            int index,
+                                            uint8_t motor_index,
+                                            const uint8_t *sequence,
+                                            size_t sequence_count,
+                                            const uint16_t *position_table,
+                                            size_t position_count,
+                                            const char *kind,
+                                            uint32_t now_ms)
+{
+    app_head_cascade_state_t step = {};
+    uint8_t position_number = 0;
+    uint16_t position_value = 0;
+    int bus = 1;
+    esp_err_t tx_err = ESP_OK;
+
+    if (can_send_standard == NULL || states == NULL || sequence == NULL || position_table == NULL || kind == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (index < 0 || index >= (int)state_count || !states[index].running) {
+        app_head_state_give_mutex();
+        return ESP_OK;
+    }
+
+    if ((int32_t)(now_ms - states[index].next_due_ms) < 0) {
+        app_head_state_give_mutex();
+        return ESP_OK;
+    }
+
+    step = states[index];
+    app_head_state_give_mutex();
+
+    if (step.p == 0 || step.p > sequence_count) {
+        if (!app_head_state_take_mutex(portMAX_DELAY)) {
+            return ESP_ERR_TIMEOUT;
+        }
+
+        if (index >= 0 && index < (int)state_count && states[index].running && states[index].revision == step.revision) {
+            app_head_state_stop_cascade_locked(&states[index]);
+        }
+
+        app_head_state_give_mutex();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    position_number = sequence[step.p - 1];
+    if (position_number == 0 || position_number > position_count) {
+        if (!app_head_state_take_mutex(portMAX_DELAY)) {
+            return ESP_ERR_TIMEOUT;
+        }
+
+        if (index >= 0 && index < (int)state_count && states[index].running && states[index].revision == step.revision) {
+            app_head_state_stop_cascade_locked(&states[index]);
+        }
+
+        app_head_state_give_mutex();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    position_value = position_table[position_number - 1];
+    bus = app_head_state_normalize_bus(step.can_bus);
+
+    {
+        uint8_t data[4] = {
+            0x1C,
+            motor_index,
+            (uint8_t)(position_value & 0xFF),
+            (uint8_t)((position_value >> 8) & 0xFF),
+        };
+        tx_err = can_send_standard(bus, 0x320, data, sizeof(data));
+    }
+
+    if (tx_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "%s_RUN_TX_FAIL|IDX=%d|BUS=%d|CODE=%s",
+                 kind,
+                 index + 1,
+                 bus,
+                 esp_err_to_name(tx_err));
+
+        if (!app_head_state_take_mutex(portMAX_DELAY)) {
+            return tx_err;
+        }
+
+        if (index >= 0 && index < (int)state_count && states[index].running && states[index].revision == step.revision) {
+            app_head_state_stop_cascade_locked(&states[index]);
+        }
+
+        app_head_state_give_mutex();
+        return tx_err;
+    }
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (index >= 0
+        && index < (int)state_count
+        && states[index].running
+        && states[index].revision == step.revision) {
+        uint8_t next_p = (uint8_t)(step.p + 1U);
+        if (next_p > (uint8_t)sequence_count) {
+            next_p = 1;
+        }
+
+        states[index].p = next_p;
+        states[index].next_due_ms = now_ms + step.delay_ms;
+        app_head_state_bump_cascade_revision_locked(&states[index]);
+    }
+
+    app_head_state_give_mutex();
+    return ESP_OK;
+}
+
+bool app_head_state_manager_start_den_run(uint8_t instance, int can_bus, uint32_t now_ms)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_start_cascade_locked(&s_state.den[index], can_bus, now_ms, 80U);
+    s_state.den[index].phase = 0;
+    app_head_state_give_mutex();
+    return true;
+}
+
+bool app_head_state_manager_start_den_run1(uint8_t instance, int can_bus, uint32_t now_ms)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_start_cascade_locked(&s_state.den[index], can_bus, now_ms, 300U);
+    s_state.den[index].phase = 1;
+    app_head_state_give_mutex();
+    return true;
+}
+
+bool app_head_state_manager_stop_den_run(uint8_t instance)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_stop_cascade_locked(&s_state.den[index]);
+    app_head_state_give_mutex();
+    return true;
+}
+
+void app_head_state_manager_stop_all_den_runs(void)
+{
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_J; ++i) {
+        app_head_state_stop_cascade_locked(&s_state.den[i]);
+    }
+
+    app_head_state_give_mutex();
+}
+
+bool app_head_state_manager_start_sic_run(uint8_t instance, int can_bus, uint32_t now_ms)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_SIC) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_start_cascade_locked(&s_state.sic[index], can_bus, now_ms, 300U);
+    s_state.sic[index].phase = 0;
+    app_head_state_give_mutex();
+    return true;
+}
+
+bool app_head_state_manager_stop_sic_run(uint8_t instance)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_SIC) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_stop_cascade_locked(&s_state.sic[index]);
+    app_head_state_give_mutex();
+    return true;
+}
+
+void app_head_state_manager_stop_all_sic_runs(void)
+{
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_SIC; ++i) {
+        app_head_state_stop_cascade_locked(&s_state.sic[i]);
+    }
+
+    app_head_state_give_mutex();
+}
+
 void app_head_state_manager_stop_all_motion(void)
 {
     app_head_state_manager_stop_all_j_runs();
     app_head_state_manager_stop_all_yarn_runs();
     app_head_state_manager_stop_all_stitch_runs();
+    app_head_state_manager_stop_all_den_runs();
+    app_head_state_manager_stop_all_sic_runs();
 }
 
 // [ACURATEX] Snapshot pequeno de un paso RUN. Se copia bajo mutex y luego se
@@ -1460,6 +1733,52 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
                                                                  now_ms);
             if (cascade_err != ESP_OK) {
                 result = cascade_err;
+            }
+        }
+    }
+
+    {
+        for (int i = 0; i < APP_HEAD_STATE_MAX_J; ++i) {
+            size_t sequence_count = 0;
+            const uint8_t *sequence = app_head_state_select_den_sequence(&s_state.den[i], &sequence_count);
+            if (sequence == NULL) {
+                continue;
+            }
+
+            esp_err_t motion_err = app_head_state_tick_motion(can_send_standard,
+                                                              s_state.den,
+                                                              APP_HEAD_STATE_MAX_J,
+                                                              i,
+                                                              (uint8_t)i,
+                                                              sequence,
+                                                              sequence_count,
+                                                              DEN_POSITIONS,
+                                                              sizeof(DEN_POSITIONS) / sizeof(DEN_POSITIONS[0]),
+                                                              sequence_count == (sizeof(DEN_RUN_SEQUENCE) / sizeof(DEN_RUN_SEQUENCE[0]))
+                                                                  ? "DEN"
+                                                                  : "DEN1",
+                                                              now_ms);
+            if (motion_err != ESP_OK) {
+                result = motion_err;
+            }
+        }
+    }
+
+    {
+        for (int i = 0; i < APP_HEAD_STATE_MAX_SIC; ++i) {
+            esp_err_t motion_err = app_head_state_tick_motion(can_send_standard,
+                                                              s_state.sic,
+                                                              APP_HEAD_STATE_MAX_SIC,
+                                                              i,
+                                                              (uint8_t)(0x08 + i),
+                                                              SIC_RUN_SEQUENCE,
+                                                              sizeof(SIC_RUN_SEQUENCE) / sizeof(SIC_RUN_SEQUENCE[0]),
+                                                              SIC_POSITIONS,
+                                                              sizeof(SIC_POSITIONS) / sizeof(SIC_POSITIONS[0]),
+                                                              "SIC",
+                                                              now_ms);
+            if (motion_err != ESP_OK) {
+                result = motion_err;
             }
         }
     }

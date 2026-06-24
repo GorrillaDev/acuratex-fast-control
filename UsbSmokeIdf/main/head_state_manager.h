@@ -10,6 +10,7 @@
 // arreglos fijos y evita reservar memoria dinamica para el estado del cabezal.
 #define APP_HEAD_STATE_MAX_J 8
 #define APP_HEAD_STATE_MAX_YARN 2
+#define APP_HEAD_STATE_MAX_SIC 2
 #define APP_HEAD_STATE_MAX_STITCH 4
 
 // [C/C++] `typedef` crea un nombre corto para un puntero a funcion.
@@ -263,6 +264,26 @@ bool app_head_state_manager_stop_j_run(uint8_t instance);
  * Habria que detener cada J individualmente.
  */
 void app_head_state_manager_stop_all_j_runs(void);
+
+bool app_head_state_manager_start_den_run(uint8_t instance,
+                                          int can_bus,
+                                          uint32_t now_ms);
+
+bool app_head_state_manager_start_den_run1(uint8_t instance,
+                                           int can_bus,
+                                           uint32_t now_ms);
+
+bool app_head_state_manager_stop_den_run(uint8_t instance);
+
+void app_head_state_manager_stop_all_den_runs(void);
+
+bool app_head_state_manager_start_sic_run(uint8_t instance,
+                                          int can_bus,
+                                          uint32_t now_ms);
+
+bool app_head_state_manager_stop_sic_run(uint8_t instance);
+
+void app_head_state_manager_stop_all_sic_runs(void);
 
 /**
  * [POR QUE EXISTE]

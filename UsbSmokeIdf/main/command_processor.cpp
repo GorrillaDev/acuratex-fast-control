@@ -9,6 +9,7 @@
 #include "command_processor.h"
 #include "line_codec.h"
 #include "head_state_manager.h"
+#include "head_fast_diag.h"
 
 // [ACURATEX] Este archivo es el clasificador central de lineas.
 // Recibe texto ya separado por un transporte y decide si es comando simple,
@@ -555,6 +556,120 @@ static esp_err_t app_handle_stitch_short_command(const char *line,
     return reply("ERR|S_CMD", ctx);
 }
 
+static esp_err_t app_handle_den_short_command(const char *line,
+                                              app_reply_fn_t reply,
+                                              void *ctx,
+                                              const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strncasecmp(line, "den_run1_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_RUN1", ctx);
+        }
+
+        if (!app_head_state_manager_start_den_run1((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|DEN_RUN1", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_run1_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_RUN1|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "den_stop1_", 10) == 0) {
+        int instance = 0;
+        if (sscanf(line + 10, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_STOP1", ctx);
+        }
+
+        if (!app_head_state_manager_stop_den_run((uint8_t)instance)) {
+            return reply("ERR|DEN_STOP1", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_stop1_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_STOP1|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "den_run_", 8) == 0) {
+        int instance = 0;
+        if (sscanf(line + 8, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_den_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|DEN_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_RUN|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "den_stop_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_den_run((uint8_t)instance)) {
+            return reply("ERR|DEN_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_STOP|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|DEN_CMD", ctx);
+}
+
+static esp_err_t app_handle_sic_short_command(const char *line,
+                                              app_reply_fn_t reply,
+                                              void *ctx,
+                                              const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strncasecmp(line, "sic_run_", 8) == 0) {
+        int instance = 0;
+        if (sscanf(line + 8, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_SIC) {
+            return reply("ERR|SIC_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_sic_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|SIC_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK sic_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|SIC_RUN|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "sic_stop_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_SIC) {
+            return reply("ERR|SIC_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_sic_run((uint8_t)instance)) {
+            return reply("ERR|SIC_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK sic_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|SIC_STOP|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|SIC_CMD", ctx);
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion existe para que Core 0 pueda reconocer comandos fisicos sin
@@ -572,8 +687,8 @@ static esp_err_t app_handle_stitch_short_command(const char *line,
  * linea sin prefijo parece trama CAN.
  *
  * [SALIDAS]
- * Devuelve true para can1, can2, j_run_*, j_stop_*, y_*, s_*, den_pos_*,
- * sic_pos_*, send y tramas CAN directas.
+ * Devuelve true para can1, can2, j_run_*, j_stop_*, y_*, s_*, den_*, sic_*,
+ * den_pos_*, sic_pos_*, send y tramas CAN directas.
  *
  * [ESTADO QUE MODIFICA]
  * No modifica estado. Solo normaliza una copia local y consulta parsers.
@@ -623,6 +738,12 @@ bool app_command_line_is_physical(const char *incoming_line,
         || strcasecmp(line, "s_stop_all") == 0
         || strncasecmp(line, "s_run_", 6) == 0
         || strncasecmp(line, "s_stop_", 7) == 0
+        || strncasecmp(line, "den_run1_", 9) == 0
+        || strncasecmp(line, "den_stop1_", 10) == 0
+        || strncasecmp(line, "den_run_", 8) == 0
+        || strncasecmp(line, "den_stop_", 9) == 0
+        || strncasecmp(line, "sic_run_", 8) == 0
+        || strncasecmp(line, "sic_stop_", 9) == 0
         || strncasecmp(line, "den_pos_", 8) == 0
         || strncasecmp(line, "sic_pos_", 8) == 0
         || strncasecmp(line, "send ", 5) == 0
@@ -709,7 +830,7 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "help") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: help", app_transport_name(env));
-        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,emergency_stop,j_run_#,j_stop_#,j_run_all,j_stop_all,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,s_run_#,s_stop_#,s_run_all,s_stop_all,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
+        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,emergency_stop,j_run_#,j_stop_#,j_run_all,j_stop_all,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,s_run_#,s_stop_#,s_run_all,s_stop_all,den_run_#,den_run1_#,den_stop_#,den_stop1_#,sic_run_#,sic_stop_#,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
     }
 
     if (strcasecmp(line, "status") == 0) {
@@ -735,12 +856,33 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "init") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: init", app_transport_name(env));
+        if (app_head_fast_diag_is_busy()) {
+            return reply("ERR|INIT|BUSY", ctx);
+        }
         (void)app_head_state_manager_init();
+        esp_err_t err = app_head_fast_diag_start_init(env, ctx);
+        if (err != ESP_OK) {
+            char response[120];
+            snprintf(response, sizeof(response), "ERR|INIT|%s", esp_err_to_name(err));
+            return reply(response, ctx);
+        }
         return reply("OK init", ctx);
     }
 
     if (strcasecmp(line, "testeo") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: testeo", app_transport_name(env));
+        if (app_head_fast_diag_is_busy()) {
+            return reply("ERR|TESTEO|BUSY", ctx);
+        }
+        if (!app_head_fast_diag_testeo_can_start()) {
+            return reply("ERR|TESTEO|LATCHED", ctx);
+        }
+        esp_err_t err = app_head_fast_diag_start_testeo(env, ctx);
+        if (err != ESP_OK) {
+            char response[120];
+            snprintf(response, sizeof(response), "ERR|TESTEO|%s", esp_err_to_name(err));
+            return reply(response, ctx);
+        }
         return reply("OK testeo", ctx);
     }
 
@@ -752,12 +894,14 @@ esp_err_t app_command_process_line(const char *incoming_line,
     if (strcasecmp(line, "stop") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
         app_head_state_manager_stop_all_motion();
+        app_head_fast_diag_request_stop();
         return reply("OK stop", ctx);
     }
 
     if (strcasecmp(line, "emergency_stop") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: emergency_stop", app_transport_name(env));
         app_head_state_manager_stop_all_motion();
+        app_head_fast_diag_request_stop();
         return reply("OK emergency_stop", ctx);
     }
 
@@ -785,6 +929,20 @@ esp_err_t app_command_process_line(const char *incoming_line,
         || strncasecmp(line, "s_stop_", 7) == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: s_short", app_transport_name(env));
         return app_handle_stitch_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "den_run1_", 9) == 0
+        || strncasecmp(line, "den_stop1_", 10) == 0
+        || strncasecmp(line, "den_run_", 8) == 0
+        || strncasecmp(line, "den_stop_", 9) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: den_short", app_transport_name(env));
+        return app_handle_den_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "sic_run_", 8) == 0
+        || strncasecmp(line, "sic_stop_", 9) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: sic_short", app_transport_name(env));
+        return app_handle_sic_short_command(line, reply, ctx, env);
     }
 
     if (strncasecmp(line, "den_pos_", 8) == 0) {

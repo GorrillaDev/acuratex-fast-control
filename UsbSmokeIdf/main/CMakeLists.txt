@@ -4,6 +4,7 @@ idf_component_register(
         "command_processor.cpp"
         "command_head_program_runner.cpp"
         "head_state_manager.cpp"
+        "head_fast_diag.cpp"
         "can_driver_twai.cpp"
         "line_codec.cpp"
         "file_transfer.cpp"

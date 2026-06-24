@@ -99,7 +99,10 @@ static bool app_head_runtime_is_priority_stop(const char *line)
         || strncasecmp(clean, "y1_stop", 7) == 0
         || strncasecmp(clean, "y2_stop", 7) == 0
         || strcasecmp(clean, "s_stop_all") == 0
-        || strncasecmp(clean, "s_stop_", 7) == 0)
+        || strncasecmp(clean, "s_stop_", 7) == 0
+        || strncasecmp(clean, "den_stop1_", 10) == 0
+        || strncasecmp(clean, "den_stop_", 9) == 0
+        || strncasecmp(clean, "sic_stop_", 9) == 0)
     {
         return true;
     }
