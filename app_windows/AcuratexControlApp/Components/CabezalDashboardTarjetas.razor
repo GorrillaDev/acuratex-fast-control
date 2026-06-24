@@ -164,7 +164,7 @@
                     <button class="mini-btn" type="button" @onclick="() => SetJAllAsync(group, true)" disabled="@IsHeadUiBlocked">ON ALL</button>
                 </div>
                 <div class="j-actions">
-                    <button class="mini-btn run" type="button" @onclick='() => SendDoCommandAsync($"j_run_{group.Number}")' disabled="@IsHeadUiBlocked">RUN</button>
+                    <button class="@JRunButtonClass(group.Number)" type="button" @onclick='() => SendDoCommandAsync($"j_run_{group.Number}")' disabled="@IsHeadUiBlocked">RUN</button>
                     <button class="mini-btn stop" type="button" @onclick='() => SendDoCommandAsync($"j_stop_{group.Number}")' disabled="@IsHeadUiBlocked">STOP</button>
                 </div>
                 <div class="j-pins">
@@ -235,6 +235,8 @@
     private readonly List<CabezalTraceEntryTarjetas> _trace = new();
     private readonly CancellationTokenSource?[] _denRunTokens = new CancellationTokenSource?[8];
     private readonly CancellationTokenSource?[] _sicRunTokens = new CancellationTokenSource?[2];
+    private readonly CancellationTokenSource?[] _jRunTokens = new CancellationTokenSource?[8];
+    private readonly byte[] _jRunPreviousRegisters = Enumerable.Repeat((byte)0xFF, 8).ToArray();
 
     private string _manualCanLine = string.Empty;
     private string _manualDoCommand = string.Empty;
@@ -250,8 +252,8 @@
     // [ACURATEX] El modo de diagnostico solo aparece cuando el rol y el switch interno lo permiten.
     // [EQUIV MCU] Es como mostrar un menu de servicio oculto por una condicion de permiso.
     private bool ShowAdvancedDiagnostics => PermissionService.CurrentUserIsSuperRoot() && IsDevelopmentModeEnabled;
-    private bool HasActiveHeadProgram => HeadProfileService.HasActiveProfile(HeadSystemKind.Modular);
-    private bool IsHeadUiBlocked => IsEmergencyLocked || !HasActiveHeadProgram;
+    private bool HasActiveHeadProgram => true;
+    private bool IsHeadUiBlocked => IsEmergencyLocked;
     private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
     // [ACURATEX] Este grupo de clases CSS protege visualmente cuando no hay perfil o hay emergencia.
     private string LockScopeClass
@@ -270,22 +272,18 @@
         }
     }
     // [ACURATEX] El selector solo se habilita si hay conexion, no hay carga en curso y el permiso existe.
-    private bool CanChangeHeadProgram =>
-        Connection.IsConnected
-        && !_isHeadProgramBusy
-        && PermissionService.HasPermission(UserPermission.HeadProgramSelect);
-    // [ACURATEX] Refrescar la lista solo tiene sentido con conexion activa y sin otra carga en marcha.
-    private bool CanRefreshHeadPrograms => Connection.IsConnected && !_isHeadProgramBusy;
+    private bool CanChangeHeadProgram => false;
+    // [ACURATEX] Refrescar programas queda deshabilitado en el modo rapido.
+    private bool CanRefreshHeadPrograms => false;
 
     protected override void OnInitialized()
     {
-        // [ACURATEX] Los eventos de conexion, perfil y emergencia mantienen la UI sincronizada.
+        // [ACURATEX] La vista rapida mantiene solo la sincronizacion de emergencia y de linea recibida.
         Connection.LineReceived += OnLineReceived;
-        HeadProfileService.StateChanged += OnHeadProfileStateChanged;
         EmergencyStop.StateChanged += OnEmergencyStateChanged;
         EmergencyStop.EmergencyStopTriggered += HandleEmergencyStopAsync;
         ResetHeadVisualStateToNeutral();
-        _ = RefreshHeadProgramsAsync();
+        _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
     }
 
     private Task SendInitAsync()
@@ -302,89 +300,17 @@
         return SendDoCommandInternalAsync("init");
     }
 
-    private async Task RefreshHeadProgramsAsync()
+    private Task RefreshHeadProgramsAsync()
     {
-        // [ACURATEX] El refresco pregunta al servicio de perfiles, no al firmware directamente.
-        if (_isHeadProgramBusy) {
-            return;
-        }
-
-        _isHeadProgramBusy = true;
-        try {
-            if (!Connection.IsConnected) {
-                _headProgramStatus = "Conecta el tester para actualizar programas de cabezal.";
-                return;
-            }
-
-            _headPrograms = await HeadProfileService.ListProgramsAsync(HeadSystemKind.Modular, CancellationToken.None);
-            HeadProfile? active = HeadProfileService.GetActiveProfile(HeadSystemKind.Modular);
-            _selectedHeadProgramFile = active?.FileName;
-            _headProgramStatus = active is null
-                ? NoActiveProgramMessage
-                : $"Activo: Programa {active.ProgramNumber} ({active.FileName})";
-            if (active is null) {
-                ResetHeadVisualStateToNeutral();
-            }
-        } catch (Exception ex) {
-            _headProgramStatus = string.IsNullOrWhiteSpace(ex.Message)
-                ? "No se pudieron actualizar los programas de cabezal."
-                : ex.Message;
-            if (!HasActiveHeadProgram) {
-                ResetHeadVisualStateToNeutral();
-            }
-        } finally {
-            _isHeadProgramBusy = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+        return InvokeAsync(StateHasChanged);
     }
 
     private async Task OnHeadProgramChangedAsync(ChangeEventArgs args)
     {
-        // [ACURATEX] El `<select>` solo cambia el perfil; el firmware sigue siendo la fuente de verdad del estado.
-        string selectedFile = (args.Value?.ToString() ?? string.Empty).Trim();
-        if (_isHeadProgramBusy || !CanChangeHeadProgram) {
-            return;
-        }
-
-        if (selectedFile.Length == 0) {
-            HeadProfileService.ClearActiveProfile(HeadSystemKind.Modular);
-            _selectedHeadProgramFile = null;
-            _headProgramStatus = NoActiveProgramMessage;
-            ResetHeadVisualStateToNeutral();
-            await InvokeAsync(StateHasChanged);
-            return;
-        }
-
-        _isHeadProgramBusy = true;
-        _headProgramStatus = $"Aplicando {selectedFile}...";
+        _ = args;
+        _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
         await InvokeAsync(StateHasChanged);
-
-        try {
-            HeadProfileLoadResult result = await HeadProfileService.ApplyProgramAsync(
-                HeadSystemKind.Modular,
-                selectedFile,
-                CancellationToken.None);
-
-            _headProgramStatus = result.Message;
-            if (result.Success) {
-                _selectedHeadProgramFile = selectedFile;
-                ResetHeadVisualStateToNeutral();
-            } else if (!HasActiveHeadProgram) {
-                ResetHeadVisualStateToNeutral();
-            }
-
-            _headPrograms = await HeadProfileService.ListProgramsAsync(HeadSystemKind.Modular, CancellationToken.None);
-        } catch (Exception ex) {
-            _headProgramStatus = string.IsNullOrWhiteSpace(ex.Message)
-                ? "No se pudo aplicar el programa de cabezal."
-                : ex.Message;
-            if (!HasActiveHeadProgram) {
-                ResetHeadVisualStateToNeutral();
-            }
-        } finally {
-            _isHeadProgramBusy = false;
-            await InvokeAsync(StateHasChanged);
-        }
     }
 
     private Task SendStatusAsync()
@@ -497,7 +423,38 @@
             return;
         }
 
-        await SendTrackedAsync("DO", cleanCommand, token => CommandService.SendDoCommandAsync(cleanCommand, token));
+        bool sent = await SendTrackedAsync("DO", cleanCommand, token => CommandService.SendDoCommandAsync(cleanCommand, token));
+        await ApplyLocalDoCommandAsync(cleanCommand, sent);
+    }
+
+    private async Task ApplyLocalDoCommandAsync(string command, bool sent)
+    {
+        if (string.Equals(command, "j_run_all", StringComparison.OrdinalIgnoreCase)) {
+            if (sent) {
+                StartAllJAnimations();
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
+
+        if (string.Equals(command, "j_stop_all", StringComparison.OrdinalIgnoreCase)) {
+            StopAllJAnimations(restore: true);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (TryParseJDoCommand(command, "j_run_", out int jRunIndex)) {
+            if (sent) {
+                StartJAnimation(jRunIndex);
+                await InvokeAsync(StateHasChanged);
+            }
+            return;
+        }
+
+        if (TryParseJDoCommand(command, "j_stop_", out int jStopIndex)) {
+            StopJAnimation(jStopIndex, restore: true);
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task HandleManualCanKeyDownAsync(KeyboardEventArgs args)
@@ -610,14 +567,18 @@
             return;
         }
 
-        // [ACURATEX] La vista calcula el registro siguiente y el servicio lo convierte en linea de envio.
+        // [ACURATEX] La vista calcula el registro siguiente y lo refleja de inmediato.
         bool nextState = !group.IsPinOn(pinIndex);
         byte previousRegister = group.Register;
         group.SetPin(pinIndex, nextState);
         byte nextRegister = group.Register;
-        group.Register = previousRegister;
 
-        await SendJRegisterAsync(group, nextRegister);
+        bool sent = await SendJRegisterAsync(group, nextRegister);
+        if (!sent) {
+            group.Register = previousRegister;
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task SetJAllAsync(CabezalJGroupTarjetas group, bool on)
@@ -626,8 +587,24 @@
             return;
         }
 
+        byte previousRegister = group.Register;
+        bool wasRunning = IsJRunning(group.Number);
+        if (wasRunning) {
+            StopJAnimation(group.Number, restore: false);
+        }
+
         byte nextRegister = on ? (byte)0x00 : (byte)0xFF;
-        await SendJRegisterAsync(group, nextRegister);
+        group.Register = nextRegister;
+
+        bool sent = await SendJRegisterAsync(group, nextRegister);
+        if (!sent) {
+            group.Register = previousRegister;
+            if (wasRunning) {
+                StartJAnimation(group.Number);
+            }
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleBlockPinAsync(CabezalBlockPinChangeTarjetas change)
@@ -665,9 +642,15 @@
     private async Task OffAllCoreAsync()
     {
         StopAllMotorRuns();
+        StopAllJAnimations(restore: false);
 
         foreach (CabezalJGroupTarjetas group in _jGroups) {
-            await SendJRegisterAsync(group, 0xFF);
+            byte previousRegister = group.Register;
+            group.Register = 0xFF;
+            bool sent = await SendJRegisterAsync(group, 0xFF);
+            if (!sent) {
+                group.Register = previousRegister;
+            }
         }
 
         foreach (CabezalOutputBlockTarjetas block in AllBlocks()) {
@@ -677,8 +660,15 @@
 
     private async Task OnAllCoreAsync()
     {
+        StopAllJAnimations(restore: false);
+
         foreach (CabezalJGroupTarjetas group in _jGroups) {
-            await SendJRegisterAsync(group, 0x00);
+            byte previousRegister = group.Register;
+            group.Register = 0x00;
+            bool sent = await SendJRegisterAsync(group, 0x00);
+            if (!sent) {
+                group.Register = previousRegister;
+            }
         }
 
         foreach (CabezalOutputBlockTarjetas block in AllBlocks()) {
@@ -698,6 +688,7 @@
     {
         // [ACURATEX] En emergencia se detienen ciclos y se apaga el tablero para no dejar acciones pendientes.
         StopAllMotorRuns();
+        StopAllJAnimations(restore: false);
 
         if (!HasActiveHeadProgram) {
             ResetHeadVisualStateToNeutral();
@@ -746,6 +737,17 @@
     {
         string line = CabezalDashboardTarjetasProtocol.FormatJRegisterLine(group.Number, registerValue);
         return await SendTrackedAsync("CAN", line, token => CommandService.SendJRegisterAsync(group.Number, registerValue, token));
+    }
+
+    private static bool TryParseJDoCommand(string command, string prefix, out int jIndex)
+    {
+        jIndex = 0;
+        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        string suffix = command[prefix.Length..];
+        return int.TryParse(suffix, out jIndex) && jIndex >= 1 && jIndex <= 8;
     }
 
     private Task StartDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, string mode)
@@ -834,6 +836,11 @@
             AddTrace("RX", _lastRx);
             if (HeadStateEventParser.TryParse(_lastRx, out HeadStateEvent? stateEvent) && stateEvent is not null) {
                 ApplyHeadStateEvent(stateEvent);
+            } else if (_lastRx.Equals("QUEUED", StringComparison.OrdinalIgnoreCase)
+                || _lastRx.Equals("OK", StringComparison.OrdinalIgnoreCase)
+                || (_lastRx.StartsWith("OK ", StringComparison.OrdinalIgnoreCase)
+                    && !_lastRx.StartsWith("OK|HEAD_ACTION|", StringComparison.OrdinalIgnoreCase))) {
+                _headProgramStatus = _lastRx;
             } else if (_lastRx.StartsWith("ERR|HEAD_ACTION", StringComparison.OrdinalIgnoreCase)) {
                 _headProgramStatus = _lastRx;
             } else if (_lastRx.StartsWith("OK|HEAD_ACTION|", StringComparison.OrdinalIgnoreCase)) {
@@ -986,6 +993,92 @@
         return group.IsPinOn(pinIndex) ? "j-pin on" : "j-pin";
     }
 
+    private bool IsJRunning(int jIndex)
+    {
+        return jIndex >= 1 && jIndex <= _jRunTokens.Length && _jRunTokens[jIndex - 1] != null;
+    }
+
+    private string JRunButtonClass(int jIndex)
+    {
+        return IsJRunning(jIndex) ? "mini-btn run active" : "mini-btn run";
+    }
+
+    private void StartAllJAnimations()
+    {
+        for (int j = 1; j <= _jGroups.Count; j++) {
+            StartJAnimation(j);
+        }
+    }
+
+    private void StartJAnimation(int jIndex)
+    {
+        if (jIndex < 1 || jIndex > _jGroups.Count) {
+            return;
+        }
+
+        StopJAnimation(jIndex, restore: false);
+
+        int index = jIndex - 1;
+        CabezalJGroupTarjetas group = _jGroups[index];
+        _jRunPreviousRegisters[index] = group.Register;
+
+        CancellationTokenSource cts = new();
+        _jRunTokens[index] = cts;
+        _ = RunJAnimationLoopAsync(group, cts.Token);
+    }
+
+    private bool StopJAnimation(int jIndex, bool restore = true)
+    {
+        if (jIndex < 1 || jIndex > _jGroups.Count) {
+            return false;
+        }
+
+        int index = jIndex - 1;
+        CancellationTokenSource? cts = _jRunTokens[index];
+        bool wasRunning = cts != null;
+
+        if (cts != null) {
+            cts.Cancel();
+            cts.Dispose();
+            _jRunTokens[index] = null;
+        }
+
+        if (restore && wasRunning) {
+            _jGroups[index].Register = _jRunPreviousRegisters[index];
+        }
+
+        return wasRunning;
+    }
+
+    private void StopAllJAnimations(bool restore = true)
+    {
+        for (int j = 1; j <= _jGroups.Count; j++) {
+            StopJAnimation(j, restore);
+        }
+    }
+
+    private async Task RunJAnimationLoopAsync(CabezalJGroupTarjetas group, CancellationToken cancellationToken)
+    {
+        int step = 0;
+
+        try {
+            while (!cancellationToken.IsCancellationRequested) {
+                await Task.Delay(120, cancellationToken);
+                int pin = (step % 8) + 1;
+
+                await InvokeAsync(() =>
+                {
+                    group.Register = 0xFF;
+                    group.SetPin(pin, true);
+                    StateHasChanged();
+                });
+
+                step++;
+            }
+        } catch (OperationCanceledException) {
+        }
+    }
+
     private string TraceDirectionClass(string direction)
     {
         return $"trace-dir {direction.ToLowerInvariant()}";
@@ -1050,6 +1143,7 @@
     private void ResetHeadVisualStateToNeutral()
     {
         StopAllMotorRuns();
+        StopAllJAnimations(restore: false);
 
         foreach (CabezalMotorTarjetas motor in _denMotors) {
             motor.Position = 0;
@@ -1092,5 +1186,6 @@
         EmergencyStop.StateChanged -= OnEmergencyStateChanged;
         EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
         StopAllMotorRuns();
+        StopAllJAnimations(restore: false);
     }
 }

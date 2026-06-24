@@ -237,7 +237,7 @@ public sealed class CardSystemForm : Form
         services.AddSingleton<IHeadStateEventParser, HeadStateEventParser>();
         services.AddSingleton<IEmergencyStopService>(_emergencyStopService);
         services.AddScoped<IServoDashboardTarjetasCommandService, ServoDashboardTarjetasCommandService>();
-        services.AddScoped<ICabezalDashboardTarjetasCommandService, CabezalDashboardTarjetasCommandService>();
+        services.AddScoped<ICabezalDashboardTarjetasCommandService, FastDashboardCommandService>();
 
         _blazorServices = services.BuildServiceProvider();
         _blazorWebView.HostPage = @"wwwroot\index-card-system-shell.html";

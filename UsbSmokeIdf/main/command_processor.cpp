@@ -8,8 +8,7 @@
 
 #include "command_processor.h"
 #include "line_codec.h"
-#include "file_transfer.h"
-#include "command_head_program_runner.h"
+#include "head_state_manager.h"
 
 // [ACURATEX] Este archivo es el clasificador central de lineas.
 // Recibe texto ya separado por un transporte y decide si es comando simple,
@@ -267,17 +266,8 @@ static esp_err_t app_process_frame_command(const char *line, app_reply_fn_t repl
  */
 static esp_err_t app_process_text_command(const char *line, app_reply_fn_t reply, void *ctx, const app_command_env_t *env)
 {
-    ESP_LOGI(TAG, "TXT RX [%s]: %s", app_transport_name(env), line);
-
-    if (env->text_input != NULL) {
-        // [C/C++] text_input es un puntero a funcion provisto por app_main.
-        // Permite redirigir este caso sin que el parser conozca la implementacion.
-        return env->text_input(line, reply, ctx);
-    }
-
-    char response[160];
-    snprintf(response, sizeof(response), "ACK TXT %s", line);
-    return reply(response, ctx);
+    ESP_LOGW(TAG, "CMD UNKNOWN [%s]: %s", app_transport_name(env), line);
+    return reply("ERR unknown command", ctx);
 }
 
 /**
@@ -318,6 +308,129 @@ static long long app_now_ms(void)
     return (long long)(esp_timer_get_time() / 1000LL);
 }
 
+static bool app_parse_index_value_command(const char *line,
+                                          const char *prefix,
+                                          int *index_out,
+                                          int *value_out)
+{
+    int index = 0;
+    int value = 0;
+    char extra = '\0';
+
+    if (line == NULL || prefix == NULL) {
+        return false;
+    }
+
+    size_t prefix_len = strlen(prefix);
+    if (strncasecmp(line, prefix, prefix_len) != 0) {
+        return false;
+    }
+
+    if (sscanf(line + prefix_len, "%d|%d%c", &index, &value, &extra) != 2) {
+        return false;
+    }
+
+    if (index <= 0 || value < 0 || value > 0xFFFF) {
+        return false;
+    }
+
+    if (index_out != NULL) {
+        *index_out = index;
+    }
+    if (value_out != NULL) {
+        *value_out = value;
+    }
+    return true;
+}
+
+static esp_err_t app_handle_short_position_command(const char *line,
+                                                   const char *prefix,
+                                                   int max_index,
+                                                   int motor_index,
+                                                   app_reply_fn_t reply,
+                                                   void *ctx,
+                                                   const app_command_env_t *env)
+{
+    int index = 0;
+    int value = 0;
+
+    if (!app_parse_index_value_command(line, prefix, &index, &value)) {
+        return reply("ERR posicion invalida", ctx);
+    }
+
+    if (index < 1 || index > max_index) {
+        return reply("ERR posicion invalida", ctx);
+    }
+
+    char frame[64];
+    int physical_index = motor_index + (index - 1);
+    snprintf(frame, sizeof(frame),
+             "320 1C %02X %02X %02X",
+             physical_index & 0xFF,
+             value & 0xFF,
+             (value >> 8) & 0xFF);
+    return app_process_frame_command(frame, reply, ctx, env);
+}
+
+static esp_err_t app_handle_j_short_command(const char *line,
+                                            app_reply_fn_t reply,
+                                            void *ctx,
+                                            const app_command_env_t *env)
+{
+    int bus = (env->active_bus == APP_CMD_CAN_BUS_NONE) ? APP_CMD_CAN_BUS_1 : env->active_bus;
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strcasecmp(line, "j_run_all") == 0) {
+        for (uint8_t j = 1; j <= APP_HEAD_STATE_MAX_J; ++j) {
+            if (!app_head_state_manager_start_j_run(j, bus, now_ms)) {
+                return reply("ERR|J_RUN_ALL", ctx);
+            }
+        }
+
+        ESP_LOGI(TAG, "FW_RX|J_RUN_ALL");
+        return reply("OK j_run_all", ctx);
+    }
+
+    if (strcasecmp(line, "j_stop_all") == 0) {
+        app_head_state_manager_stop_all_j_runs();
+        ESP_LOGI(TAG, "FW_RX|J_STOP_ALL");
+        return reply("OK j_stop_all", ctx);
+    }
+
+    if (strncasecmp(line, "j_run_", 6) == 0) {
+        int instance = 0;
+        if (sscanf(line + 6, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|J_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_j_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|J_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK j_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|J_RUN|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "j_stop_", 7) == 0) {
+        int instance = 0;
+        if (sscanf(line + 7, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|J_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_j_run((uint8_t)instance)) {
+            return reply("ERR|J_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK j_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|J_STOP|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|J_CMD", ctx);
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion existe para que Core 0 pueda reconocer comandos fisicos sin
@@ -335,7 +448,8 @@ static long long app_now_ms(void)
  * linea sin prefijo parece trama CAN.
  *
  * [SALIDAS]
- * Devuelve true para HEAD_*, can1, can2, send y tramas CAN directas.
+ * Devuelve true para can1, can2, j_run_*, j_stop_*, den_pos_*, sic_pos_*,
+ * send y tramas CAN directas.
  *
  * [ESTADO QUE MODIFICA]
  * No modifica estado. Solo normaliza una copia local y consulta parsers.
@@ -373,11 +487,11 @@ bool app_command_line_is_physical(const char *incoming_line,
         return true;
     }
 
-    if (app_head_program_is_command(line)) {
-        return true;
-    }
-
-    if (strncasecmp(line, "send ", 5) == 0) {
+    if (strncasecmp(line, "j_run_", 6) == 0
+        || strncasecmp(line, "j_stop_", 7) == 0
+        || strncasecmp(line, "den_pos_", 8) == 0
+        || strncasecmp(line, "sic_pos_", 8) == 0
+        || strncasecmp(line, "send ", 5) == 0) {
         return true;
     }
 
@@ -429,7 +543,6 @@ esp_err_t app_command_process_line(const char *incoming_line,
                                    const app_command_env_t *env)
 {
     char line[192];
-    esp_err_t err;
 
     if (incoming_line == NULL || reply == NULL || env == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -447,38 +560,30 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), line);
 
-    // [ACURATEX] Comandos de vida. No cambian estado; confirman que el enlace y
-    // el procesador estan respondiendo.
     if (strcasecmp(line, "ping") == 0 || strcasecmp(line, "hello") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: ping", app_transport_name(env));
         ESP_LOGI(TAG, "FW_PING_RX|TIME=%lld|HEAD_STATE=%s",
                  app_now_ms(),
-                 app_head_program_runner_state_name());
+                 "FAST");
         ESP_LOGI(TAG, "FW_PONG_TX|TIME=%lld|HEAD_STATE=%s",
                  app_now_ms(),
-                 app_head_program_runner_state_name());
+                 "FAST");
         return reply("PONG", ctx);
     }
 
-    // [ACURATEX] Respuesta de ayuda textual. El texto forma parte del contrato
-    // esperado por herramientas humanas o app.
     if (strcasecmp(line, "help") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: help", app_transport_name(env));
-        return reply("OK cmds: ping,status,can1,can2,send <hex>,<hex line>,start,stop,testeo,FILE_*,HEAD_*", ctx);
+        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,j_run_#,j_stop_#,j_run_all,j_stop_all,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
     }
 
-    // [ACURATEX] status resume transportes y CAN usando el entorno actual.
     if (strcasecmp(line, "status") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: status", app_transport_name(env));
         return app_send_status(reply, ctx, env);
     }
 
-    // [ACURATEX] can1/can2 seleccionan el bus logico usado por futuras tramas.
-    // No reinstalan TWAI ni cambian pines: actualizan el selector del driver.
     if (strcasecmp(line, "can1") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_select CAN1", app_transport_name(env));
-        err = env->can_select_bus(APP_CMD_CAN_BUS_1);
-        if (err != ESP_OK) {
+        if (env->can_select_bus(APP_CMD_CAN_BUS_1) != ESP_OK) {
             return reply("ERR no se pudo activar CAN1", ctx);
         }
         return reply("OK CAN1", ctx);
@@ -486,66 +591,62 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "can2") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_select CAN2", app_transport_name(env));
-        err = env->can_select_bus(APP_CMD_CAN_BUS_2);
-        if (err != ESP_OK) {
+        if (env->can_select_bus(APP_CMD_CAN_BUS_2) != ESP_OK) {
             return reply("ERR no se pudo activar CAN2", ctx);
         }
         return reply("OK CAN2", ctx);
     }
 
-    // [ACURATEX] Comandos simples conservados como ACK. No se reinterpretan en
-    // esta fase porque cambiarian protocolo.
-    if (strcasecmp(line, "start") == 0) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: start", app_transport_name(env));
-        return reply("ACK start", ctx);
-    }
-
-    if (strcasecmp(line, "stop") == 0) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
-        return reply("ACK stop", ctx);
+    if (strcasecmp(line, "init") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: init", app_transport_name(env));
+        (void)app_head_state_manager_init();
+        return reply("OK init", ctx);
     }
 
     if (strcasecmp(line, "testeo") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: testeo", app_transport_name(env));
-        return reply("ACK testeo", ctx);
+        return reply("OK testeo", ctx);
     }
 
-    // [ACURATEX] HEAD_* se evalua antes que FILE_* y antes que CAN textual.
-    // Ese orden evita que comandos de cabezal caigan al handler generico.
-    if (app_head_program_is_command(line)) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: head_program", app_transport_name(env));
-        return app_head_program_process_line(line, reply, ctx, env);
+    if (strcasecmp(line, "start") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: start", app_transport_name(env));
+        return reply("OK start", ctx);
     }
 
-    // [ACURATEX] FILE_* se procesa aqui, pero el detalle de LittleFS queda en
-    // file_transfer.cpp. La respuesta se guarda en un buffer local y luego se
-    // envia por el transporte original, igual que cualquier ACK/ERR de comando.
-    if (app_file_transfer_is_command(line)) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: file_transfer", app_transport_name(env));
-        char response[192];
-        err = app_file_transfer_process_line(line, response, sizeof(response));
-        if (err != ESP_OK) {
-            return err;
-        }
-        return reply(response, ctx);
+    if (strcasecmp(line, "stop") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
+        app_head_state_manager_stop_all_j_runs();
+        return reply("OK stop", ctx);
     }
 
-    // [ACURATEX] `send ` fuerza que el resto de la linea sea interpretado como
-    // trama CAN aunque no sea el primer caso de clasificacion. El prefijo no se
-    // pasa al parser; el parser recibe solamente ID y bytes.
+    if (strcasecmp(line, "j_run_all") == 0
+        || strcasecmp(line, "j_stop_all") == 0
+        || strncasecmp(line, "j_run_", 6) == 0
+        || strncasecmp(line, "j_stop_", 7) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: j_short", app_transport_name(env));
+        return app_handle_j_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "den_pos_", 8) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: den_pos", app_transport_name(env));
+        return app_handle_short_position_command(line, "den_pos_", 8, 0, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "sic_pos_", 8) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: sic_pos", app_transport_name(env));
+        return app_handle_short_position_command(line, "sic_pos_", 2, 0x08, reply, ctx, env);
+    }
+
     if (strncasecmp(line, "send ", 5) == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_send explicit", app_transport_name(env));
         return app_process_frame_command(line + 5, reply, ctx, env);
     }
 
-    // [ACURATEX] Tambien se acepta una trama CAN directa, por ejemplo una linea
-    // de ID y bytes hexadecimales sin prefijo.
     if (app_looks_like_frame(line, env)) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_frame", app_transport_name(env));
         return app_process_frame_command(line, reply, ctx, env);
     }
 
-    // [ACURATEX] Ultimo caso: texto que no coincide con ningun comando conocido.
     ESP_LOGI(TAG, "CMD CLASS [%s]: text_passthrough", app_transport_name(env));
     return app_process_text_command(line, reply, ctx, env);
 }

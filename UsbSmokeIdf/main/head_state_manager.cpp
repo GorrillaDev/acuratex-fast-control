@@ -8,6 +8,8 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 
+#include "app_rtos_types.h"
+
 // [ESP-IDF] TAG se imprime en ESP_LOGW/ESP_LOGI para identificar que el mensaje
 // viene del gestor de estado del cabezal.
 static const char *TAG = "head_state";
@@ -1019,6 +1021,10 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
 
     for (size_t i = 0; i < pending_count; ++i) {
         const app_head_j_run_step_t *step = &pending[i];
+        if (FAST_PERF_LOG && step->index == 0) {
+            int32_t delta_ms = (int32_t)(now_ms - step->next_due_ms);
+            ESP_LOGI(TAG, "[FAST] J1 tick delta_ms=%ld", (long)delta_ms);
+        }
         // [ACURATEX] `mask` selecciona el bit fisico del canal actual.
         uint8_t mask = (uint8_t)(1U << step->bit);
         // [ACURATEX] Activo-bajo: encender = poner bit fisico en 0; apagar =

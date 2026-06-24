@@ -1,11 +1,14 @@
+#include <inttypes.h>
 #include <string.h>
 #include <strings.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include "app_rtos_types.h"
 #include "head_runtime.h"
 #include "line_codec.h"
 #include "reply_dispatcher.h"
@@ -15,6 +18,7 @@ typedef struct
     app_transport_type_t transport;
     uint32_t session_id;
     bool usb_mounted;
+    uint64_t enqueue_us;
     char line[APP_COMMAND_MAX_LINE_LENGTH];
 } app_head_command_message_t;
 
@@ -42,8 +46,8 @@ static void app_head_runtime_update_high_water(void)
 
 /**
  * [POR QUE EXISTE]
- * Esta funcion identifica comandos de parada que no deben esperar detras de la
- * cola normal de comandos fisicos.
+ * Esta funcion identifica comandos de parada cortos que no deben esperar
+ * detras de la cola normal de comandos.
  *
  * [QUIEN LA LLAMA]
  * La llama app_head_runtime_enqueue() antes de decidir entre xQueueSend() y
@@ -56,7 +60,8 @@ static void app_head_runtime_update_high_water(void)
  * Recibe la linea ya copiada desde el transporte.
  *
  * [SALIDAS]
- * Devuelve true para HEAD_STOP y HEAD_ACTION|Jx.STOP.
+ * Devuelve true para stop, j_stop_*, y tambien conserva compatibilidad con los
+ * prefijos antiguos mientras se retiran del flujo operativo.
  *
  * [ESTADO QUE MODIFICA]
  * No modifica estado; trabaja sobre una copia local para poder recortar CR/LF.
@@ -65,7 +70,7 @@ static void app_head_runtime_update_high_water(void)
  * No bloquea ni toma mutex.
  *
  * [FLUJO ACURATEX]
- * App -> HEAD_STOP/Jx.STOP -> cola al frente -> runner/HeadStateManager.
+ * App -> STOP/J_STOP -> cola al frente -> control_task/HeadStateManager.
  *
  * [EQUIVALENCIA MCU]
  * Es una clasificacion de prioridad, similar a tratar STOP como evento urgente.
@@ -85,7 +90,15 @@ static bool app_head_runtime_is_priority_stop(const char *line)
     strlcpy(clean, line, sizeof(clean));
     app_trim_line(clean);
 
-    if (strcasecmp(clean, "HEAD_STOP") == 0)
+    if (strcasecmp(clean, "HEAD_STOP") == 0
+        || strcasecmp(clean, "stop") == 0
+        || strcasecmp(clean, "j_stop_all") == 0
+        || strncasecmp(clean, "j_stop_", 7) == 0
+        || strcasecmp(clean, "y_stop_all") == 0
+        || strncasecmp(clean, "y1_stop", 7) == 0
+        || strncasecmp(clean, "y2_stop", 7) == 0
+        || strcasecmp(clean, "s_stop_all") == 0
+        || strncasecmp(clean, "s_stop_", 7) == 0)
     {
         return true;
     }
@@ -164,6 +177,18 @@ static void app_head_control_task(void *arg)
         if (s_env_builder != NULL)
         {
             s_env_builder(&env, message.usb_mounted);
+        }
+
+        if (FAST_PERF_LOG)
+        {
+            uint64_t now_us = (uint64_t)esp_timer_get_time();
+            uint64_t latency_us = (message.enqueue_us == 0ULL || now_us < message.enqueue_us)
+                ? 0ULL
+                : (now_us - message.enqueue_us);
+            ESP_LOGI(TAG,
+                     "[FAST] EXEC command=%s latency_us=%" PRIu64,
+                     message.line,
+                     latency_us);
         }
 
         app_reply_route_t route = {
@@ -258,6 +283,7 @@ esp_err_t app_head_runtime_enqueue(app_transport_type_t transport,
     message.transport = transport;
     message.session_id = session_id;
     message.usb_mounted = usb_mounted;
+    message.enqueue_us = (uint64_t)esp_timer_get_time();
     strlcpy(message.line, line, sizeof(message.line));
 
     bool priority_stop = app_head_runtime_is_priority_stop(message.line);
@@ -299,6 +325,13 @@ esp_err_t app_head_runtime_enqueue(app_transport_type_t transport,
     }
 
     app_head_runtime_update_high_water();
+    if (FAST_PERF_LOG)
+    {
+        ESP_LOGI(TAG,
+                 "[FAST] QUEUED us=%" PRIu64 "|LINE=%s",
+                 message.enqueue_us,
+                 message.line);
+    }
     return ESP_OK;
 }
 

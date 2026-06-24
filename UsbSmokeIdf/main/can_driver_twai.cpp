@@ -8,10 +8,12 @@
 #define CONFIG_TWAI_SUPPRESS_DEPRECATE_WARN 1
 #include "driver/twai.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include "app_rtos_types.h"
 #include "can_driver_twai.h"
 
 // [ESP-IDF] TAG identifica en los logs que el mensaje pertenece al driver CAN.
@@ -39,6 +41,7 @@ typedef struct
     uint8_t data[8];
     uint8_t length;
     uint32_t request_id;
+    uint64_t enqueue_us;
     TaskHandle_t requester;
 } app_can_tx_request_t;
 
@@ -250,8 +253,9 @@ static esp_err_t app_can_transmit_now(const app_can_tx_request_t *request)
         memcpy(message.data, request->data, request->length);
     }
 
-    // [FREERTOS] pdMS_TO_TICKS(50) conserva el timeout original de TWAI.
-    esp_err_t err = twai_transmit(&message, pdMS_TO_TICKS(50));
+    // [ACURATEX] Timeout corto para no retener el worker; el comando ya fue
+    // aceptado en cola y no debe bloquear la recepcion de nuevas ordenes.
+    esp_err_t err = twai_transmit(&message, pdMS_TO_TICKS(5));
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "CAN TX ERROR id=0x%03" PRIX32 " err=%s",
@@ -323,13 +327,7 @@ static void app_can_tx_task(void *arg)
         }
 
         app_can_tx_update_high_water();
-        esp_err_t err = app_can_transmit_now(&request);
-        if (request.requester != NULL)
-        {
-            (void)xTaskNotify(request.requester,
-                              (uint32_t)err,
-                              eSetValueWithOverwrite);
-        }
+        (void)app_can_transmit_now(&request);
     }
 }
 
@@ -609,8 +607,8 @@ esp_err_t app_can_select_bus(int bus)
  * Encola una solicitud copiada y espera el resultado de la tarea CAN.
  *
  * [CONCURRENCIA]
- * Puede bloquear esperando que can_tx notifique el resultado. TWAI conserva su
- * timeout interno de 50 ms dentro de app_can_transmit_now().
+ * Solo puede bloquear brevemente mientras la cola CAN acepta la solicitud.
+ * La ejecucion fisica ocurre en la tarea can_tx y no se espera su resultado.
  *
  * [FLUJO ACURATEX]
  * App/TXT/RUN -> ID/DLC/DATA -> app_can_tx_queue -> can_tx -> twai_transmit.
@@ -624,9 +622,7 @@ esp_err_t app_can_select_bus(int bus)
 esp_err_t app_can_send_standard(int bus, uint32_t id, const uint8_t *data, size_t len)
 {
     char data_hex[48];
-    esp_err_t err;
     app_can_tx_request_t request = {};
-    uint32_t notify_value = 0;
 
     // [ACURATEX] El firmware acepta solo tramas CAN estandar: ID de 11 bits
     // hasta 0x7FF y DLC clasico hasta 8 bytes.
@@ -661,18 +657,14 @@ esp_err_t app_can_send_standard(int bus, uint32_t id, const uint8_t *data, size_
     request.bus = bus;
     request.id = id;
     request.length = static_cast<uint8_t>(len);
-    request.requester = xTaskGetCurrentTaskHandle();
+    request.enqueue_us = (uint64_t)esp_timer_get_time();
     request.request_id = ++s_can_tx_request_id;
     if (len > 0)
     {
         memcpy(request.data, data, len);
     }
 
-    // [FREERTOS] Se limpia cualquier notificacion previa de esta tarea antes de
-    // esperar la respuesta del request actual.
-    (void)xTaskNotifyWait(0, ULONG_MAX, &notify_value, 0);
-
-    if (xQueueSend(s_can_tx_queue, &request, pdMS_TO_TICKS(50)) != pdTRUE)
+    if (xQueueSend(s_can_tx_queue, &request, 0) != pdTRUE)
     {
         s_can_tx_queue_drops++;
         ESP_LOGE(TAG, "CAN TX ERROR id=0x%03" PRIX32 " err=%s",
@@ -686,16 +678,14 @@ esp_err_t app_can_send_standard(int bus, uint32_t id, const uint8_t *data, size_
     }
 
     app_can_tx_update_high_water();
-
-    // [FREERTOS] can_tx notificara a esta misma tarea cuando twai_transmit()
-    // termine. El timeout fisico sigue siendo el de TWAI dentro del worker.
-    if (xTaskNotifyWait(0, ULONG_MAX, &notify_value, portMAX_DELAY) != pdTRUE)
+    if (FAST_PERF_LOG)
     {
-        return ESP_ERR_TIMEOUT;
+        ESP_LOGI(TAG,
+                 "[FAST] CAN id=0x%03" PRIX32 " enqueue_us=%llu",
+                 id,
+                 (unsigned long long)request.enqueue_us);
     }
-
-    err = (esp_err_t)notify_value;
-    return err;
+    return ESP_OK;
 }
 
 /**

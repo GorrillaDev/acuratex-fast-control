@@ -543,6 +543,14 @@ static esp_err_t app_enqueue_command_from_transport(app_transport_type_t transpo
                                        pdMS_TO_TICKS(20));
 }
 
+static void app_fast_log_rx_line(const char *line)
+{
+    if (FAST_PERF_LOG && line != NULL)
+    {
+        ESP_LOGI(TAG, "[FAST] RX command=%s", line);
+    }
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion conserva el contrato text_input de app_command_env_t aunque el
@@ -567,7 +575,7 @@ static esp_err_t app_enqueue_command_from_transport(app_transport_type_t transpo
  * No bloquea por si misma; puede bloquear si el callback reply toma un mutex.
  *
  * [FLUJO ACURATEX]
- * command_processor -> app_text_input_stub -> reply del transporte.
+ * command_processor -> reply del transporte.
  *
  * [EQUIVALENCIA MCU]
  * Equivale a una funcion de eco usada para mantener una interfaz conectada.
@@ -576,15 +584,6 @@ static esp_err_t app_enqueue_command_from_transport(app_transport_type_t transpo
  * La estructura de entorno no podria llenar el puntero text_input con una
  * funcion valida desde app_main.
  */
-static esp_err_t app_text_input_stub(const char *text, app_reply_fn_t reply, void *ctx)
-{
-    char response[160];
-    snprintf(response, sizeof(response), "ACK TXT %s", text);
-    // [C/C++] reply es un puntero a funcion. Permite que este codigo responda
-    // por USB, UART o TCP sin conocer el transporte concreto.
-    return reply(response, ctx);
-}
-
 /**
  * [POR QUE EXISTE]
  * Esta funcion envia el banner inicial de USB para avisar a la aplicacion que
@@ -719,7 +718,7 @@ static void app_fill_command_env(app_command_env_t *env, bool usb_mounted)
         // llama sin saber que implementacion concreta hay detras.
         .can_select_bus = app_can_select_bus,
         .can_send_standard = app_can_send_standard,
-        .text_input = app_text_input_stub,
+        .text_input = nullptr,
         .reply_ctx_clone = app_reply_dispatcher_ctx_clone,
         .reply_ctx_release = app_reply_dispatcher_ctx_release,
         // [ACURATEX] El protocolo aqui se limita a tramas CAN estandar con DLC
@@ -852,6 +851,7 @@ static void app_handle_uart_line(char *line)
     }
 
     ESP_LOGI(TAG, "RX UART rescate: %s", line);
+    app_fast_log_rx_line(line);
 
     esp_err_t err = app_enqueue_command_from_transport(APP_TRANSPORT_UART,
                                                        APP_UART_SESSION_ID,
@@ -1006,6 +1006,7 @@ static esp_err_t app_handle_tcp_line(const char *line,
                                             pdMS_TO_TICKS(20));
     }
 
+    app_fast_log_rx_line(line);
     return app_enqueue_command_from_transport(APP_TRANSPORT_TCP, session_id, line);
 }
 
@@ -1048,7 +1049,7 @@ static void app_head_scheduler_task(void *arg)
 {
     (void)arg;
 
-    const TickType_t period = pdMS_TO_TICKS(10);
+    const TickType_t period = pdMS_TO_TICKS(1);
     TickType_t last_wake = xTaskGetTickCount();
     uint32_t samples = 0;
     uint32_t late_ticks = 0;
@@ -1056,7 +1057,7 @@ static void app_head_scheduler_task(void *arg)
     uint64_t lateness_sum_ms = 0;
 
     ESP_LOGI(TAG,
-             "[RTOS] head_scheduler core=%d priority=%u stack=4096 period_ms=10",
+             "[RTOS] head_scheduler core=%d priority=%u stack=4096 period_ms=1",
              xPortGetCoreID(),
              7U);
 
@@ -1086,7 +1087,7 @@ static void app_head_scheduler_task(void *arg)
         {
             uint32_t avg_lateness_ms = (uint32_t)(lateness_sum_ms / samples);
             ESP_LOGI(TAG,
-                     "[HEAD TICK] period_ms=10 max_lateness_ms=%u avg_lateness_ms=%u late_ticks=%u samples=%u",
+                     "[HEAD TICK] period_ms=1 max_lateness_ms=%u avg_lateness_ms=%u late_ticks=%u samples=%u",
                      (unsigned)max_lateness_ms,
                      (unsigned)avg_lateness_ms,
                      (unsigned)late_ticks,
@@ -1190,6 +1191,7 @@ static void app_usb_rx_task(void *arg)
             if (line[0] != '\0')
             {
                 ESP_LOGI(TAG, "RX USB: %s", line);
+                app_fast_log_rx_line(line);
                 esp_err_t err = app_enqueue_command_from_transport(APP_TRANSPORT_USB,
                                                                    s_usb_session_id,
                                                                    line);
@@ -1258,11 +1260,9 @@ static void app_command_dispatch_task(void *arg)
             .transport = message.transport,
             .session_id = message.session_id,
         };
-        app_command_env_t env;
         bool usb_active = message.transport == APP_TRANSPORT_USB
             ? true
             : acuratex_usb_bridge_is_mounted();
-        app_fill_command_env(&env, usb_active);
 
         ESP_LOGI(TAG,
                  "COMMAND_DISPATCH|TRANSPORT=%d|SESSION=%u|LINE=%s",
@@ -1270,30 +1270,19 @@ static void app_command_dispatch_task(void *arg)
                  (unsigned)message.session_id,
                  message.line);
 
-        esp_err_t err = ESP_OK;
-        if (app_command_line_is_physical(message.line, &env))
+        esp_err_t err = app_head_runtime_enqueue(message.transport,
+                                                 message.session_id,
+                                                 message.line,
+                                                 usb_active,
+                                                 0);
+        if (err == ESP_OK)
         {
-            err = app_head_runtime_enqueue(message.transport,
-                                           message.session_id,
-                                           message.line,
-                                           usb_active,
-                                           pdMS_TO_TICKS(50));
-            if (err != ESP_OK)
-            {
-                (void)app_reply_dispatcher_reply("ERR command queue full", &route);
-            }
+            (void)app_reply_dispatcher_reply("QUEUED", &route);
+            continue;
         }
-        else
-        {
-            err = app_command_process_line(message.line,
-                                           app_reply_dispatcher_reply,
-                                           &route,
-                                           &env);
-        }
-        if (err != ESP_OK)
-        {
-            ESP_LOGW(TAG, "command_dispatch fallo: %s", esp_err_to_name(err));
-        }
+
+        (void)app_reply_dispatcher_reply("ERR command queue full", &route);
+        ESP_LOGW(TAG, "command_dispatch fallo: %s", esp_err_to_name(err));
     }
 }
 
@@ -1594,12 +1583,9 @@ extern "C" void app_main(void)
         }
     }
 
-    // [ACURATEX] Inicializa LittleFS/protocolo FILE_* para que los programas TXT
-    // y wifi.txt puedan usarse durante la operacion normal.
-    app_file_transfer_init();
-    // [ACURATEX] Prepara el runner de programas de cabezal: estado interno,
-    // mutex y datos necesarios para HEAD_*.
-    app_head_program_runner_init();
+    // [ACURATEX] Inicializa el estado rapido del cabezal antes de aceptar
+    // comandos cortos RUN/STOP y el scheduler fisico J.
+    app_head_state_manager_init();
     // [FREERTOS] Los mutex de respuesta se crean despues de inicializar los
     // modulos que pueden reportar estado, pero antes de procesar comandos.
     app_reply_mutexes_init();
