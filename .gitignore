@@ -8,3 +8,5 @@
 *.suo
 *.tmp
 *.log
+
+UsbSmokeIdf/managed_components/
