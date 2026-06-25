@@ -1049,7 +1049,7 @@ static void app_head_scheduler_task(void *arg)
 {
     (void)arg;
 
-    const TickType_t period = pdMS_TO_TICKS(1);
+    const TickType_t period = pdMS_TO_TICKS(10);
     TickType_t last_wake = xTaskGetTickCount();
     uint32_t samples = 0;
     uint32_t late_ticks = 0;
@@ -1057,7 +1057,7 @@ static void app_head_scheduler_task(void *arg)
     uint64_t lateness_sum_ms = 0;
 
     ESP_LOGI(TAG,
-             "[RTOS] head_scheduler core=%d priority=%u stack=4096 period_ms=1",
+             "[RTOS] head_scheduler core=%d priority=%u stack=4096 period_ms=10",
              xPortGetCoreID(),
              7U);
 
@@ -1087,7 +1087,7 @@ static void app_head_scheduler_task(void *arg)
         {
             uint32_t avg_lateness_ms = (uint32_t)(lateness_sum_ms / samples);
             ESP_LOGI(TAG,
-                     "[HEAD TICK] period_ms=1 max_lateness_ms=%u avg_lateness_ms=%u late_ticks=%u samples=%u",
+                     "[HEAD TICK] period_ms=10 max_lateness_ms=%u avg_lateness_ms=%u late_ticks=%u samples=%u",
                      (unsigned)max_lateness_ms,
                      (unsigned)avg_lateness_ms,
                      (unsigned)late_ticks,
