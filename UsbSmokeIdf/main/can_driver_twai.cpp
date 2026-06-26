@@ -14,6 +14,9 @@
 #include "freertos/task.h"
 
 #include "app_rtos_types.h"
+#include "acuratex_usb_bridge.h"
+#include "reply_dispatcher.h"
+#include "tcp_server.h"
 #include "can_driver_twai.h"
 
 // [ESP-IDF] TAG identifica en los logs que el mensaje pertenece al driver CAN.
@@ -31,6 +34,8 @@ static bool s_driver_started = false;
 // [ACURATEX] Bus logico seleccionado por `can1`/`can2`. El ESP32-S3 usa un solo
 // controlador TWAI; esta variable conserva la semantica de protocolo.
 static int s_selected_bus = 1;
+uint32_t app_usb_get_active_session_id(void);
+uint32_t app_tcp_server_get_active_session_id(void);
 
 #define APP_CAN_TX_QUEUE_LENGTH 16
 
@@ -50,6 +55,11 @@ static TaskHandle_t s_can_tx_task_handle = NULL;
 static uint32_t s_can_tx_request_id = 0;
 static uint32_t s_can_tx_queue_drops = 0;
 static uint32_t s_can_tx_queue_high_water = 0;
+
+#define APP_CAN_RX_QUEUE_LENGTH 32
+static QueueHandle_t s_can_rx_queue = NULL;
+static TaskHandle_t s_can_rx_task_handle = NULL;
+static uint32_t s_can_rx_queue_drops = 0;
 
 /**
  * [POR QUE EXISTE]
@@ -331,6 +341,198 @@ static void app_can_tx_task(void *arg)
     }
 }
 
+static bool app_can_rx_route_to_active_transport(app_reply_route_t *route)
+{
+    if (route == NULL)
+    {
+        return false;
+    }
+
+    if (acuratex_usb_bridge_is_mounted())
+    {
+        uint32_t session_id = app_usb_get_active_session_id();
+        if (session_id == 0U)
+        {
+            return false;
+        }
+
+        route->transport = APP_TRANSPORT_USB;
+        route->session_id = session_id;
+        return true;
+    }
+
+    if (app_tcp_server_is_running())
+    {
+        uint32_t session_id = app_tcp_server_get_active_session_id();
+        if (session_id == 0U)
+        {
+            return false;
+        }
+
+        route->transport = APP_TRANSPORT_TCP;
+        route->session_id = session_id;
+        return true;
+    }
+
+    return false;
+}
+
+static void app_can_format_rx_line(const app_can_rx_event_t *event, char *out, size_t out_len)
+{
+    char data_hex[32];
+    const char *bus_name = "CAN1";
+
+    if (out == NULL || out_len == 0)
+    {
+        return;
+    }
+
+    out[0] = '\0';
+    if (event == NULL)
+    {
+        return;
+    }
+
+    bus_name = (event->bus == 2) ? "CAN2" : "CAN1";
+    app_can_format_data_hex(event->data, event->dlc, data_hex, sizeof(data_hex));
+    snprintf(out,
+             out_len,
+             "CAN_RX|BUS=%s|ID=0x%03" PRIX32 "|DLC=%u|DATA=%s|TIME=%u",
+             bus_name,
+             event->id,
+             (unsigned)event->dlc,
+             event->dlc > 0 ? data_hex : "",
+             (unsigned)event->time_ms);
+}
+
+static esp_err_t app_can_publish_rx_event(const app_can_rx_event_t *event)
+{
+    app_reply_route_t route = {};
+    char line[160];
+    char data_hex[32];
+
+    if (event == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!app_can_rx_route_to_active_transport(&route))
+    {
+        s_can_rx_queue_drops++;
+        ESP_LOGW(TAG, "CAN_RX_EVENT_DROP|COUNT=%u|REASON=NO_ROUTE", (unsigned)s_can_rx_queue_drops);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    app_can_format_data_hex(event->data, event->dlc, data_hex, sizeof(data_hex));
+    ESP_LOGI(TAG,
+             "CAN_RX_EVENT|BUS=%s|ID=0x%03" PRIX32 "|DLC=%u|DATA=%s",
+             (event->bus == 2) ? "CAN2" : "CAN1",
+             event->id,
+             (unsigned)event->dlc,
+             event->dlc > 0 ? data_hex : "");
+
+    app_can_format_rx_line(event, line, sizeof(line));
+    esp_err_t err = app_reply_dispatcher_enqueue(route.transport, route.session_id, line, 0);
+    if (err != ESP_OK)
+    {
+        s_can_rx_queue_drops++;
+        ESP_LOGW(TAG,
+                 "CAN_RX_EVENT_DROP|COUNT=%u|REASON=%s",
+                 (unsigned)s_can_rx_queue_drops,
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    ESP_LOGI(TAG, "CAN_RX_EVENT_PUBLISHED|TRANSPORT=%d|SESSION=%u", (int)route.transport, (unsigned)route.session_id);
+    return ESP_OK;
+}
+
+static void app_can_rx_task(void *arg)
+{
+    (void)arg;
+
+    ESP_LOGI(TAG,
+             "[RTOS] can_rx core=%d priority=%u stack=4096 queue=%d",
+             xPortGetCoreID(),
+             7U,
+             APP_CAN_RX_QUEUE_LENGTH);
+
+    while (true)
+    {
+        twai_message_t rx = {};
+        esp_err_t err = twai_receive(&rx, portMAX_DELAY);
+        if (err != ESP_OK)
+        {
+            if (err != ESP_ERR_TIMEOUT)
+            {
+                ESP_LOGW(TAG, "CAN_RX_ERROR|ERR=%s", esp_err_to_name(err));
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        if (rx.extd || rx.rtr)
+        {
+            continue;
+        }
+
+        app_can_rx_event_t event = {};
+        event.bus = app_can_get_selected_bus();
+        event.id = rx.identifier;
+        event.dlc = rx.data_length_code;
+        if (event.dlc > 0)
+        {
+            memcpy(event.data, rx.data, event.dlc);
+        }
+        event.time_ms = (uint32_t)((uint64_t)esp_timer_get_time() / 1000ULL);
+
+        if (s_can_rx_queue != NULL && xQueueSend(s_can_rx_queue, &event, 0) != pdTRUE)
+        {
+            s_can_rx_queue_drops++;
+            ESP_LOGW(TAG, "CAN_RX_EVENT_DROP|COUNT=%u|REASON=QUEUE_FULL", (unsigned)s_can_rx_queue_drops);
+        }
+
+        (void)app_can_publish_rx_event(&event);
+    }
+}
+
+static esp_err_t app_can_rx_worker_start(void)
+{
+    if (s_can_rx_queue == NULL)
+    {
+        s_can_rx_queue = xQueueCreate(APP_CAN_RX_QUEUE_LENGTH, sizeof(app_can_rx_event_t));
+        if (s_can_rx_queue == NULL)
+        {
+            ESP_LOGE(TAG, "No se pudo crear cola CAN RX");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    if (s_can_rx_task_handle != NULL)
+    {
+        return ESP_OK;
+    }
+
+    BaseType_t ok = xTaskCreatePinnedToCore(app_can_rx_task,
+                                            "can_rx",
+                                            4096,
+                                            NULL,
+                                            7,
+                                            &s_can_rx_task_handle,
+                                            1);
+    if (ok != pdPASS)
+    {
+        s_can_rx_task_handle = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG,
+             "[RTOS] can_rx_queue length=%d item=%u bytes",
+             APP_CAN_RX_QUEUE_LENGTH,
+             (unsigned)sizeof(app_can_rx_event_t));
+    return ESP_OK;
+}
+
 static esp_err_t app_can_tx_worker_start(void)
 {
     if (s_can_tx_queue == NULL)
@@ -487,6 +689,19 @@ esp_err_t app_can_init(void)
         return err;
     }
 
+    err = app_can_rx_worker_start();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "CAN/TWAI RX TASK ERROR: %s", esp_err_to_name(err));
+        twai_stop();
+        twai_driver_uninstall();
+        s_driver_started = false;
+        s_driver_installed = false;
+        s_can_tx_task_handle = NULL;
+        app_can_enter_standby();
+        return err;
+    }
+
     ESP_LOGI(TAG, "CAN/TWAI INIT OK 1Mbps TX=4 RX=5 STBY=6");
     ESP_LOGI(TAG, "CAN_INIT_RESULT|INSTALL=%s|START=%s|STBY=%d",
              esp_err_to_name(install_err),
@@ -528,7 +743,7 @@ esp_err_t app_can_init(void)
  */
 bool app_can_is_started(void)
 {
-    if (!s_driver_installed || !s_driver_started || s_can_tx_queue == NULL || s_can_tx_task_handle == NULL) {
+    if (!s_driver_installed || !s_driver_started || s_can_tx_queue == NULL || s_can_tx_task_handle == NULL || s_can_rx_queue == NULL || s_can_rx_task_handle == NULL) {
         return false;
     }
 
@@ -719,6 +934,38 @@ esp_err_t app_can_send_standard(int bus, uint32_t id, const uint8_t *data, size_
  * [SI NO EXISTIERA]
  * El command_processor no podria aplicar la seleccion previa.
  */
+esp_err_t app_can_rx_receive(app_can_rx_event_t *event, TickType_t timeout)
+{
+    if (event == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (s_can_rx_queue == NULL)
+    {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (xQueueReceive(s_can_rx_queue, event, timeout) != pdTRUE)
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    return ESP_OK;
+}
+
+void app_can_rx_clear(void)
+{
+    if (s_can_rx_queue == NULL)
+    {
+        return;
+    }
+
+    app_can_rx_event_t discarded = {};
+    while (xQueueReceive(s_can_rx_queue, &discarded, 0) == pdTRUE)
+    {
+    }
+}
 int app_can_get_selected_bus(void)
 {
     return s_selected_bus;

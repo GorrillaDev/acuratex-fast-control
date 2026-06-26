@@ -343,6 +343,7 @@ public sealed class UnifiedSystemForm : Form, IUnifiedSystemShellHost
         services.AddSingleton(_authState);
         services.AddSingleton(_permissionService);
         services.AddSingleton<ICommandFileTransferService>(_ => new CommandFileTransferService(_connection));
+        services.AddSingleton<ITesterWifiConfigService>(_ => new TesterWifiConfigService(_connection));
         services.AddSingleton<IHeadProfileService, HeadProfileService>();
         services.AddSingleton<IAppScriptExecutionService, AppScriptExecutionService>();
         services.AddSingleton<IHeadStateEventParser, HeadStateEventParser>();

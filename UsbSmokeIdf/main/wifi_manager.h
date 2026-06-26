@@ -89,6 +89,10 @@ bool app_wifi_manager_load_settings(app_wifi_settings_t *settings,
                                     char *reason,
                                     size_t reason_size);
 
+bool app_wifi_manager_save_settings(const app_wifi_settings_t *settings,
+                                    char *reason,
+                                    size_t reason_size);
+
 /**
  * [POR QUE EXISTE]
  * Aplica SSID/PASS y arranca WiFi en modo STA solamente.

@@ -232,6 +232,8 @@ public sealed class CardSystemForm : Form
         services.AddSingleton(_authState);
         services.AddSingleton(_permissionService);
         services.AddSingleton<ICommandFileTransferService>(_ => new CommandFileTransferService(_connection));
+        services.AddSingleton<ITesterWifiConfigService>(_ => new TesterWifiConfigService(_connection));
+        services.AddSingleton<CanAlarmDetector>();
         services.AddSingleton<IHeadProfileService, HeadProfileService>();
         services.AddSingleton<IAppScriptExecutionService, AppScriptExecutionService>();
         services.AddSingleton<IHeadStateEventParser, HeadStateEventParser>();
@@ -334,3 +336,6 @@ public sealed class CardSystemForm : Form
         base.OnFormClosed(e);
     }
 }
+
+
+

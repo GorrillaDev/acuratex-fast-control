@@ -1,1350 +1,13581 @@
 @* [ACURATEX] Dashboard del cabezal para sistema modular.
+
+
+
+
+
+
+
    [FLUJO] UI modular -> callbacks -> servicios -> conexion -> firmware.
+
+
+
+
+
+
+
    [EQUIV MCU] Se parece al mismo tablero fisico con otra tabla de mapeo. *@
+
+
+
+
+
+
+
 @implements IDisposable
+
+
+
+
+
+
+
 @inject ICabezalDashboardTarjetasCommandService CommandService
+
+
+
+
+
+
+
 @inject IConnectionController Connection
+
+
+
+
+
+
+
 @inject PermissionService PermissionService
+
+
+
+
+
+
+
+@inject IJSRuntime JS
+
+
+
+
+
+
+
 @inject IHeadProfileService HeadProfileService
+
+
+
+
+
+
+
 @inject IHeadStateEventParser HeadStateEventParser
+
+
+
+
+
+
+
 @inject IEmergencyStopService EmergencyStop
 
+@inject CanAlarmDetector CanAlarmDetector
+
 <main class="cabezal-dashboard">
+
+
+
+
+
+
+
     @* [ACURATEX] La barra superior filtra programa activo, estado de emergencia y acciones globales. *@
+
+
+
+
+
+
+
     <section class="head-toolbar">
+
+
+
+
+
+
+
         <div class="head-program-selector">
+
+
+
+
+
+
+
             <label for="head-program-select-modular" class="head-program-selector-label">Programa de Cabezal</label>
+
+
+
+
+
+
+
             <div class="head-program-selector-row">
+
+
+
+
+
+
+
                 <select id="head-program-select-modular"
+
+
+
+
+
+
+
                         class="head-program-selector-input"
+
+
+
+
+
+
+
                         value="@(_selectedHeadProgramFile ?? string.Empty)"
+
+
+
+
+
+
+
                         @onchange="OnHeadProgramChangedAsync"
+
+
+
+
+
+
+
                         disabled="@(!CanChangeHeadProgram)">
+
+
+
+
+
+
+
                     <option value="">Seleccionar programa de cabezal...</option>
+
+
+
+
+
+
+
                     @foreach (HeadProgramInfo program in _headPrograms.Where(static item => item.IsValid))
+
+
+
+
+
+
+
                     {
+
+
+
+
+
+
+
                         <option value="@program.FileName">@program.DisplayName</option>
+
+
+
+
+
+
+
                     }
+
+
+
+
+
+
+
                 </select>
+
+
+
+
+
+
+
                 <button class="mini-btn" type="button" @onclick="RefreshHeadProgramsAsync" disabled="@(!CanRefreshHeadPrograms)">Actualizar</button>
+
+
+
+
+
+
+
             </div>
+
+
+
+
+
+
+
             <div class="head-program-selector-status">@_headProgramStatus</div>
+
+
+
+
+
+
+
         </div>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        <div class="can-rx-launcher">
+
+            <button class="mini-btn" type="button" @onclick="SendCheckAsync">CHECK</button>
+
+            <button class="primary can-rx-button" type="button" @onclick="OpenCanRxHistoryAsync">Ver CAN recibido (@CanRxHistoryCount)</button>
+
+            <button class="mini-btn" type="button" @onclick="OpenCanAlarmHistoryAsync">Historial de alertas (@CanAlarmHistoryCount)</button>
+
+            @if (_alarmHaltActive) {
+                <span class="alarm-halt-pill">HALT por alarma CAN</span>
+            }
+
+        </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                <button class="success" type="button" @onclick="SendTesteoAsync" disabled="@(_headTestBusy || IsHeadUiBlocked)">TESTEO</button>
+
+        <div class="head-test-state">
+            <div class="head-test-state-top">
+                <span class="head-test-state-label">TESTEO</span>
+                <span class="head-test-state-pill">@_headTestStatus</span>
+            </div>
+            <div class="head-test-state-message">@_headTestMessage</div>
+            @if (_headTestLastResult is not null)
+            {
+                <div class="head-test-state-detail">
+                    <div>@($"Hora: {_headTestLastResult.ReceivedAt:HH:mm:ss.fff} | Bus: {_headTestLastResult.Bus} | ID: 0x{_headTestLastResult.CanId:X3} | DLC: {_headTestLastResult.Dlc} | DATA: {FormatCanRxData(_headTestLastResult.Data)}")</div>
+                    <div>@($"Secuencia: {_headTestLastResult.FramesValue.Count} tramas | A1: {CountHeadTestFrames(_headTestLastResult, 0xA1)} | A2: {CountHeadTestFrames(_headTestLastResult, 0xA2)}")</div>
+                    <div>@($"Primer codigo util: {FormatHeadTestCode(GetHeadTestFirstCode(_headTestLastResult))} | Ultimo codigo util: {FormatHeadTestCode(GetHeadTestLastCode(_headTestLastResult))}")</div>
+                </div>
+            }
+
+            <div class="head-test-actions">
+                <button class="mini-btn" type="button" @onclick="OpenHeadTestDetailAsync" disabled="@(_headTestLastResult is null)">Ver detalle de TESTEO</button>
+            </div>
+        </div>
         @* [ACURATEX] Estos botones no tocan el hardware directamente: piden la intencion al servicio. *@
+
+
+
+
+
+
+
         <button class="success" type="button" disabled="@IsHeadUiBlocked" @onclick="SendInitAsync">INIT</button>
+
+
+
+
+
+
+
         <button class="danger" type="button" disabled="@IsHeadUiBlocked" @onclick="OffAllAsync">OFF ALL</button>
+
+
+
+
+
+
+
         <button class="success" type="button" disabled="@IsHeadUiBlocked" @onclick="OnAllAsync">ON ALL</button>
+
+
+
+
+
+
+
         <button class="primary" type="button" disabled="@IsHeadUiBlocked" @onclick="SendStatusAsync">STATUS</button>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="RunAllJAsync">RUN ALL (J)</button>
+
+
+
+
+
+
+
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="StopAllJAsync">STOP ALL (J)</button>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="RunAllYarnAsync">RUN ALL (YARN)</button>
+
+
+
+
+
+
+
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="StopAllYarnAsync">STOP ALL (YARN)</button>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="RunAllStitchAsync">RUN ALL (STITCH)</button>
+
+
+
+
+
+
+
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="StopAllStitchAsync">STOP ALL (STITCH)</button>
+
+
+
+
+
+
+
     </section>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     @if (!HasActiveHeadProgram)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         <section class="system-program-inline">
+
+
+
+
+
+
+
             @NoActiveProgramMessage
+
+
+
+
+
+
+
         </section>
+
+
+
+
+
+
+
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     @if (IsEmergencyLocked)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         <section class="system-emergency-inline">
+
+
+
+
+
+
+
             PARADA DE EMERGENCIA ACTIVADA. Acciones bloqueadas hasta ejecutar INIT.
+
+
+
+
+
+
+
         </section>
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     <section class="@LockScopeClass">
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     @if (ShowAdvancedDiagnostics)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         <section class="head-status-grid">
+
+
+
+
+
+
+
             <section class="rx-panel head-status-card">
+
+
+
+
+
+
+
                 <div class="panel-title">RX / STATUS</div>
+
+
+
+
+
+
+
                 <div>@_lastRx</div>
+
+
+
+
+
+
+
                 <div class="panel-small">Lectura desde la conexion activa USB/TCP.</div>
+
+
+
+
+
+
+
             </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
             <section class="trace-box head-trace-card">
+
+
+
+
+
+
+
                 <div class="trace-title">
+
+
+
+
+
+
+
                     <span>TRACE local</span>
+
+
+
+
+
+
+
                     <button class="mini-btn" type="button" @onclick="ClearTrace">Clear</button>
+
+
+
+
+
+
+
                 </div>
+
+
+
+
+
+
+
                 <div class="trace-list">
+
+
+
+
+
+
+
                     @if (_trace.Count == 0)
+
+
+
+
+
+
+
                     {
+
+
+
+
+
+
+
                         <div class="trace-empty">Sin comandos.</div>
+
+
+
+
+
+
+
                     }
+
+
+
+
+
+
+
                     else
+
+
+
+
+
+
+
                     {
+
+
+
+
+
+
+
                         @foreach (CabezalTraceEntryTarjetas entry in _trace)
+
+
+
+
+
+
+
                         {
+
+
+
+
+
+
+
                             <div class="trace-item">
+
+
+
+
+
+
+
                                 <div class="trace-time">@entry.Timestamp.ToString("HH:mm:ss")</div>
+
+
+
+
+
+
+
                                 <div class="@TraceDirectionClass(entry.Direction)">@entry.Direction</div>
+
+
+
+
+
+
+
                                 <div class="trace-msg">@entry.Message</div>
+
+
+
+
+
+
+
                             </div>
+
+
+
+
+
+
+
                         }
+
+
+
+
+
+
+
                     }
+
+
+
+
+
+
+
                 </div>
+
+
+
+
+
+
+
             </section>
+
+
+
+
+
+
+
         </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         <section class="manual-row head-command-row">
+
+
+
+
+
+
+
             <input placeholder="CAN directo: 320 07 | 370 FD 06 11 00"
+
+
+
+
+
+
+
                    @bind="_manualCanLine"
+
+
+
+
+
+
+
                    @bind:event="oninput"
+
+
+
+
+
+
+
                    disabled="@IsHeadUiBlocked"
+
+
+
+
+
+
+
                    @onkeydown="HandleManualCanKeyDownAsync" />
+
+
+
+
+
+
+
             <button class="primary" type="button" @onclick="SendManualCanAsync" disabled="@IsHeadUiBlocked">SEND CAN</button>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             <input class="do-input"
+
+
+
+
+
+
+
                    placeholder="DO logico: init, status, j_run_1"
+
+
+
+
+
+
+
                    @bind="_manualDoCommand"
+
+
+
+
+
+
+
                    @bind:event="oninput"
+
+
+
+
+
+
+
                    disabled="@IsHeadUiBlocked"
+
+
+
+
+
+
+
                    @onkeydown="HandleManualDoKeyDownAsync" />
+
+
+
+
+
+
+
             <button class="primary" type="button" @onclick="SendManualDoAsync" disabled="@IsHeadUiBlocked">SEND DO</button>
-            <button class="success" type="button" @onclick="SendTesteoAsync" disabled="@IsHeadUiBlocked">TESTEO</button>
+
+
+
+
+
+
+
         </section>
+
+
+
+
+
+
+
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     <section class="section-title">
+
+
+
+
+
+
+
         DEN
+
+
+
+
+
+
+
     </section>
+
+
+
+
+
+
+
     <section class="motor-grid">
+
+
+
+
+
+
+
         @foreach (CabezalMotorTarjetas motor in _denMotors)
+
+
+
+
+
+
+
         {
+
+
+
+
+
+
+
             <CabezalMotorCardTarjetas Motor="motor"
+
+
+
+
+
+
+
                                       PositionClicked="@((int positionNumber) => SetDenPositionAsync(motor, positionNumber))"
+
+
+
+
+
+
+
                                       SliderCommitted="@((int position) => SetDenSliderAsync(motor, position))"
+
+
+
+
+
+
+
                                       RunClicked="@(() => StartDenRunAsync(motor))"
+
+
+
+
+
+
+
                                       StopClicked="@(() => StopDenRunAsync(motor))"
+
+
+
+
+
+
+
                                       Run1Clicked="@(() => StartDenRun1Async(motor))"
+
+
+
+
+
+
+
                                       Stop1Clicked="@(() => StopDenRunAsync(motor))"
+
+
+
+
+
+
+
                                       ActionsDisabled="@IsHeadUiBlocked" />
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     </section>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     <section class="section-title">
+
+
+
+
+
+
+
         SIC
+
+
+
+
+
+
+
     </section>
+
+
+
+
+
+
+
     <section class="motor-grid">
+
+
+
+
+
+
+
         @foreach (CabezalMotorTarjetas motor in _sicMotors)
+
+
+
+
+
+
+
         {
+
+
+
+
+
+
+
             <CabezalMotorCardTarjetas Motor="motor"
+
+
+
+
+
+
+
                                       PositionClicked="@((int positionNumber) => SetSicPositionAsync(motor, positionNumber))"
+
+
+
+
+
+
+
                                       SliderCommitted="@((int position) => SetSicSliderAsync(motor, position))"
+
+
+
+
+
+
+
                                       RunClicked="@(() => StartSicRunAsync(motor))"
+
+
+
+
+
+
+
                                       StopClicked="@(() => StopSicRunAsync(motor))"
+
+
+
+
+
+
+
                                       ActionsDisabled="@IsHeadUiBlocked" />
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     </section>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     <section class="section-title">
+
+
+
+
+
+
+
         J1..J8
+
+
+
+
+
+
+
     </section>
+
+
+
+
+
+
+
     <section class="j-grid">
+
+
+
+
+
+
+
         @foreach (CabezalJGroupTarjetas group in _jGroups)
+
+
+
+
+
+
+
         {
+
+
+
+
+
+
+
             <section class="j-card">
+
+
+
+
+
+
+
                 <div class="j-head">
+
+
+
+
+
+
+
                     <div class="j-title">@($"J{group.Number}")</div>
+
+
+
+
+
+
+
                 </div>
+
+
+
+
+
+
+
                 <div class="j-actions">
+
+
+
+
+
+
+
                     @* [EQUIV MCU] OFF/ON ALL equivale a escribir todo un registro logico de grupo. *@
+
+
+
+
+
+
+
                     <button class="mini-btn" type="button" @onclick="() => SetJAllAsync(group, false)" disabled="@IsHeadUiBlocked">OFF ALL</button>
+
+
+
+
+
+
+
                     <button class="mini-btn" type="button" @onclick="() => SetJAllAsync(group, true)" disabled="@IsHeadUiBlocked">ON ALL</button>
+
+
+
+
+
+
+
                 </div>
+
+
+
+
+
+
+
                 <div class="j-actions">
+
+
+
+
+
+
+
                     <button class="@JRunButtonClass(group.Number)" type="button" @onclick='() => SendDoCommandAsync($"j_run_{group.Number}")' disabled="@IsHeadUiBlocked">RUN</button>
+
+
+
+
+
+
+
                     <button class="mini-btn stop" type="button" @onclick='() => SendDoCommandAsync($"j_stop_{group.Number}")' disabled="@IsHeadUiBlocked">STOP</button>
+
+
+
+
+
+
+
                 </div>
+
+
+
+
+
+
+
                 <div class="j-pins">
+
+
+
+
+
+
+
                     @for (int pin = 1; pin <= 8; pin++)
+
+
+
+
+
+
+
                     {
+
+
+
+
+
+
+
                         int currentPin = pin;
+
+
+
+
+
+
+
                         @* [ACURATEX] Cada boton J representa un canal logico, no una salida cableada en la vista. *@
+
+
+
+
+
+
+
                         <button class="@JPinClass(group, currentPin)"
+
+
+
+
+
+
+
                                 type="button"
+
+
+
+
+
+
+
                                 disabled="@IsHeadUiBlocked"
+
+
+
+
+
+
+
                                 @onclick="() => ToggleJPinAsync(group, currentPin)">
+
+
+
+
+
+
+
                             @currentPin
+
+
+
+
+
+
+
                         </button>
+
+
+
+
+
+
+
                     }
+
+
+
+
+
+
+
                 </div>
+
+
+
+
+
+
+
             </section>
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     </section>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     <section class="section-title">
+
+
+
+
+
+
+
         Yarn
-    </section>
-    <section class="block-grid">
-        @foreach (CabezalOutputBlockTarjetas block in _yarnBlocks)
-        {
-            <CabezalBlockTarjetas Block="block"
-                                  PinClicked="ToggleBlockPinAsync"
-                                  AllClicked="SetBlockAllAsync"
-                                  RunClicked="SendDoCommandAsync"
-                                  StopClicked="SendDoCommandAsync"
-                                  ActionsDisabled="@IsHeadUiBlocked" />
-        }
+
+
+
+
+
+
+
     </section>
 
-    <section class="section-title">
-        Stitch
-    </section>
+
+
+
+
+
+
     <section class="block-grid">
-        @foreach (CabezalOutputBlockTarjetas block in _stitchBlocks)
+
+
+
+
+
+
+
+        @foreach (CabezalOutputBlockTarjetas block in _yarnBlocks)
+
+
+
+
+
+
+
         {
+
+
+
+
+
+
+
             <CabezalBlockTarjetas Block="block"
+
+
+
+
+
+
+
                                   PinClicked="ToggleBlockPinAsync"
+
+
+
+
+
+
+
                                   AllClicked="SetBlockAllAsync"
+
+
+
+
+
+
+
                                   RunClicked="SendDoCommandAsync"
+
+
+
+
+
+
+
                                   StopClicked="SendDoCommandAsync"
+
+
+
+
+
+
+
                                   ActionsDisabled="@IsHeadUiBlocked" />
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <section class="section-title">
+
+
+
+
+
+
+
+        Stitch
+
+
+
+
+
+
+
+    </section>
+
+
+
+
+
+
+
+    <section class="block-grid">
+
+
+
+
+
+
+
+        @foreach (CabezalOutputBlockTarjetas block in _stitchBlocks)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            <CabezalBlockTarjetas Block="block"
+
+
+
+
+
+
+
+                                  PinClicked="ToggleBlockPinAsync"
+
+
+
+
+
+
+
+                                  AllClicked="SetBlockAllAsync"
+
+
+
+
+
+
+
+                                  RunClicked="SendDoCommandAsync"
+
+
+
+
+
+
+
+                                  StopClicked="SendDoCommandAsync"
+
+
+
+
+
+
+
+                                  ActionsDisabled="@IsHeadUiBlocked" />
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     @if (ShowAdvancedDiagnostics)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         <section class="log-box">@_logLine</section>
+
+
+
+
+
+
+
         <section class="last-command">Ultimo comando: <code>@_lastCommand</code></section>
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
     </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    @if (_showCanRxHistoryModal)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        <div class="can-rx-overlay" @onclick="CloseCanRxHistoryAsync">
+
+
+
+
+
+
+
+            <section class="can-rx-modal" @onclick:stopPropagation="true">
+
+
+
+
+
+
+
+                <header class="can-rx-header">
+
+
+
+
+
+
+
+                    <div>
+
+
+
+
+
+
+
+                        <div class="can-rx-title">Tramas CAN recibidas</div>
+
+
+
+
+
+
+
+                        <div class="can-rx-count">@CanRxHistoryCount tramas en memoria</div>
+
+
+
+
+
+
+
+                    </div>
+
+
+
+
+
+
+
+                    <button class="mini-btn" type="button" @onclick="CloseCanRxHistoryAsync">Cerrar</button>
+
+
+
+
+
+
+
+                </header>
+
+
+
+
+
+
+
+                <div class="can-rx-table-wrap">
+
+
+
+
+
+
+
+                    <table class="can-rx-table">
+
+
+
+
+
+
+
+                        <thead>
+
+
+
+
+
+
+
+                            <tr>
+
+
+
+
+
+
+
+                                <th>Hora</th>
+
+
+
+
+
+
+
+                                <th>Bus</th>
+
+
+
+
+
+
+
+                                <th>ID</th>
+
+
+
+
+
+
+
+                                <th>DLC</th>
+
+
+
+
+
+
+
+                                <th>Datos</th>
+
+
+
+
+
+
+
+                            </tr>
+
+
+
+
+
+
+
+                        </thead>
+
+
+
+
+
+
+
+                        <tbody>
+
+
+
+
+
+
+
+                            @foreach (CanRxFrame frame in GetCanRxHistorySnapshot())
+
+
+
+
+
+
+
+                            {
+
+
+
+
+
+
+
+                                <tr>
+
+
+
+
+
+
+
+                                    <td>@frame.ReceivedAt.ToString("HH:mm:ss.fff")</td>
+
+
+
+
+
+
+
+                                    <td>@frame.Bus</td>
+
+
+
+
+
+
+
+                                    <td>@($"0x{frame.Id:X3}")</td>
+
+
+
+
+
+
+
+                                    <td>@frame.Dlc</td>
+
+
+
+
+
+
+
+                                    <td>@FormatCanRxData(frame.Data)</td>
+
+
+
+
+
+
+
+                                </tr>
+
+
+
+
+
+
+
+                            }
+
+
+
+
+
+
+
+                        </tbody>
+
+
+
+
+
+
+
+                    </table>
+
+
+
+
+
+
+
+                </div>
+
+
+
+
+
+
+
+                <div class="can-rx-actions">
+
+
+
+
+
+
+
+                    <button class="mini-btn" type="button" @onclick="ClearCanRxHistoryAsync">Limpiar historial</button>
+
+
+
+
+
+
+
+                    <button class="mini-btn" type="button" @onclick="CopyCanRxHistoryAsync">Copiar todo</button>
+
+
+
+
+
+
+
+                </div>
+
+
+
+
+
+
+
+            </section>
+
+
+
+
+
+
+
+        </div>
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+    @if (_showCanAlarmHistoryModal)
+    {
+        <div class="alert-history-overlay" @onclick="CloseCanAlarmHistoryAsync">
+            <section class="alert-history-modal" @onclick:stopPropagation="true">
+                <header class="alert-history-header">
+                    <div>
+                        <div class="alert-history-title">Historial de alertas</div>
+                        <div class="alert-history-count">@CanAlarmHistoryCount alertas en memoria</div>
+                    </div>
+                    <button class="mini-btn" type="button" @onclick="CloseCanAlarmHistoryAsync">Cerrar</button>
+                </header>
+
+                <div class="alert-history-layout">
+                    <div class="alert-history-table-wrap">
+                        <table class="alert-history-table">
+                            <thead>
+                                <tr>
+                                    <th>Hora</th>
+                                    <th>Estado</th>
+                                    <th>Tipo</th>
+                                    <th>Bus</th>
+                                    <th>ID</th>
+                                    <th>DLC</th>
+                                    <th>DATA</th>
+                                    <th>Descripcion</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (CanAlarmHistoryItem item in GetCanAlarmHistorySnapshot())
+                                {
+                                    <tr class="@(ReferenceEquals(_selectedCanAlarmHistoryItem, item) ? "selected" : string.Empty)" @onclick="() => SelectCanAlarmHistoryItem(item)">
+                                        <td>@item.DetectedAt.ToString("HH:mm:ss.fff")</td>
+                                        <td>@item.Status</td>
+                                        <td>@item.AlarmType</td>
+                                        <td>@item.Bus</td>
+                                        <td>@($"0x{item.CanId:X3}")</td>
+                                        <td>@item.Dlc</td>
+                                        <td>@FormatCanRxData(item.Data)</td>
+                                        <td>@item.Title</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <aside class="alert-history-detail">
+                        @if (_selectedCanAlarmHistoryItem is not null)
+                        {
+                            <div class="alert-history-detail-title">Detalle</div>
+                            <div><strong>Hora detectada:</strong> @_selectedCanAlarmHistoryItem.DetectedAt.ToString("HH:mm:ss.fff")</div>
+                            <div><strong>Hora cerrada:</strong> @(_selectedCanAlarmHistoryItem.ClosedAt?.ToString("HH:mm:ss.fff") ?? "-")</div>
+                            <div><strong>Estado:</strong> @_selectedCanAlarmHistoryItem.Status</div>
+                            <div><strong>Tipo:</strong> @_selectedCanAlarmHistoryItem.AlarmType</div>
+                            <div><strong>Titulo:</strong> @_selectedCanAlarmHistoryItem.Title</div>
+                            <div><strong>Descripcion:</strong> @_selectedCanAlarmHistoryItem.Description</div>
+                            <div><strong>Bus:</strong> @_selectedCanAlarmHistoryItem.Bus</div>
+                            <div><strong>ID:</strong> @($"0x{_selectedCanAlarmHistoryItem.CanId:X3}")</div>
+                            <div><strong>DLC:</strong> @_selectedCanAlarmHistoryItem.Dlc</div>
+                            <div><strong>DATA:</strong> @FormatCanRxData(_selectedCanAlarmHistoryItem.Data)</div>
+                            <div><strong>Linea CAN_RX:</strong></div>
+                            <pre class="alert-history-raw">@_selectedCanAlarmHistoryItem.RawLine</pre>
+                        }
+                        else
+                        {
+                            <div class="alert-history-empty">Sin alertas seleccionadas.</div>
+                        }
+                    </aside>
+                </div>
+
+                <div class="alert-history-actions">
+                    <button class="mini-btn" type="button" @onclick="ClearCanAlarmHistoryAsync">Limpiar historial</button>
+                    <button class="mini-btn" type="button" @onclick="CopyCanAlarmHistoryAsync">Copiar todo</button>
+                </div>
+            </section>
+        </div>
+    }
+    @if (_showHeadTestDetailModal && _headTestLastResult is not null)
+    {
+        <div class="head-test-detail-overlay" @onclick="CloseHeadTestDetailAsync">
+            <section class="head-test-detail-modal" @onclick:stopPropagation="true">
+                <header class="head-test-detail-header">
+                    <div>
+                        <div class="head-test-detail-title">Detalle de TESTEO</div>
+                        <div class="head-test-detail-subtitle">Secuencia recibida y placas detectadas en memoria durante esta ejecucion.</div>
+                    </div>
+                    <button class="mini-btn" type="button" @onclick="CloseHeadTestDetailAsync">Cerrar</button>
+                </header>
+
+                <div class="head-test-detail-body">
+                    <div class="head-test-detail-grid">
+                        <section class="head-test-detail-card">
+                            <div class="head-test-detail-card-title">Resultado</div>
+                            <div class="head-test-detail-lines">
+                                <div><strong>Estado general:</strong> @_headTestLastResult.GeneralStatus</div>
+                                <div><strong>Titulo:</strong> @_headTestLastResult.Title</div>
+                                <div><strong>Codigo general:</strong> @($"0x{_headTestLastResult.StatusCode:X2}")</div>
+                                <div><strong>Descripcion:</strong> @_headTestLastResult.Description</div>
+                            </div>
+                        </section>
+
+                        <section class="head-test-detail-card">
+                            <div class="head-test-detail-card-title">Trama final</div>
+                            <div class="head-test-detail-lines">
+                                <div><strong>Hora:</strong> @_headTestLastResult.ReceivedAt.ToString("HH:mm:ss.fff")</div>
+                                <div><strong>Bus:</strong> @_headTestLastResult.Bus</div>
+                                <div><strong>ID CAN:</strong> @($"0x{_headTestLastResult.CanId:X3}")</div>
+                                <div><strong>DLC:</strong> @_headTestLastResult.Dlc</div>
+                                <div><strong>DATA:</strong> @FormatCanRxData(_headTestLastResult.Data)</div>
+                                <div><strong>Primer codigo util:</strong> @FormatHeadTestCode(GetHeadTestFirstCode(_headTestLastResult))</div>
+                                <div><strong>Ultimo codigo util:</strong> @FormatHeadTestCode(GetHeadTestLastCode(_headTestLastResult))</div>
+                                <div><strong>Tramas recibidas:</strong> @_headTestLastResult.FramesValue.Count</div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <div class="head-test-detail-grid">
+                        <section class="head-test-detail-card">
+                            <div class="head-test-detail-card-title">Grupo A1</div>
+                            <div class="head-test-detail-lines">
+                                <div><strong>Presentes:</strong> @FormatHeadTestBoards(_headTestLastResult.PresentA1BoardsValue)</div>
+                                <div><strong>Faltantes:</strong> @FormatHeadTestBoards(_headTestLastResult.MissingA1BoardsValue)</div>
+                            </div>
+                        </section>
+
+                        <section class="head-test-detail-card">
+                            <div class="head-test-detail-card-title">Grupo A2</div>
+                            <div class="head-test-detail-lines">
+                                <div><strong>Presentes:</strong> @FormatHeadTestBoards(_headTestLastResult.PresentA2BoardsValue)</div>
+                                <div><strong>Faltantes:</strong> @FormatHeadTestBoards(_headTestLastResult.MissingA2BoardsValue)</div>
+                            </div>
+                        </section>
+
+                        <section class="head-test-detail-card">
+                            <div class="head-test-detail-card-title">Expansion</div>
+                            <div class="head-test-detail-lines">
+                                <div><strong>Presentes:</strong> @FormatHeadTestBoards(_headTestLastResult.PresentExpansionBoardsValue)</div>
+                                <div><strong>Faltantes:</strong> @FormatHeadTestBoards(_headTestLastResult.MissingExpansionBoardsValue)</div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="head-test-detail-card">
+                        <div class="head-test-detail-card-title">Secuencia de tramas</div>
+                        @if (_headTestLastResult.FramesValue.Count > 0)
+                        {
+                            <div class="head-test-detail-table-wrap">
+                                <table class="head-test-detail-table">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Hora</th>
+                                            <th>Bus</th>
+                                            <th>ID</th>
+                                            <th>DLC</th>
+                                            <th>DATA</th>
+                                            <th>Codigo</th>
+                                            <th>Interpretacion</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (HeadTestFrameTrace trace in _headTestLastResult.FramesValue)
+                                        {
+                                            <tr>
+                                                <td>@trace.Sequence</td>
+                                                <td>@trace.ReceivedAt.ToString("HH:mm:ss.fff")</td>
+                                                <td>@trace.Bus</td>
+                                                <td>@($"0x{trace.CanId:X3}")</td>
+                                                <td>@trace.Dlc</td>
+                                                <td>@FormatCanRxData(trace.Data)</td>
+                                                <td>@(trace.Code.HasValue ? $"0x{trace.Code.Value:X2}" : "-")</td>
+                                                <td>@trace.Interpretation</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="head-test-detail-empty">No hay secuencia almacenada.</div>
+                        }
+                    </section>
+                </div>
+            </section>
+        </div>
+    }
+    @if (_showCanAlarmModal && _activeCanAlarm is not null)
+    {
+        <div class="can-alarm-overlay" @onclick="CloseCanAlarmAsync">
+            <section class="can-alarm-modal" @onclick:stopPropagation="true">
+                <header class="can-alarm-header">
+                    <div>
+                        <div class="can-alarm-title">ALERTA CAN</div>
+                        <div class="can-alarm-count">@_activeCanAlarm.Title</div>
+                    </div>
+                    <button class="mini-btn" type="button" @onclick="CloseCanAlarmAsync">Cerrar alerta</button>
+                </header>
+
+                <div class="can-alarm-body">
+                    <div><strong>Hora:</strong> @_activeCanAlarm.DetectedAt.ToString("HH:mm:ss.fff")</div>
+                    <div><strong>Bus:</strong> @_activeCanAlarm.Bus</div>
+                    <div><strong>ID:</strong> @($"0x{_activeCanAlarm.Id:X3}")</div>
+                    <div><strong>DLC:</strong> @_activeCanAlarm.Dlc</div>
+                    <div><strong>DATA:</strong> @FormatCanRxData(_activeCanAlarm.Data)</div>
+                    <div><strong>Tipo:</strong> @_activeCanAlarm.AlarmType</div>
+                    <pre class="can-alarm-message">@_activeCanAlarm.Message</pre>
+                </div>
+
+                @if (_canAlarmPendingCount > 0)
+                {
+                    <div class="can-alarm-pending">@_canAlarmPendingCount alertas pendientes</div>
+                }
+
+                <div class="can-alarm-activity">
+                    @foreach (string note in GetCanAlarmActivitySnapshot())
+                    {
+                        <div>@note</div>
+                    }
+                </div>
+
+                <div class="can-alarm-actions">
+                    <button class="mini-btn" type="button" @onclick="CopyCanAlarmAsync">Copiar informaci�n</button>
+                    <button class="mini-btn" type="button" @onclick="SendCanAlarmCheckAsync">CHECK</button>
+                    <button class="mini-btn" type="button" @onclick="CloseCanAlarmAsync">Cerrar alerta</button>
+                </div>
+            </section>
+        </div>
+    }
+
 </main>
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @code {
+
+
+
+
+
+
+
     private const int TraceMax = 10;
+
+
+
+
+
+
+
     private const string NoActiveProgramMessage = "No hay programa de Cabezal activo para Sistema Modular.";
+
+
+
+
+
+
+
     private readonly record struct MotorVisualSnapshot(int Position, int SelectedPositionNumber, string RunMode);
 
-    // [ACURATEX] Los modelos cargan el tablero completo y permiten reflejar el estado del firmware.
+
+
+
+
+
+
+// [ACURATEX] Los modelos cargan el tablero completo y permiten reflejar el estado del firmware.
+
+
+
+
+
+
+
     private readonly List<CabezalMotorTarjetas> _denMotors = CabezalDashboardTarjetasProtocol.CreateDenMotors().ToList();
+
+
+
+
+
+
+
     private readonly List<CabezalMotorTarjetas> _sicMotors = CabezalDashboardTarjetasProtocol.CreateSicMotors().ToList();
+
+
+
+
+
+
+
     private readonly List<CabezalJGroupTarjetas> _jGroups = Enumerable.Range(1, 8).Select(number => new CabezalJGroupTarjetas(number)).ToList();
+
+
+
+
+
+
+
     private readonly List<CabezalOutputBlockTarjetas> _yarnBlocks = CabezalDashboardTarjetasProtocol.CreateYarnBlocks().ToList();
+
+
+
+
+
+
+
     private readonly List<CabezalOutputBlockTarjetas> _stitchBlocks = CabezalDashboardTarjetasProtocol.CreateStitchBlocks().ToList();
+
+
+
+
+
+
+
+    private const int CanRxHistoryMax = 1000;
+
+
+
+    private readonly object _canRxHistoryLock = new();
+
+
+
+    private readonly List<CanRxFrame> _canRxHistory = new();
+
+
+
     private readonly List<CabezalTraceEntryTarjetas> _trace = new();
+
+
+
+    private bool _showCanRxHistoryModal;
+
+
+
+
+
+
+
+    
+    private readonly object _canAlarmLock = new();
+
+    private readonly Queue<(CanAlarmInfo Alarm, CanAlarmHistoryItem HistoryItem)> _pendingCanAlarms = new();
+
+    private readonly List<string> _canAlarmActivity = new();
+    private readonly List<CanAlarmHistoryItem> _canAlarmHistory = new();
+    private bool _showCanAlarmHistoryModal;
+    private CanAlarmHistoryItem? _selectedCanAlarmHistoryItem;
+    private readonly HeadTestResultDetector _headTestDetector = new();
+    private CancellationTokenSource? _headTestTimeoutCts;
+    private HeadTestResult? _headTestLastResult;
+    private bool _headTestBusy;
+    private string _headTestStatus = "IDLE";
+    private string _headTestMessage = "TESTEO: listo.";
+    private bool _showHeadTestDetailModal;
+
+    private readonly Dictionary<string, DateTime> _canAlarmDeduplication = new(StringComparer.OrdinalIgnoreCase);
+
+    private CanAlarmInfo? _activeCanAlarm;
+    private CanAlarmHistoryItem? _activeCanAlarmHistoryItem;
+
+    private bool _alarmHaltActive;
+
+    private bool _showCanAlarmModal;
+
+    private int _canAlarmPendingCount;
+
+    private const int CanAlarmQueueMax = 100;
+    private const int CanAlarmHistoryMax = 500;
+    private const int HeadTestTimeoutMs = 3000;
+
     private readonly CancellationTokenSource?[] _denRunTokens = new CancellationTokenSource?[8];
+
+
+
+
+
+
+
     private readonly CancellationTokenSource?[] _sicRunTokens = new CancellationTokenSource?[2];
+
+
+
+
+
+
+
     private readonly CancellationTokenSource?[] _jRunTokens = new CancellationTokenSource?[8];
+
+
+
+
+
+
+
     private readonly MotorVisualSnapshot?[] _denRunSnapshots = new MotorVisualSnapshot?[8];
+
+
+
+
+
+
+
     private readonly MotorVisualSnapshot?[] _sicRunSnapshots = new MotorVisualSnapshot?[2];
+
+
+
+
+
+
+
     private readonly byte[] _jRunPreviousRegisters = Enumerable.Repeat((byte)0xFF, 8).ToArray();
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     private string _manualCanLine = string.Empty;
+
+
+
+
+
+
+
     private string _manualDoCommand = string.Empty;
+
+
+
+
+
+
+
     private string _lastRx = "Pendiente de respuesta.";
+
+
+
+
+
+
+
     private string _lastCommand = "ninguno";
+
+
+
+
+
+
+
     private string _logLine = "Listo.";
+
+
+
+
+
+
+
     private IReadOnlyList<HeadProgramInfo> _headPrograms = Array.Empty<HeadProgramInfo>();
+
+
+
+
+
+
+
     private string? _selectedHeadProgramFile;
+
+
+
+
+
+
+
     private string _headProgramStatus = "Programas sin actualizar.";
+
+
+
+
+
+
+
     private bool _isHeadProgramBusy;
+
+
+
+
+
+
+
     // TODO: habilitar con permiso avanzado + modo desarrollo para SUPER ROOT.
+
+
+
+
+
+
+
     private bool IsDevelopmentModeEnabled => false;
+
+
+
+
+
+
+
     // [ACURATEX] El modo de diagnostico solo aparece cuando el rol y el switch interno lo permiten.
+
+
+
+
+
+
+
     // [EQUIV MCU] Es como mostrar un menu de servicio oculto por una condicion de permiso.
+
+
+
+
+
+
+
     private bool ShowAdvancedDiagnostics => PermissionService.CurrentUserIsSuperRoot() && IsDevelopmentModeEnabled;
+
+
+
+
+
+
+
     private bool HasActiveHeadProgram => true;
+
+
+
+
+
+
+
     private bool IsHeadUiBlocked => IsEmergencyLocked;
+
+
+
+
+
+
+
     private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
+
+
+
+
+
+
+
     // [ACURATEX] Este grupo de clases CSS protege visualmente cuando no hay perfil o hay emergencia.
+
+
+
+
+
+
+
     private string LockScopeClass
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         get
+
+
+
+
+
+
+
         {
+
+
+
+
+
+
+
             List<string> classes = new() { "emergency-lock-scope" };
+
+
+
+
+
+
+
             if (IsEmergencyLocked) {
+
+
+
+
+
+
+
                 classes.Add("is-locked");
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
             if (!HasActiveHeadProgram) {
+
+
+
+
+
+
+
                 classes.Add("head-no-program-lock");
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
             return string.Join(' ', classes);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
     // [ACURATEX] El selector solo se habilita si hay conexion, no hay carga en curso y el permiso existe.
+
+
+
+
+
+
+
     private bool CanChangeHeadProgram => false;
+
+
+
+
+
+
+
     // [ACURATEX] Refrescar programas queda deshabilitado en el modo rapido.
+
+
+
+
+
+
+
     private bool CanRefreshHeadPrograms => false;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     protected override void OnInitialized()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] La vista rapida mantiene solo la sincronizacion de emergencia y de linea recibida.
+
+
+
+
+
+
+
         Connection.LineReceived += OnLineReceived;
+
+
+
+
+
+
+
         EmergencyStop.StateChanged += OnEmergencyStateChanged;
+
+
+
+
+
+
+
         EmergencyStop.EmergencyStopTriggered += HandleEmergencyStopAsync;
+
+
+
+
+
+
+
         ResetHeadVisualStateToNeutral();
+
+
+
+
+
+
+
         _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task SendInitAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] INIT se trata como apertura segura antes de permitir el resto del tablero.
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction(allowDuringEmergency: true)) {
+
+
+
+
+
+
+
             return Task.CompletedTask;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (IsEmergencyLocked) {
+
+
+
+
+
+
+
             EmergencyStop.ResetEmergencyStop("INIT");
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         return SendDoCommandInternalAsync("init");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task RefreshHeadProgramsAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+
+
+
+
+
+
+
         return InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task OnHeadProgramChangedAsync(ChangeEventArgs args)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         _ = args;
+
+
+
+
+
+
+
         _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+
+
+
+
+
+
+
         await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task SendStatusAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] STATUS es una orden de consulta rápida del estado del cabezal.
+
+
+
+
+
+
+
         return SendDoCommandAsync("status");
+
+
+
+
+
+
+
     }
 
-    private Task SendTesteoAsync()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task SendTesteoAsync()
     {
-        // [ACURATEX] TESTEO dispara una acción especial que el firmware interpreta como prueba.
-        return SendDoCommandAsync("testeo");
+        if (!CanExecuteHeadAction()) {
+            return;
+        }
+
+        if (_headTestBusy) {
+            _logLine = "TESTEO ya esta en curso.";
+            return;
+        }
+
+        _headTestTimeoutCts?.Cancel();
+        _headTestTimeoutCts?.Dispose();
+        _headTestTimeoutCts = new CancellationTokenSource();
+        _showHeadTestDetailModal = false;
+        _headTestLastResult = null;
+
+        _headTestDetector.Begin("CAN1");
+        _headTestBusy = true;
+        _headTestLastResult = null;
+        _headTestStatus = "CONSULTANDO";
+        _headTestMessage = "TESTEO: consultando cabezal...";
+        AddTrace("TESTEO", "[TESTEO] Inicio");
+        await InvokeAsync(StateHasChanged);
+
+        bool sent = await SendTrackedAsync("CAN", "320 07", token => CommandService.SendCanLineAsync("320 07", token));
+        if (!sent) {
+            _headTestBusy = false;
+            _headTestStatus = "ERROR";
+            _headTestMessage = "TESTEO: error enviando 320 07.";
+            AddTrace("TESTEO", "[TESTEO] Error al enviar 320 07");
+            return;
+        }
+
+        _ = MonitorHeadTestTimeoutAsync(_headTestTimeoutCts.Token);
+    }
+
+    private async Task MonitorHeadTestTimeoutAsync(CancellationToken cancellationToken)
+    {
+        try {
+            await Task.Delay(HeadTestTimeoutMs, cancellationToken);
+        } catch (OperationCanceledException) {
+            return;
+        }
+
+        if (!_headTestDetector.TryGetTimeoutResult(out HeadTestResult timeoutResult)) {
+            return;
+        }
+
+        await InvokeAsync(() => FinalizeHeadTest(timeoutResult, timedOut: true));
     }
 
     private Task RunAllJAsync()
     {
+
+
+
+
+
+
+
         // [ACURATEX] RUN ALL J agrupa el envío de RUN para todos los grupos J.
+
+
+
+
+
+
+
         return SendDoCommandAsync("j_run_all");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StopAllJAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] STOP ALL J agrupa el envío de STOP para todos los grupos J.
-        return SendDoCommandAsync("j_stop_all");
+
+
+
+
+
+
+
+        return SendDoCommandInternalAsync("j_stop_all");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task RunAllYarnAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] RUN ALL YARN actúa sobre el bloque lógico de Yarn completo.
+
+
+
+
+
+
+
         return SendDoCommandAsync("y_run_all");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StopAllYarnAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] STOP ALL YARN detiene todo el bloque lógico de Yarn.
-        return SendDoCommandAsync("y_stop_all");
+
+
+
+
+
+
+
+        return SendDoCommandInternalAsync("y_stop_all");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task RunAllStitchAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] RUN ALL STITCH actúa sobre el bloque lógico Stitch completo.
+
+
+
+
+
+
+
         return SendDoCommandAsync("s_run_all");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StopAllStitchAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] STOP ALL STITCH detiene todo el bloque lógico Stitch.
-        return SendDoCommandAsync("s_stop_all");
+
+
+
+
+
+
+
+        return SendDoCommandInternalAsync("s_stop_all");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task OffAllAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         await OffAllCoreAsync();
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task OnAllAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         await OnAllCoreAsync();
+
+
+
+
+
+
+
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     private async Task SendManualCanAsync()
+
+
+
     {
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
             return;
+
+
+
         }
+
+
 
         string line = _manualCanLine.Trim();
+
+
+
         if (line.Length == 0) {
+
+
+
             return;
+
+
+
         }
 
+
+
         await SendTrackedAsync("CAN", line, token => CommandService.SendCanLineAsync(line, token));
+
+
+
+    }
+
+
+
+            private async Task SendCheckAsync()
+
+    {
+
+        await SendCanAlarmCheckAsync();
+
     }
 
     private async Task SendManualDoAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         string command = _manualDoCommand.Trim();
+
+
+
+
+
+
+
         if (command.Length == 0) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         await SendDoCommandAsync(command);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SendDoCommandAsync(string command)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         await SendDoCommandInternalAsync(command);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SendDoCommandInternalAsync(string command)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         string cleanCommand = command.Trim();
+
+
+
+
+
+
+
         if (cleanCommand.Length == 0) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         bool sent = await SendTrackedAsync("DO", cleanCommand, token => CommandService.SendDoCommandAsync(cleanCommand, token));
+
+
+
+
+
+
+
         await ApplyLocalDoCommandAsync(cleanCommand, sent);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task ApplyLocalDoCommandAsync(string command, bool sent)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (string.Equals(command, "j_run_all", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
             if (sent) {
+
+
+
+
+
+
+
                 StartAllJAnimations();
+
+
+
+
+
+
+
                 await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (string.Equals(command, "j_stop_all", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
             StopAllJAnimations(restore: true);
+
+
+
+
+
+
+
             await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseJDoCommand(command, "j_run_", out int jRunIndex)) {
+
+
+
+
+
+
+
             if (sent) {
+
+
+
+
+
+
+
                 StartJAnimation(jRunIndex);
+
+
+
+
+
+
+
                 await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseJDoCommand(command, "j_stop_", out int jStopIndex)) {
+
+
+
+
+
+
+
             StopJAnimation(jStopIndex, restore: true);
+
+
+
+
+
+
+
             await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseIndexedCommand(command, "den_run1_", _denMotors.Count, out int denRun1Index)) {
+
+
+
+
+
+
+
             if (sent) {
+
+
+
+
+
+
+
                 CabezalMotorTarjetas motor = _denMotors[denRun1Index - 1];
+
+
+
+
+
+
+
                 _ = StartDenLoopAsync(motor, CabezalDashboardTarjetasProtocol.DenRun1Sequence, CabezalDashboardTarjetasProtocol.DenRun1PeriodMs, "RUN1");
+
+
+
+
+
+
+
                 await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseIndexedCommand(command, "den_run_", _denMotors.Count, out int denRunIndex)) {
+
+
+
+
+
+
+
             if (sent) {
+
+
+
+
+
+
+
                 CabezalMotorTarjetas motor = _denMotors[denRunIndex - 1];
+
+
+
+
+
+
+
                 _ = StartDenLoopAsync(motor, CabezalDashboardTarjetasProtocol.DenRunSequence, CabezalDashboardTarjetasProtocol.DenRunPeriodMs, "RUN");
+
+
+
+
+
+
+
                 await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseIndexedCommand(command, "den_stop1_", _denMotors.Count, out int denStop1Index)) {
+
+
+
+
+
+
+
             StopDenRun(_denMotors[denStop1Index - 1], restore: true);
+
+
+
+
+
+
+
             await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseIndexedCommand(command, "den_stop_", _denMotors.Count, out int denStopIndex)) {
+
+
+
+
+
+
+
             StopDenRun(_denMotors[denStopIndex - 1], restore: true);
+
+
+
+
+
+
+
             await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseIndexedCommand(command, "sic_run_", _sicMotors.Count, out int sicRunIndex)) {
+
+
+
+
+
+
+
             if (sent) {
+
+
+
+
+
+
+
                 CabezalMotorTarjetas motor = _sicMotors[sicRunIndex - 1];
+
+
+
+
+
+
+
                 _ = StartSicLoopAsync(motor);
+
+
+
+
+
+
+
                 await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (TryParseIndexedCommand(command, "sic_stop_", _sicMotors.Count, out int sicStopIndex)) {
+
+
+
+
+
+
+
             StopSicRun(_sicMotors[sicStopIndex - 1], restore: true);
+
+
+
+
+
+
+
             await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task HandleManualCanKeyDownAsync(KeyboardEventArgs args)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (args.Key == "Enter") {
+
+
+
+
+
+
+
             await SendManualCanAsync();
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task HandleManualDoKeyDownAsync(KeyboardEventArgs args)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (args.Key == "Enter") {
+
+
+
+
+
+
+
             await SendManualDoAsync();
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetDenPositionAsync(CabezalMotorTarjetas motor, int positionNumber)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         StopDenRun(motor);
+
+
+
+
+
+
+
         CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
+
+
+
+
+
+
+
         await SendDenPositionAsync(motor, option.Value, option.Number);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetDenSliderAsync(CabezalMotorTarjetas motor, int position)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         StopDenRun(motor);
+
+
+
+
+
+
+
         await SendDenPositionAsync(motor, position, 0);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StartDenRunAsync(CabezalMotorTarjetas motor)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return Task.CompletedTask;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         return SendDoCommandAsync($"den_run_{motor.LogicalIndex + 1}");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StartDenRun1Async(CabezalMotorTarjetas motor)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return Task.CompletedTask;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         return SendDoCommandAsync($"den_run1_{motor.LogicalIndex + 1}");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StopDenRunAsync(CabezalMotorTarjetas motor)
+
     {
-        if (!CanExecuteHeadAction()) {
+
+        if (!CanExecuteHeadAction(allowDuringAlarm: true)) {
+
+
+
+
+
+
+
             return Task.CompletedTask;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         string command = motor.RunMode.Equals("RUN1", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
             ? $"den_stop1_{motor.LogicalIndex + 1}"
+
+
+
+
+
+
+
             : $"den_stop_{motor.LogicalIndex + 1}";
-        return SendDoCommandAsync(command);
+
+
+
+
+
+
+
+        return SendDoCommandInternalAsync(command);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetSicPositionAsync(CabezalMotorTarjetas motor, int positionNumber)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         StopSicRun(motor);
+
+
+
+
+
+
+
         CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
+
+
+
+
+
+
+
         await SendSicPositionAsync(motor, option.Value, option.Number);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetSicSliderAsync(CabezalMotorTarjetas motor, int position)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         StopSicRun(motor);
+
+
+
+
+
+
+
         await SendSicPositionAsync(motor, position, 0);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StartSicRunAsync(CabezalMotorTarjetas motor)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return Task.CompletedTask;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         return SendDoCommandAsync($"sic_run_{motor.LogicalIndex + 1}");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private Task StopSicRunAsync(CabezalMotorTarjetas motor)
+
     {
-        if (!CanExecuteHeadAction()) {
+
+        if (!CanExecuteHeadAction(allowDuringAlarm: true)) {
+
+
+
+
+
+
+
             return Task.CompletedTask;
+
+
+
+
+
+
+
         }
 
-        return SendDoCommandAsync($"sic_stop_{motor.LogicalIndex + 1}");
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        return SendDoCommandInternalAsync($"sic_stop_{motor.LogicalIndex + 1}");
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task ToggleJPinAsync(CabezalJGroupTarjetas group, int pinIndex)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         // [ACURATEX] La vista calcula el registro siguiente y lo refleja de inmediato.
+
+
+
+
+
+
+
         bool nextState = !group.IsPinOn(pinIndex);
+
+
+
+
+
+
+
         byte previousRegister = group.Register;
+
+
+
+
+
+
+
         group.SetPin(pinIndex, nextState);
+
+
+
+
+
+
+
         byte nextRegister = group.Register;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         bool sent = await SendJRegisterAsync(group, nextRegister);
+
+
+
+
+
+
+
         if (!sent) {
+
+
+
+
+
+
+
             group.Register = previousRegister;
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetJAllAsync(CabezalJGroupTarjetas group, bool on)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         byte previousRegister = group.Register;
+
+
+
+
+
+
+
         bool wasRunning = IsJRunning(group.Number);
+
+
+
+
+
+
+
         if (wasRunning) {
+
+
+
+
+
+
+
             StopJAnimation(group.Number, restore: false);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         byte nextRegister = on ? (byte)0x00 : (byte)0xFF;
+
+
+
+
+
+
+
         group.Register = nextRegister;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         bool sent = await SendJRegisterAsync(group, nextRegister);
+
+
+
+
+
+
+
         if (!sent) {
+
+
+
+
+
+
+
             group.Register = previousRegister;
+
+
+
+
+
+
+
             if (wasRunning) {
+
+
+
+
+
+
+
                 StartJAnimation(group.Number);
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task ToggleBlockPinAsync(CabezalBlockPinChangeTarjetas change)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         CabezalOutputBlockTarjetas? block = FindBlock(change.BlockKey);
+
+
+
+
+
+
+
         if (block == null || change.PinIndex < 1 || change.PinIndex > block.PinCount) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         string line = CabezalDashboardTarjetasProtocol.FormatBlockPinLine(change.BlockKey, change.PinIndex, change.On);
+
+
+
+
+
+
+
         await SendTrackedAsync("CAN", line, token => CommandService.SendBlockPinAsync(change.BlockKey, change.PinIndex, change.On, token));
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetBlockAllAsync(CabezalBlockAllChangeTarjetas change)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         CabezalOutputBlockTarjetas? block = FindBlock(change.BlockKey);
+
+
+
+
+
+
+
         if (block == null) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         for (int pin = 1; pin <= block.PinCount; pin++) {
+
+
+
+
+
+
+
             string line = CabezalDashboardTarjetasProtocol.FormatBlockPinLine(block.Key, pin, change.On);
+
+
+
+
+
+
+
             await SendTrackedAsync("CAN", line, token => CommandService.SendBlockPinAsync(block.Key, pin, change.On, token));
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task OffAllCoreAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         StopAllMotorRuns();
+
+
+
+
+
+
+
         StopAllJAnimations(restore: false);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         foreach (CabezalJGroupTarjetas group in _jGroups) {
+
+
+
+
+
+
+
             byte previousRegister = group.Register;
+
+
+
+
+
+
+
             group.Register = 0xFF;
+
+
+
+
+
+
+
             bool sent = await SendJRegisterAsync(group, 0xFF);
+
+
+
+
+
+
+
             if (!sent) {
+
+
+
+
+
+
+
                 group.Register = previousRegister;
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         foreach (CabezalOutputBlockTarjetas block in AllBlocks()) {
+
+
+
+
+
+
+
             await SetBlockAllCoreAsync(block, on: false);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task OnAllCoreAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         StopAllJAnimations(restore: false);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalJGroupTarjetas group in _jGroups) {
+
+
+
+
+
+
+
             byte previousRegister = group.Register;
+
+
+
+
+
+
+
             group.Register = 0x00;
+
+
+
+
+
+
+
             bool sent = await SendJRegisterAsync(group, 0x00);
+
+
+
+
+
+
+
             if (!sent) {
+
+
+
+
+
+
+
                 group.Register = previousRegister;
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalOutputBlockTarjetas block in AllBlocks()) {
+
+
+
+
+
+
+
             await SetBlockAllCoreAsync(block, on: true);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task SetBlockAllCoreAsync(CabezalOutputBlockTarjetas block, bool on)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         for (int pin = 1; pin <= block.PinCount; pin++) {
+
+
+
+
+
+
+
             string line = CabezalDashboardTarjetasProtocol.FormatBlockPinLine(block.Key, pin, on);
+
+
+
+
+
+
+
             await SendTrackedAsync("CAN", line, token => CommandService.SendBlockPinAsync(block.Key, pin, on, token));
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     private async Task HandleEmergencyStopAsync()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] En emergencia se detienen ciclos y se apaga el tablero para no dejar acciones pendientes.
+
+
+
+
+
+
+
         StopAllMotorRuns();
+
+
+
+
+
+
+
         StopAllJAnimations(restore: false);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         if (!HasActiveHeadProgram) {
+
+
+
+
+
+
+
             ResetHeadVisualStateToNeutral();
+
+
+
+
+
+
+
             _logLine = "PARADA DE EMERGENCIA ACTIVADA";
+
+
+
+
+
+
+
             await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        await SendDoCommandInternalAsync("j_stop_all");
+
+
+
+
+
+
+
+        await SendDoCommandInternalAsync("y_stop_all");
+
+
+
+
+
+
+
+        await SendDoCommandInternalAsync("s_stop_all");
+
+
+
+
+
+
+
+        await OffAllCoreAsync();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        ResetHeadVisualStateToNeutral();
+
+
+
+
+
+
+
+        _logLine = "PARADA DE EMERGENCIA ACTIVADA";
+
+
+
+
+
+
+
+        await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task SendDenPositionAsync(CabezalMotorTarjetas motor, int position, int selectedPositionNumber)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
+            StopDenRun(motor);
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        int value = Math.Clamp(position, 0, motor.MaxPosition);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string line = CabezalDashboardTarjetasProtocol.FormatPositionLine(motor.MotorIndex, value);
+
+
+
+
+
+
+
+        await SendTrackedAsync("CAN", line, token => CommandService.SendDenPositionAsync(motor.MotorIndex, value, selectedPositionNumber, token));
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task SendSicPositionAsync(CabezalMotorTarjetas motor, int position, int selectedPositionNumber)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        if (!CanExecuteHeadAction()) {
+
+
+
+
+
+
+
+            StopSicRun(motor);
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        int value = Math.Clamp(position, 0, motor.MaxPosition);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string line = CabezalDashboardTarjetasProtocol.FormatPositionLine(motor.MotorIndex, value);
+
+
+
+
+
+
+
+        await SendTrackedAsync("CAN", line, token => CommandService.SendSicPositionAsync(motor.LogicalIndex, value, selectedPositionNumber, token));
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task<bool> SendJRegisterAsync(CabezalJGroupTarjetas group, byte registerValue)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        string line = CabezalDashboardTarjetasProtocol.FormatJRegisterLine(group.Number, registerValue);
+
+
+
+
+
+
+
+        return await SendTrackedAsync("CAN", line, token => CommandService.SendJRegisterAsync(group.Number, registerValue, token));
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static bool TryParseJDoCommand(string command, string prefix, out int jIndex)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        jIndex = 0;
+
+
+
+
+
+
+
+        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string suffix = command[prefix.Length..];
+
+
+
+
+
+
+
+        return int.TryParse(suffix, out jIndex) && jIndex >= 1 && jIndex <= 8;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static bool TryParseIndexedCommand(string command, string prefix, int maxIndex, out int index)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        index = 0;
+
+
+
+
+
+
+
+        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string suffix = command[prefix.Length..];
+
+
+
+
+
+
+
+        return int.TryParse(suffix, out index) && index >= 1 && index <= maxIndex;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private Task StartDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, string mode)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        int index = motor.LogicalIndex;
+
+
+
+
+
+
+
+        CancellationTokenSource? previousToken = _denRunTokens[index];
+
+
+
+
+
+
+
+        if (previousToken != null && motor.RunMode == mode) {
+
+
+
+
+
+
+
+            return Task.CompletedTask;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (_denRunSnapshots[index] is null) {
+
+
+
+
+
+
+
+            _denRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (previousToken != null) {
+
+
+
+
+
+
+
+            previousToken.Cancel();
+
+
+
+
+
+
+
+            previousToken.Dispose();
+
+
+
+
+
+
+
+            _denRunTokens[index] = null;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        motor.RunMode = mode;
+
+
+
+
+
+
+
+        CancellationTokenSource cts = new();
+
+
+
+
+
+
+
+        _denRunTokens[index] = cts;
+
+
+
+
+
+
+
+        _ = RunDenLoopAsync(motor, sequence, periodMs, cts.Token, mode);
+
+
+
+
+
+
+
+        return Task.CompletedTask;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private Task StartSicLoopAsync(CabezalMotorTarjetas motor)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        int index = motor.LogicalIndex;
+
+
+
+
+
+
+
+        CancellationTokenSource? previousToken = _sicRunTokens[index];
+
+
+
+
+
+
+
+        if (previousToken != null && string.Equals(motor.RunMode, "RUN", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            return Task.CompletedTask;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (_sicRunSnapshots[index] is null) {
+
+
+
+
+
+
+
+            _sicRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (previousToken != null) {
+
+
+
+
+
+
+
+            previousToken.Cancel();
+
+
+
+
+
+
+
+            previousToken.Dispose();
+
+
+
+
+
+
+
+            _sicRunTokens[index] = null;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        motor.RunMode = "RUN";
+
+
+
+
+
+
+
+        CancellationTokenSource cts = new();
+
+
+
+
+
+
+
+        _sicRunTokens[index] = cts;
+
+
+
+
+
+
+
+        _ = RunSicLoopAsync(motor, cts.Token);
+
+
+
+
+
+
+
+        return Task.CompletedTask;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task RunDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, CancellationToken cancellationToken, string mode)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        int step = 0;
+
+
+
+
+
+
+
+        try {
+
+
+
+
+
+
+
+            while (!cancellationToken.IsCancellationRequested) {
+
+
+
+
+
+
+
+                int positionNumber = sequence[step % sequence.Count];
+
+
+
+
+
+
+
+                CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                await InvokeAsync(() =>
+
+
+
+
+
+
+
+                {
+
+
+
+
+
+
+
+                    motor.Position = option.Value;
+
+
+
+
+
+
+
+                    motor.SelectedPositionNumber = option.Number;
+
+
+
+
+
+
+
+                    motor.RunMode = mode;
+
+
+
+
+
+
+
+                    StateHasChanged();
+
+
+
+
+
+
+
+                    return Task.CompletedTask;
+
+
+
+
+
+
+
+                });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                step++;
+
+
+
+
+
+
+
+                await Task.Delay(periodMs, cancellationToken);
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        } catch (OperationCanceledException) {
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task RunSicLoopAsync(CabezalMotorTarjetas motor, CancellationToken cancellationToken)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        int step = 0;
+
+
+
+
+
+
+
+        try {
+
+
+
+
+
+
+
+            while (!cancellationToken.IsCancellationRequested) {
+
+
+
+
+
+
+
+                int positionNumber = CabezalDashboardTarjetasProtocol.SicRunSequence[step % CabezalDashboardTarjetasProtocol.SicRunSequence.Length];
+
+
+
+
+
+
+
+                CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
+
+
+
+
+
+
+
+                await InvokeAsync(() =>
+
+
+
+
+
+
+
+                {
+
+
+
+
+
+
+
+                    motor.Position = option.Value;
+
+
+
+
+
+
+
+                    motor.SelectedPositionNumber = option.Number;
+
+
+
+
+
+
+
+                    motor.RunMode = "RUN";
+
+
+
+
+
+
+
+                    StateHasChanged();
+
+
+
+
+
+
+
+                    return Task.CompletedTask;
+
+
+
+
+
+
+
+                });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                step++;
+
+
+
+
+
+
+
+                await Task.Delay(CabezalDashboardTarjetasProtocol.SicRunPeriodMs, cancellationToken);
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        } catch (OperationCanceledException) {
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task<bool> SendTrackedAsync(string direction, string message, Func<CancellationToken, Task> sender)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        // [ACURATEX] Esta funcion unifica trazas, ultimo comando y captura de errores para todo el tablero.
+
+
+
+
+
+
+
+        string cleanMessage = message.Trim();
+
+
+
+
+
+
+
+        if (cleanMessage.Length == 0) {
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        AddTrace(direction, cleanMessage);
+
+
+
+
+
+
+
+        _lastCommand = cleanMessage;
+
+
+
+
+
+
+
+        _logLine = $"{direction} => {cleanMessage}";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        try {
+
+
+
+
+
+
+
+            await sender(CancellationToken.None);
+
+
+
+
+
+
+
+            return true;
+
+
+
+
+
+
+
+        } catch (Exception ex) {
+
+
+
+
+
+
+
+            AddTrace("ERR", ex.Message);
+
+
+
+
+
+
+
+            _logLine = $"Error: {ex.Message}";
+
+
+
+
+
+
+
+            _headProgramStatus = ex.Message;
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void OnLineReceived(string line)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        // [EQUIV MCU] Esto actua como un callback de recepcion serial: llega una trama y se actualizan registros.
+
+
+
+
+
+
+
+        _ = InvokeAsync(() =>
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            _lastRx = string.IsNullOrWhiteSpace(line) ? "(vacio)" : line.Trim();
+
+
+
+
+
+
+
+            AddTrace("RX", _lastRx);
+
+
+
+
+
+
+
+            if (TryParseCanRxLine(_lastRx, out CanRxFrame frame, out string canRxError)) {
+
+
+
+
+
+
+
+                lock (_canRxHistoryLock)
+
+
+
+
+
+
+
+                {
+
+
+
+
+
+
+
+                    _canRxHistory.Add(frame);
+
+
+
+
+
+
+
+                    if (_canRxHistory.Count > CanRxHistoryMax) {
+
+
+
+
+
+
+
+                        _canRxHistory.RemoveRange(0, _canRxHistory.Count - CanRxHistoryMax);
+
+
+
+
+
+
+
+                    }
+
+
+
+
+
+
+
+                }
+                ProcessCanAlarm(frame);
+                ProcessHeadTestFrame(frame);
+
+            } else if (_lastRx.StartsWith("CAN_RX|", StringComparison.OrdinalIgnoreCase)) {
+                _logLine = string.IsNullOrWhiteSpace(canRxError) ? "CAN_RX invalida" : $"CAN_RX invalida: {canRxError}";
+            }
+
+
+
+
+
+
+
+            if (_alarmHaltActive && !string.IsNullOrWhiteSpace(_lastRx) && !_lastRx.StartsWith("CAN_RX|", StringComparison.OrdinalIgnoreCase)) {
+                AppendCanAlarmActivity(_lastRx);
+            }
+
+            if (HeadStateEventParser.TryParse(_lastRx, out HeadStateEvent? stateEvent) && stateEvent is not null) {
+
+
+
+
+
+
+
+                ApplyHeadStateEvent(stateEvent);
+
+
+
+
+
+
+
+            } else if (_lastRx.StartsWith("TESTEO|", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+                || _lastRx.StartsWith("INIT|", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+                _headProgramStatus = _lastRx;
+
+
+
+
+
+
+
+                if (_lastRx.StartsWith("TESTEO|ERROR", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+                    || _lastRx.StartsWith("INIT|ERROR", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+                    _ = EmergencyStop.ExecuteEmergencyStopAsync("FAST_DIAG");
+
+
+
+
+
+
+
+                }
+
+
+
+
+
+
+
+            } else if (_lastRx.Equals("QUEUED", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+                || _lastRx.Equals("OK", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+                || (_lastRx.StartsWith("OK ", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+                    && !_lastRx.StartsWith("OK|HEAD_ACTION|", StringComparison.OrdinalIgnoreCase))) {
+
+
+
+
+
+
+
+                _headProgramStatus = _lastRx;
+
+
+
+
+
+
+
+            } else if (_lastRx.StartsWith("ERR|HEAD_ACTION", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+                _headProgramStatus = _lastRx;
+
+
+
+
+
+
+
+            } else if (_lastRx.StartsWith("OK|HEAD_ACTION|", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+                _headProgramStatus = $"Accion confirmada por firmware: {_lastRx["OK|HEAD_ACTION|".Length..]}";
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+            StateHasChanged();
+
+
+
+
+
+
+
+        });
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ApplyHeadStateEvent(HeadStateEvent stateEvent)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        if (stateEvent.StateType.Equals("POS", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            ApplyPositionStateEvent(stateEvent);
+
+
+
+
+
+
+
+        } else if (stateEvent.StateType.Equals("CH", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            ApplyChannelStateEvent(stateEvent);
+
+
+
+
+
+
+
+        } else if (stateEvent.StateType.Equals("RUN", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+            || stateEvent.StateType.Equals("RUN1", StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            ApplyRunStateEvent(stateEvent);
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        _headProgramStatus = $"Estado Cabezal actualizado: {stateEvent.InstanceName}.{stateEvent.StateType}";
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ApplyPositionStateEvent(HeadStateEvent stateEvent)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        int positionNumber = FirstSetBitNumber(stateEvent.Mask);
+
+
+
+
+
+
+
+        if (positionNumber <= 0) {
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "DEN", out int denIndex)
+
+
+
+
+
+
+
+            && denIndex >= 0
+
+
+
+
+
+
+
+            && denIndex < _denMotors.Count) {
+
+
+
+
+
+
+
+            ApplyMotorPositionState(_denMotors[denIndex], positionNumber, stateEvent.Value);
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "SIC", out int sicIndex)
+
+
+
+
+
+
+
+            && sicIndex >= 0
+
+
+
+
+
+
+
+            && sicIndex < _sicMotors.Count) {
+
+
+
+
+
+
+
+            ApplyMotorPositionState(_sicMotors[sicIndex], positionNumber, stateEvent.Value);
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "STITCH", out int stitchIndex)) {
+
+
+
+
+
+
+
+            CabezalOutputBlockTarjetas? block = FindBlock($"stitch{stitchIndex + 1}");
+
+
+
+
+
+
+
+            if (block is not null) {
+
+
+
+
+
+
+
+                ApplyBlockMask(block, stateEvent.Mask);
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static void ApplyMotorPositionState(CabezalMotorTarjetas motor, int positionNumber, int? value)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        CabezalPositionTarjetas? knownPosition = motor.Positions.FirstOrDefault(position => position.Number == positionNumber);
+
+
+
+
+
+
+
+        motor.SelectedPositionNumber = positionNumber;
+
+
+
+
+
+
+
+        motor.Position = value ?? knownPosition?.Value ?? 0;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ApplyChannelStateEvent(HeadStateEvent stateEvent)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "J", out int jIndex)
+
+
+
+
+
+
+
+            && jIndex >= 0
+
+
+
+
+
+
+
+            && jIndex < _jGroups.Count) {
+
+
+
+
+
+
+
+            _jGroups[jIndex].Register = (byte)(~stateEvent.Mask & 0xFF);
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "YARN", out int yarnIndex)) {
+
+
+
+
+
+
+
+            CabezalOutputBlockTarjetas? block = FindBlock($"yarn{yarnIndex + 1}");
+
+
+
+
+
+
+
+            if (block is not null) {
+
+
+
+
+
+
+
+                ApplyBlockMask(block, stateEvent.Mask);
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ApplyRunStateEvent(HeadStateEvent stateEvent)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        bool isActive = stateEvent.Mask != 0;
+
+
+
+
+
+
+
+        string runMode = stateEvent.StateType.Equals("RUN1", StringComparison.OrdinalIgnoreCase) ? "RUN1" : "RUN";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "DEN", out int denIndex)
+
+
+
+
+
+
+
+            && denIndex >= 0
+
+
+
+
+
+
+
+            && denIndex < _denMotors.Count) {
+
+
+
+
+
+
+
+            _denMotors[denIndex].RunMode = isActive ? runMode : string.Empty;
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (TryParseInstanceIndex(stateEvent.InstanceName, "SIC", out int sicIndex)
+
+
+
+
+
+
+
+            && sicIndex >= 0
+
+
+
+
+
+
+
+            && sicIndex < _sicMotors.Count) {
+
+
+
+
+
+
+
+            _sicMotors[sicIndex].RunMode = isActive ? runMode : string.Empty;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static void ApplyBlockMask(CabezalOutputBlockTarjetas block, int mask)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        for (int index = 0; index < block.States.Length; index++) {
+
+
+
+
+
+
+
+            block.States[index] = ((mask >> index) & 0x01) != 0;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static bool TryParseInstanceIndex(string instanceName, string prefix, out int zeroBasedIndex)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        zeroBasedIndex = -1;
+
+
+
+
+
+
+
+        if (string.IsNullOrWhiteSpace(instanceName)
+
+
+
+
+
+
+
+            || !instanceName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string numberText = instanceName[prefix.Length..];
+
+
+
+
+
+
+
+        if (!int.TryParse(numberText, out int parsedNumber) || parsedNumber <= 0) {
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        zeroBasedIndex = parsedNumber - 1;
+
+
+
+
+
+
+
+        return true;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static int FirstSetBitNumber(int mask)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        if (mask <= 0) {
+
+
+
+
+
+
+
+            return 0;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        for (int bit = 0; bit < 31; bit++) {
+
+
+
+
+
+
+
+            if ((mask & (1 << bit)) != 0) {
+
+
+
+
+
+
+
+                return bit + 1;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        return 0;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void AddTrace(string direction, string message)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        _trace.Add(new CabezalTraceEntryTarjetas(DateTime.Now, direction, message));
+
+
+
+
+
+
+
+        if (_trace.Count > TraceMax) {
+
+
+
+
+
+
+
+            _trace.RemoveRange(0, _trace.Count - TraceMax);
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ClearTrace()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        _trace.Clear();
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private int CanRxHistoryCount
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        get
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            lock (_canRxHistoryLock)
+
+
+
+
+
+
+
+            {
+
+
+
+
+
+
+
+                return _canRxHistory.Count;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private List<CanRxFrame> GetCanRxHistorySnapshot()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        lock (_canRxHistoryLock)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            return _canRxHistory.ToList();
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void OpenCanRxHistory()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        _showCanRxHistoryModal = true;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void CloseCanRxHistory()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        _showCanRxHistoryModal = false;
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ClearCanRxHistory()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        lock (_canRxHistoryLock)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            _canRxHistory.Clear();
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task OpenCanRxHistoryAsync()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        OpenCanRxHistory();
+
+
+
+
+
+
+
+        await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task CloseCanRxHistoryAsync()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        CloseCanRxHistory();
+
+
+
+
+
+
+
+        await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task ClearCanRxHistoryAsync()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        ClearCanRxHistory();
+
+
+
+
+
+
+
+        await InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private async Task CopyCanRxHistoryAsync()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        string text = BuildCanRxHistoryText();
+
+
+
+
+
+
+
+        if (text.Length == 0)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            return;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        await JS.InvokeVoidAsync("acuratexCanRx.copyText", text);
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private string BuildCanRxHistoryText()
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        List<CanRxFrame> snapshot = GetCanRxHistorySnapshot();
+
+
+
+
+
+
+
+        return string.Join(Environment.NewLine, snapshot.Select(FormatCanRxHistoryLine));
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static string FormatCanRxHistoryLine(CanRxFrame frame)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        return $"{frame.ReceivedAt:HH:mm:ss.fff} | {frame.Bus} | 0x{frame.Id:X3} | {frame.Dlc} | {FormatCanRxData(frame.Data)}";
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private static string FormatCanRxData(byte[] data)
+
+
+
+
+
+
+
+    {
+
+
+
+
+
+
+
+        return data.Length == 0 ? string.Empty : string.Join(" ", data.Select(static item => item.ToString("X2")));
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void ProcessCanAlarm(CanRxFrame frame)
+    {
+        CanAlarmInfo? alarm = CanAlarmDetector.Detect(frame);
+        if (alarm is null) {
             return;
         }
 
-        await SendDoCommandInternalAsync("j_stop_all");
-        await SendDoCommandInternalAsync("y_stop_all");
-        await SendDoCommandInternalAsync("s_stop_all");
-        await OffAllCoreAsync();
+        CanAlarmHistoryItem historyItem = CreateCanAlarmHistoryItem(alarm, "PENDIENTE");
+        bool render = false;
 
-        ResetHeadVisualStateToNeutral();
-        _logLine = "PARADA DE EMERGENCIA ACTIVADA";
+        lock (_canAlarmLock) {
+            string key = BuildCanAlarmKey(alarm);
+            if (_canAlarmDeduplication.TryGetValue(key, out DateTime lastSeen) && (alarm.DetectedAt - lastSeen) < TimeSpan.FromMilliseconds(1200)) {
+                return;
+            }
+
+            _canAlarmDeduplication[key] = alarm.DetectedAt;
+            AddCanAlarmHistoryLocked(historyItem);
+
+            if (_activeCanAlarm is null) {
+                _activeCanAlarm = alarm;
+                _activeCanAlarmHistoryItem = historyItem;
+                _alarmHaltActive = true;
+                _showCanAlarmModal = true;
+                _canAlarmPendingCount = _pendingCanAlarms.Count;
+                _canAlarmActivity.Clear();
+                historyItem.Status = "ACTIVA";
+                AppendCanAlarmActivityLocked($"[ALARM] Detectada ID=0x{alarm.Id:X3} TYPE={alarm.AlarmType}");
+                AppendCanAlarmActivityLocked("[ALARM] HALT activado");
+                AddTrace("ALARM", "[ALARM] HALT activado");
+                render = true;
+            } else {
+                if (_pendingCanAlarms.Count >= CanAlarmQueueMax) {
+                    var dropped = _pendingCanAlarms.Dequeue();
+                    AppendCanAlarmActivityLocked("[ALARM] Cola llena: se descarto la mas antigua");
+                    AddTrace("ALARM", "[ALARM] Cola llena: se descarto la mas antigua");
+                }
+
+                historyItem.Status = "PENDIENTE";
+                _pendingCanAlarms.Enqueue((alarm, historyItem));
+                _canAlarmPendingCount = _pendingCanAlarms.Count;
+                AppendCanAlarmActivityLocked($"[ALARM] Pendiente ID=0x{alarm.Id:X3} TYPE={alarm.AlarmType}");
+                AddTrace("ALARM", $"[ALARM] Pendiente ID=0x{alarm.Id:X3} TYPE={alarm.AlarmType}");
+                render = true;
+            }
+        }
+
+        AddTrace("ALARM", $"Detectada ID=0x{alarm.Id:X3} TYPE={alarm.AlarmType}");
+        if (render) {
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string BuildCanAlarmKey(CanAlarmInfo alarm)
+    {
+        if (alarm.AlarmType.Equals("HB_C1", StringComparison.OrdinalIgnoreCase)) {
+            int node = checked((int)(alarm.Id - 0x700));
+            return $"HB_C1|{node}";
+        }
+
+        int motor = checked((int)(alarm.Id - 0x70F));
+        return $"MOTOR|{motor}|0x{alarm.Data[3]:X2}";
+    }
+
+    private static CanAlarmHistoryItem CreateCanAlarmHistoryItem(CanAlarmInfo alarm, string status)
+    {
+        return new CanAlarmHistoryItem
+        {
+            DetectedAt = alarm.DetectedAt,
+            ClosedAt = null,
+            Status = status,
+            AlarmType = alarm.AlarmType,
+            Title = alarm.Title,
+            Description = alarm.Message,
+            Bus = alarm.Bus,
+            CanId = alarm.Id,
+            Dlc = alarm.Dlc,
+            Data = alarm.Data,
+            RawLine = alarm.RawLine,
+        };
+    }
+
+    private void AddCanAlarmHistoryLocked(CanAlarmHistoryItem item)
+    {
+        _canAlarmHistory.Add(item);
+        while (_canAlarmHistory.Count > CanAlarmHistoryMax) {
+            int removeIndex = _canAlarmHistory.FindIndex(static entry => string.Equals(entry.Status, "CERRADA", StringComparison.OrdinalIgnoreCase));
+            if (removeIndex < 0) {
+                removeIndex = 0;
+            }
+
+            CanAlarmHistoryItem removed = _canAlarmHistory[removeIndex];
+            _canAlarmHistory.RemoveAt(removeIndex);
+            if (ReferenceEquals(_selectedCanAlarmHistoryItem, removed)) {
+                _selectedCanAlarmHistoryItem = null;
+            }
+        }
+    }
+
+    private void AppendCanAlarmActivityLocked(string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) {
+            return;
+        }
+
+        _canAlarmActivity.Add(entry.Trim());
+        const int alarmNoteMax = 24;
+        if (_canAlarmActivity.Count > alarmNoteMax) {
+            _canAlarmActivity.RemoveRange(0, _canAlarmActivity.Count - alarmNoteMax);
+        }
+    }
+
+    private void AppendCanAlarmActivity(string entry)
+    {
+        lock (_canAlarmLock) {
+            AppendCanAlarmActivityLocked(entry);
+        }
+    }
+
+    private List<string> GetCanAlarmActivitySnapshot()
+    {
+        lock (_canAlarmLock) {
+            return _canAlarmActivity.ToList();
+        }
+    }
+
+    private int CanAlarmHistoryCount
+    {
+        get
+        {
+            lock (_canAlarmLock) {
+                return _canAlarmHistory.Count;
+            }
+        }
+    }
+
+    private List<CanAlarmHistoryItem> GetCanAlarmHistorySnapshot()
+    {
+        lock (_canAlarmLock) {
+            return _canAlarmHistory.ToList();
+        }
+    }
+
+    private void OpenCanAlarmHistory()
+    {
+        lock (_canAlarmLock) {
+            _showCanAlarmHistoryModal = true;
+            _selectedCanAlarmHistoryItem = _canAlarmHistory.Count > 0 ? _canAlarmHistory[^1] : null;
+        }
+    }
+
+    private void CloseCanAlarmHistory()
+    {
+        lock (_canAlarmLock) {
+            _showCanAlarmHistoryModal = false;
+        }
+    }
+
+    private void SelectCanAlarmHistoryItem(CanAlarmHistoryItem? item)
+    {
+        lock (_canAlarmLock) {
+            _selectedCanAlarmHistoryItem = item;
+        }
+    }
+
+    private string BuildCanAlarmHistoryClipboardText()
+    {
+        lock (_canAlarmLock) {
+            if (_canAlarmHistory.Count == 0) {
+                return "Sin alertas registradas.";
+            }
+
+            System.Text.StringBuilder builder = new();
+            builder.AppendLine("HISTORIAL DE ALERTAS CAN");
+            foreach (CanAlarmHistoryItem item in _canAlarmHistory) {
+                builder.AppendLine($"[{item.Status}] {item.DetectedAt:HH:mm:ss.fff} | {item.AlarmType} | {item.Title} | {item.Bus} | 0x{item.CanId:X3} | DLC={item.Dlc} | DATA={FormatCanRxData(item.Data)}");
+                if (!string.IsNullOrWhiteSpace(item.Description)) {
+                    builder.AppendLine(item.Description);
+                }
+                if (item.ClosedAt.HasValue) {
+                    builder.AppendLine($"Cerrada: {item.ClosedAt:HH:mm:ss.fff}");
+                }
+                if (!string.IsNullOrWhiteSpace(item.RawLine)) {
+                    builder.AppendLine(item.RawLine);
+                }
+                builder.AppendLine();
+            }
+
+            return builder.ToString().TrimEnd();
+        }
+    }
+
+    private string BuildCanAlarmClipboardText()
+    {
+        lock (_canAlarmLock) {
+            if (_activeCanAlarm is null) {
+                return "Sin alerta activa.";
+            }
+
+            System.Text.StringBuilder builder = new();
+            builder.AppendLine("ALERTA CAN");
+            builder.AppendLine($"Tipo: {_activeCanAlarm.AlarmType}");
+            builder.AppendLine($"Hora: {_activeCanAlarm.DetectedAt:HH:mm:ss.fff}");
+            builder.AppendLine($"Bus: {_activeCanAlarm.Bus}");
+            builder.AppendLine($"ID: 0x{_activeCanAlarm.Id:X3}");
+            builder.AppendLine($"DLC: {_activeCanAlarm.Dlc}");
+            builder.AppendLine($"DATA: {FormatCanRxData(_activeCanAlarm.Data)}");
+            builder.AppendLine($"Descripcion: {_activeCanAlarm.Title}");
+            if (_canAlarmPendingCount > 0) {
+                builder.AppendLine($"{_canAlarmPendingCount} alertas pendientes");
+            }
+
+            builder.AppendLine();
+            builder.AppendLine(_activeCanAlarm.Message);
+
+            List<string> notes = _canAlarmActivity.ToList();
+            if (notes.Count > 0) {
+                builder.AppendLine();
+                builder.AppendLine("LOG:");
+                foreach (string entry in notes) {
+                    builder.AppendLine(entry);
+                }
+            }
+
+            return builder.ToString().TrimEnd();
+        }
+    }
+
+    private async Task CloseCanAlarmAsync()
+    {
+        bool render = false;
+        string? trace = null;
+
+        lock (_canAlarmLock) {
+            if (_activeCanAlarm is null) {
+                _showCanAlarmModal = false;
+                _alarmHaltActive = false;
+                _canAlarmPendingCount = 0;
+                return;
+            }
+
+            if (_activeCanAlarmHistoryItem is not null) {
+                _activeCanAlarmHistoryItem.Status = "CERRADA";
+                _activeCanAlarmHistoryItem.ClosedAt = DateTime.Now;
+            }
+
+            AppendCanAlarmActivityLocked("[ALARM] Cerrada");
+            if (_pendingCanAlarms.Count > 0) {
+                (CanAlarmInfo Alarm, CanAlarmHistoryItem HistoryItem) next = _pendingCanAlarms.Dequeue();
+                _activeCanAlarm = next.Alarm;
+                _activeCanAlarmHistoryItem = next.HistoryItem;
+                _activeCanAlarmHistoryItem.Status = "ACTIVA";
+                _activeCanAlarmHistoryItem.ClosedAt = null;
+                _canAlarmPendingCount = _pendingCanAlarms.Count;
+                _canAlarmActivity.Clear();
+                AppendCanAlarmActivityLocked($"[ALARM] Detectada ID=0x{_activeCanAlarm.Id:X3} TYPE={_activeCanAlarm.AlarmType}");
+                AppendCanAlarmActivityLocked("[ALARM] HALT activado");
+                AddTrace("ALARM", "[ALARM] HALT activado");
+                trace = $"[ALARM] Siguiente alerta ID=0x{_activeCanAlarm.Id:X3} TYPE={_activeCanAlarm.AlarmType}";
+                _showCanAlarmModal = true;
+                _alarmHaltActive = true;
+            } else {
+                _activeCanAlarm = null;
+                _activeCanAlarmHistoryItem = null;
+                _alarmHaltActive = false;
+                _showCanAlarmModal = false;
+                _canAlarmPendingCount = 0;
+                AppendCanAlarmActivityLocked("[ALARM] HALT liberado");
+                AddTrace("ALARM", "[ALARM] HALT liberado");
+                trace = "[ALARM] HALT liberado";
+            }
+
+            render = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(trace)) {
+            AddTrace("ALARM", trace);
+        }
+
+        if (render) {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CopyCanAlarmAsync()
+    {
+        string text = BuildCanAlarmClipboardText();
+        if (text.Length == 0) {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("acuratexCanRx.copyText", text);
+    }
+
+    private async Task SendCanAlarmCheckAsync()
+    {
+        if (!CanExecuteHeadAction(allowDuringEmergency: true, allowDuringAlarm: true)) {
+            return;
+        }
+
+        AppendCanAlarmActivity("CHECK enviado");
+        AddTrace("ALARM", "CHECK enviado");
+        await SendTrackedAsync("CAN", "320 07", token => CommandService.SendCanLineAsync("320 07", token));
+    }
+
+    private void ProcessHeadTestFrame(CanRxFrame frame)
+    {
+        if (!_headTestBusy && frame.Id != 0x702) {
+            return;
+        }
+
+        HeadTestResult? result = _headTestDetector.Detect(frame);
+        if (result is not null) {
+            FinalizeHeadTest(result, timedOut: false);
+            return;
+        }
+
+        if (!_headTestBusy) {
+            return;
+        }
+
+        if (frame.Id == 0x700 && frame.Dlc > 0) {
+            AddTrace("TESTEO", $"[TESTEO] RX700|CODE=0x{frame.Data[0]:X2}");
+        } else if (frame.Id == 0x702 && frame.Dlc >= 2) {
+            AddTrace("TESTEO", "[TESTEO] Re-arm 702 3F 00");
+        }
+
+        _headTestStatus = _headTestDetector.Status;
+        _headTestMessage = _headTestDetector.Description;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void FinalizeHeadTest(HeadTestResult result, bool timedOut)
+    {
+        _headTestTimeoutCts?.Cancel();
+        _headTestTimeoutCts?.Dispose();
+        _headTestTimeoutCts = null;
+        _headTestBusy = false;
+        _headTestLastResult = result;
+        _headTestStatus = result.Status;
+        _headTestMessage = result.Description;
+        _headProgramStatus = $"TESTEO {result.Status}";
+        _logLine = result.Description;
+
+        byte code = result.Data.Length > 0 ? result.Data[0] : (byte)0;
+        AddTrace("TESTEO", $"[TESTEO] Resultado={result.Status} Codigo=0x{code:X2}");
+        if (timedOut) {
+            AddTrace("TESTEO", "[TESTEO] Sin respuesta CAN valida");
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+
+    private async Task OpenCanAlarmHistoryAsync()
+    {
+        OpenCanAlarmHistory();
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task SendDenPositionAsync(CabezalMotorTarjetas motor, int position, int selectedPositionNumber)
+    private async Task CloseCanAlarmHistoryAsync()
     {
-        if (!CanExecuteHeadAction()) {
-            StopDenRun(motor);
+        CloseCanAlarmHistory();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenHeadTestDetailAsync()
+    {
+        if (_headTestLastResult is null) {
             return;
         }
 
-        int value = Math.Clamp(position, 0, motor.MaxPosition);
-
-        string line = CabezalDashboardTarjetasProtocol.FormatPositionLine(motor.MotorIndex, value);
-        await SendTrackedAsync("CAN", line, token => CommandService.SendDenPositionAsync(motor.MotorIndex, value, selectedPositionNumber, token));
+        _showHeadTestDetailModal = true;
+        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task SendSicPositionAsync(CabezalMotorTarjetas motor, int position, int selectedPositionNumber)
+    private async Task CloseHeadTestDetailAsync()
     {
-        if (!CanExecuteHeadAction()) {
-            StopSicRun(motor);
+        _showHeadTestDetailModal = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static int CountHeadTestFrames(HeadTestResult result, byte code)
+    {
+        return result.FramesValue.Count(frame => frame.Code == code);
+    }
+
+    private static byte? GetHeadTestFirstCode(HeadTestResult result)
+    {
+        foreach (HeadTestFrameTrace trace in result.FramesValue) {
+            if (trace.Code.HasValue) {
+                return trace.Code;
+            }
+        }
+
+        return null;
+    }
+
+    private static byte? GetHeadTestLastCode(HeadTestResult result)
+    {
+        for (int index = result.FramesValue.Count - 1; index >= 0; index--) {
+            byte? code = result.FramesValue[index].Code;
+            if (code.HasValue) {
+                return code;
+            }
+        }
+
+        return null;
+    }
+
+    private static string FormatHeadTestCode(byte? code)
+    {
+        return code.HasValue ? $"0x{code.Value:X2}" : "-";
+    }
+
+    private static string FormatHeadTestBoards(IReadOnlyList<string> boards)
+    {
+        return boards.Count == 0 ? "-" : string.Join(", ", boards);
+    }
+    private async Task ClearCanAlarmHistoryAsync()
+    {
+        bool accepted = await JS.InvokeAsync<bool>("confirm", "Limpiar historial de alertas?");
+        if (!accepted) {
             return;
         }
 
-        int value = Math.Clamp(position, 0, motor.MaxPosition);
-
-        string line = CabezalDashboardTarjetasProtocol.FormatPositionLine(motor.MotorIndex, value);
-        await SendTrackedAsync("CAN", line, token => CommandService.SendSicPositionAsync(motor.LogicalIndex, value, selectedPositionNumber, token));
-    }
-
-    private async Task<bool> SendJRegisterAsync(CabezalJGroupTarjetas group, byte registerValue)
-    {
-        string line = CabezalDashboardTarjetasProtocol.FormatJRegisterLine(group.Number, registerValue);
-        return await SendTrackedAsync("CAN", line, token => CommandService.SendJRegisterAsync(group.Number, registerValue, token));
-    }
-
-    private static bool TryParseJDoCommand(string command, string prefix, out int jIndex)
-    {
-        jIndex = 0;
-        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
-            return false;
-        }
-
-        string suffix = command[prefix.Length..];
-        return int.TryParse(suffix, out jIndex) && jIndex >= 1 && jIndex <= 8;
-    }
-
-    private static bool TryParseIndexedCommand(string command, string prefix, int maxIndex, out int index)
-    {
-        index = 0;
-        if (!command.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
-            return false;
-        }
-
-        string suffix = command[prefix.Length..];
-        return int.TryParse(suffix, out index) && index >= 1 && index <= maxIndex;
-    }
-
-    private Task StartDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, string mode)
-    {
-        int index = motor.LogicalIndex;
-        CancellationTokenSource? previousToken = _denRunTokens[index];
-        if (previousToken != null && motor.RunMode == mode) {
-            return Task.CompletedTask;
-        }
-
-        if (_denRunSnapshots[index] is null) {
-            _denRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
-        }
-
-        if (previousToken != null) {
-            previousToken.Cancel();
-            previousToken.Dispose();
-            _denRunTokens[index] = null;
-        }
-
-        motor.RunMode = mode;
-        CancellationTokenSource cts = new();
-        _denRunTokens[index] = cts;
-        _ = RunDenLoopAsync(motor, sequence, periodMs, cts.Token, mode);
-        return Task.CompletedTask;
-    }
-
-    private Task StartSicLoopAsync(CabezalMotorTarjetas motor)
-    {
-        int index = motor.LogicalIndex;
-        CancellationTokenSource? previousToken = _sicRunTokens[index];
-        if (previousToken != null && string.Equals(motor.RunMode, "RUN", StringComparison.OrdinalIgnoreCase)) {
-            return Task.CompletedTask;
-        }
-
-        if (_sicRunSnapshots[index] is null) {
-            _sicRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
-        }
-
-        if (previousToken != null) {
-            previousToken.Cancel();
-            previousToken.Dispose();
-            _sicRunTokens[index] = null;
-        }
-
-        motor.RunMode = "RUN";
-        CancellationTokenSource cts = new();
-        _sicRunTokens[index] = cts;
-        _ = RunSicLoopAsync(motor, cts.Token);
-        return Task.CompletedTask;
-    }
-
-    private async Task RunDenLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, CancellationToken cancellationToken, string mode)
-    {
-        int step = 0;
-        try {
-            while (!cancellationToken.IsCancellationRequested) {
-                int positionNumber = sequence[step % sequence.Count];
-                CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
-
-                await InvokeAsync(() =>
-                {
-                    motor.Position = option.Value;
-                    motor.SelectedPositionNumber = option.Number;
-                    motor.RunMode = mode;
-                    StateHasChanged();
-                    return Task.CompletedTask;
-                });
-
-                step++;
-                await Task.Delay(periodMs, cancellationToken);
-            }
-        } catch (OperationCanceledException) {
-        }
-    }
-
-    private async Task RunSicLoopAsync(CabezalMotorTarjetas motor, CancellationToken cancellationToken)
-    {
-        int step = 0;
-        try {
-            while (!cancellationToken.IsCancellationRequested) {
-                int positionNumber = CabezalDashboardTarjetasProtocol.SicRunSequence[step % CabezalDashboardTarjetasProtocol.SicRunSequence.Length];
-                CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
-                await InvokeAsync(() =>
-                {
-                    motor.Position = option.Value;
-                    motor.SelectedPositionNumber = option.Number;
-                    motor.RunMode = "RUN";
-                    StateHasChanged();
-                    return Task.CompletedTask;
-                });
-
-                step++;
-                await Task.Delay(CabezalDashboardTarjetasProtocol.SicRunPeriodMs, cancellationToken);
-            }
-        } catch (OperationCanceledException) {
-        }
-    }
-
-    private async Task<bool> SendTrackedAsync(string direction, string message, Func<CancellationToken, Task> sender)
-    {
-        // [ACURATEX] Esta funcion unifica trazas, ultimo comando y captura de errores para todo el tablero.
-        string cleanMessage = message.Trim();
-        if (cleanMessage.Length == 0) {
-            return false;
-        }
-
-        AddTrace(direction, cleanMessage);
-        _lastCommand = cleanMessage;
-        _logLine = $"{direction} => {cleanMessage}";
-
-        try {
-            await sender(CancellationToken.None);
-            return true;
-        } catch (Exception ex) {
-            AddTrace("ERR", ex.Message);
-            _logLine = $"Error: {ex.Message}";
-            _headProgramStatus = ex.Message;
-            return false;
-        }
-    }
-
-    private void OnLineReceived(string line)
-    {
-        // [EQUIV MCU] Esto actua como un callback de recepcion serial: llega una trama y se actualizan registros.
-        _ = InvokeAsync(() =>
-        {
-            _lastRx = string.IsNullOrWhiteSpace(line) ? "(vacio)" : line.Trim();
-            AddTrace("RX", _lastRx);
-            if (HeadStateEventParser.TryParse(_lastRx, out HeadStateEvent? stateEvent) && stateEvent is not null) {
-                ApplyHeadStateEvent(stateEvent);
-            } else if (_lastRx.StartsWith("TESTEO|", StringComparison.OrdinalIgnoreCase)
-                || _lastRx.StartsWith("INIT|", StringComparison.OrdinalIgnoreCase)) {
-                _headProgramStatus = _lastRx;
-                if (_lastRx.StartsWith("TESTEO|ERROR", StringComparison.OrdinalIgnoreCase)
-                    || _lastRx.StartsWith("INIT|ERROR", StringComparison.OrdinalIgnoreCase)) {
-                    _ = EmergencyStop.ExecuteEmergencyStopAsync("FAST_DIAG");
+        lock (_canAlarmLock) {
+            if (_activeCanAlarm is null && _pendingCanAlarms.Count == 0) {
+                _canAlarmHistory.Clear();
+                _selectedCanAlarmHistoryItem = null;
+            } else {
+                _canAlarmHistory.RemoveAll(static item => string.Equals(item.Status, "CERRADA", StringComparison.OrdinalIgnoreCase));
+                if (_selectedCanAlarmHistoryItem is not null && !_canAlarmHistory.Contains(_selectedCanAlarmHistoryItem)) {
+                    _selectedCanAlarmHistoryItem = _canAlarmHistory.Count > 0 ? _canAlarmHistory[^1] : null;
                 }
-            } else if (_lastRx.Equals("QUEUED", StringComparison.OrdinalIgnoreCase)
-                || _lastRx.Equals("OK", StringComparison.OrdinalIgnoreCase)
-                || (_lastRx.StartsWith("OK ", StringComparison.OrdinalIgnoreCase)
-                    && !_lastRx.StartsWith("OK|HEAD_ACTION|", StringComparison.OrdinalIgnoreCase))) {
-                _headProgramStatus = _lastRx;
-            } else if (_lastRx.StartsWith("ERR|HEAD_ACTION", StringComparison.OrdinalIgnoreCase)) {
-                _headProgramStatus = _lastRx;
-            } else if (_lastRx.StartsWith("OK|HEAD_ACTION|", StringComparison.OrdinalIgnoreCase)) {
-                _headProgramStatus = $"Accion confirmada por firmware: {_lastRx["OK|HEAD_ACTION|".Length..]}";
-            }
-            StateHasChanged();
-        });
-    }
-
-    private void ApplyHeadStateEvent(HeadStateEvent stateEvent)
-    {
-        if (stateEvent.StateType.Equals("POS", StringComparison.OrdinalIgnoreCase)) {
-            ApplyPositionStateEvent(stateEvent);
-        } else if (stateEvent.StateType.Equals("CH", StringComparison.OrdinalIgnoreCase)) {
-            ApplyChannelStateEvent(stateEvent);
-        } else if (stateEvent.StateType.Equals("RUN", StringComparison.OrdinalIgnoreCase)
-            || stateEvent.StateType.Equals("RUN1", StringComparison.OrdinalIgnoreCase)) {
-            ApplyRunStateEvent(stateEvent);
-        }
-
-        _headProgramStatus = $"Estado Cabezal actualizado: {stateEvent.InstanceName}.{stateEvent.StateType}";
-    }
-
-    private void ApplyPositionStateEvent(HeadStateEvent stateEvent)
-    {
-        int positionNumber = FirstSetBitNumber(stateEvent.Mask);
-        if (positionNumber <= 0) {
-            return;
-        }
-
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "DEN", out int denIndex)
-            && denIndex >= 0
-            && denIndex < _denMotors.Count) {
-            ApplyMotorPositionState(_denMotors[denIndex], positionNumber, stateEvent.Value);
-            return;
-        }
-
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "SIC", out int sicIndex)
-            && sicIndex >= 0
-            && sicIndex < _sicMotors.Count) {
-            ApplyMotorPositionState(_sicMotors[sicIndex], positionNumber, stateEvent.Value);
-            return;
-        }
-
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "STITCH", out int stitchIndex)) {
-            CabezalOutputBlockTarjetas? block = FindBlock($"stitch{stitchIndex + 1}");
-            if (block is not null) {
-                ApplyBlockMask(block, stateEvent.Mask);
             }
         }
+
+        await InvokeAsync(StateHasChanged);
     }
 
-    private static void ApplyMotorPositionState(CabezalMotorTarjetas motor, int positionNumber, int? value)
+    private async Task CopyCanAlarmHistoryAsync()
     {
-        CabezalPositionTarjetas? knownPosition = motor.Positions.FirstOrDefault(position => position.Number == positionNumber);
-        motor.SelectedPositionNumber = positionNumber;
-        motor.Position = value ?? knownPosition?.Value ?? 0;
-    }
-
-    private void ApplyChannelStateEvent(HeadStateEvent stateEvent)
-    {
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "J", out int jIndex)
-            && jIndex >= 0
-            && jIndex < _jGroups.Count) {
-            _jGroups[jIndex].Register = (byte)(~stateEvent.Mask & 0xFF);
+        string text = BuildCanAlarmHistoryClipboardText();
+        if (string.IsNullOrWhiteSpace(text)) {
             return;
         }
 
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "YARN", out int yarnIndex)) {
-            CabezalOutputBlockTarjetas? block = FindBlock($"yarn{yarnIndex + 1}");
-            if (block is not null) {
-                ApplyBlockMask(block, stateEvent.Mask);
+        await JS.InvokeVoidAsync("acuratexCanRx.copyText", text);
+    }
+
+    private void SelectCanAlarmHistoryItem(int index)
+    {
+        lock (_canAlarmLock) {
+            if (index < 0 || index >= _canAlarmHistory.Count) {
+                return;
             }
+
+            _selectedCanAlarmHistoryItem = _canAlarmHistory[index];
         }
     }
 
-    private void ApplyRunStateEvent(HeadStateEvent stateEvent)
+
+    private static bool TryParseCanRxLine(string line, out CanRxFrame frame, out string error)
+
+
+
+
+
+
+
     {
-        bool isActive = stateEvent.Mask != 0;
-        string runMode = stateEvent.StateType.Equals("RUN1", StringComparison.OrdinalIgnoreCase) ? "RUN1" : "RUN";
 
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "DEN", out int denIndex)
-            && denIndex >= 0
-            && denIndex < _denMotors.Count) {
-            _denMotors[denIndex].RunMode = isActive ? runMode : string.Empty;
-            return;
-        }
 
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "SIC", out int sicIndex)
-            && sicIndex >= 0
-            && sicIndex < _sicMotors.Count) {
-            _sicMotors[sicIndex].RunMode = isActive ? runMode : string.Empty;
-        }
-    }
 
-    private static void ApplyBlockMask(CabezalOutputBlockTarjetas block, int mask)
-    {
-        for (int index = 0; index < block.States.Length; index++) {
-            block.States[index] = ((mask >> index) & 0x01) != 0;
-        }
-    }
 
-    private static bool TryParseInstanceIndex(string instanceName, string prefix, out int zeroBasedIndex)
-    {
-        zeroBasedIndex = -1;
-        if (string.IsNullOrWhiteSpace(instanceName)
-            || !instanceName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+
+
+
+        frame = default!;
+
+
+
+
+
+
+
+        error = string.Empty;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("CAN_RX|", StringComparison.Ordinal))
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            error = "prefijo";
+
+
+
+
+
+
+
             return false;
+
+
+
+
+
+
+
         }
 
-        string numberText = instanceName[prefix.Length..];
-        if (!int.TryParse(numberText, out int parsedNumber) || parsedNumber <= 0) {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string payload = line["CAN_RX|".Length..];
+
+
+
+
+
+
+
+        string? bus = null;
+
+
+
+
+
+
+
+        string? idText = null;
+
+
+
+
+
+
+
+        string? dlcText = null;
+
+
+
+
+
+
+
+        string? dataText = null;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        foreach (string rawPart in payload.Split('|'))
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            string part = rawPart.Trim();
+
+
+
+
+
+
+
+            if (part.Length == 0)
+
+
+
+
+
+
+
+            {
+
+
+
+
+
+
+
+                continue;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            int separator = part.IndexOf('=');
+
+
+
+
+
+
+
+            if (separator <= 0 || separator == part.Length - 1)
+
+
+
+
+
+
+
+            {
+
+
+
+
+
+
+
+                error = "campo";
+
+
+
+
+
+
+
+                return false;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            string key = part[..separator].Trim();
+
+
+
+
+
+
+
+            string value = part[(separator + 1)..].Trim();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            switch (key.ToUpperInvariant())
+
+
+
+
+
+
+
+            {
+
+
+
+
+
+
+
+                case "BUS":
+
+
+
+
+
+
+
+                    bus = value;
+
+
+
+
+
+
+
+                    break;
+
+
+
+
+
+
+
+                case "ID":
+
+
+
+
+
+
+
+                    idText = value;
+
+
+
+
+
+
+
+                    break;
+
+
+
+
+
+
+
+                case "DLC":
+
+
+
+
+
+
+
+                    dlcText = value;
+
+
+
+
+
+
+
+                    break;
+
+
+
+
+
+
+
+                case "DATA":
+
+
+
+
+
+
+
+                    dataText = value;
+
+
+
+
+
+
+
+                    break;
+
+
+
+
+
+
+
+                case "TIME":
+
+
+
+
+
+
+
+                    break;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (!string.Equals(bus, "CAN1", StringComparison.OrdinalIgnoreCase)
+
+
+
+
+
+
+
+            && !string.Equals(bus, "CAN2", StringComparison.OrdinalIgnoreCase))
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            error = "bus";
+
+
+
+
+
+
+
             return false;
+
+
+
+
+
+
+
         }
 
-        zeroBasedIndex = parsedNumber - 1;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (string.IsNullOrWhiteSpace(idText) || string.IsNullOrWhiteSpace(dlcText))
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            error = "id/dlc";
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string normalizedId = idText.Trim();
+
+
+
+
+
+
+
+        if (normalizedId.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            normalizedId = normalizedId[2..];
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (!uint.TryParse(normalizedId, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out uint id)
+
+
+
+
+
+
+
+            || id > 0x7FF)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            error = "id";
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if (!int.TryParse(dlcText, out int dlc) || dlc < 0 || dlc > 8)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            error = "dlc";
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        string dataValue = dataText?.Trim() ?? string.Empty;
+
+
+
+
+
+
+
+        byte[] data = Array.Empty<byte>();
+
+
+
+
+
+
+
+        if (dlc > 0)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            string[] tokens = dataValue.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+
+
+
+
+
+
+            if (tokens.Length != dlc)
+
+
+
+
+
+
+
+            {
+
+
+
+
+
+
+
+                error = "data-count";
+
+
+
+
+
+
+
+                return false;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            data = new byte[dlc];
+
+
+
+
+
+
+
+            for (int index = 0; index < tokens.Length; index++)
+
+
+
+
+
+
+
+            {
+
+
+
+
+
+
+
+                if (!byte.TryParse(tokens[index], System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out byte value))
+
+
+
+
+
+
+
+                {
+
+
+
+
+
+
+
+                    error = "data";
+
+
+
+
+
+
+
+                    return false;
+
+
+
+
+
+
+
+                }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                data[index] = value;
+
+
+
+
+
+
+
+            }
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+        else if (dataValue.Length > 0)
+
+
+
+
+
+
+
+        {
+
+
+
+
+
+
+
+            error = "data-empty";
+
+
+
+
+
+
+
+            return false;
+
+
+
+
+
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        frame = new CanRxFrame(DateTime.Now, bus!.ToUpperInvariant(), id, dlc, data, line);
+
+
+
+
+
+
+
         return true;
+
+
+
+
+
+
+
     }
 
-    private static int FirstSetBitNumber(int mask)
-    {
-        if (mask <= 0) {
-            return 0;
-        }
 
-        for (int bit = 0; bit < 31; bit++) {
-            if ((mask & (1 << bit)) != 0) {
-                return bit + 1;
-            }
-        }
 
-        return 0;
-    }
 
-    private void AddTrace(string direction, string message)
-    {
-        _trace.Add(new CabezalTraceEntryTarjetas(DateTime.Now, direction, message));
-        if (_trace.Count > TraceMax) {
-            _trace.RemoveRange(0, _trace.Count - TraceMax);
-        }
-    }
 
-    private void ClearTrace()
-    {
-        _trace.Clear();
-    }
+
+
+
+
+
+
+
+
+
 
     private string JPinClass(CabezalJGroupTarjetas group, int pinIndex)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         return group.IsPinOn(pinIndex) ? "j-pin on" : "j-pin";
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private bool IsJRunning(int jIndex)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         return jIndex >= 1 && jIndex <= _jRunTokens.Length && _jRunTokens[jIndex - 1] != null;
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private string JRunButtonClass(int jIndex)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         return IsJRunning(jIndex) ? "mini-btn run active" : "mini-btn run";
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void StartAllJAnimations()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         for (int j = 1; j <= _jGroups.Count; j++) {
+
+
+
+
+
+
+
             StartJAnimation(j);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     private void StartJAnimation(int jIndex)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (jIndex < 1 || jIndex > _jGroups.Count) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         StopJAnimation(jIndex, restore: false);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         int index = jIndex - 1;
+
+
+
+
+
+
+
         CabezalJGroupTarjetas group = _jGroups[index];
+
+
+
+
+
+
+
         _jRunPreviousRegisters[index] = group.Register;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         CancellationTokenSource cts = new();
+
+
+
+
+
+
+
         _jRunTokens[index] = cts;
+
+
+
+
+
+
+
         _ = RunJAnimationLoopAsync(group, cts.Token);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private bool StopJAnimation(int jIndex, bool restore = true)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         if (jIndex < 1 || jIndex > _jGroups.Count) {
+
+
+
+
+
+
+
             return false;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         int index = jIndex - 1;
+
+
+
+
+
+
+
         CancellationTokenSource? cts = _jRunTokens[index];
+
+
+
+
+
+
+
         bool wasRunning = cts != null;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         if (cts != null) {
+
+
+
+
+
+
+
             cts.Cancel();
+
+
+
+
+
+
+
             cts.Dispose();
+
+
+
+
+
+
+
             _jRunTokens[index] = null;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (restore && wasRunning) {
+
+
+
+
+
+
+
             _jGroups[index].Register = _jRunPreviousRegisters[index];
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         return wasRunning;
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void StopAllJAnimations(bool restore = true)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         for (int j = 1; j <= _jGroups.Count; j++) {
+
+
+
+
+
+
+
             StopJAnimation(j, restore);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private async Task RunJAnimationLoopAsync(CabezalJGroupTarjetas group, CancellationToken cancellationToken)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         int step = 0;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         try {
+
+
+
+
+
+
+
             while (!cancellationToken.IsCancellationRequested) {
+
+
+
+
+
+
+
                 await Task.Delay(120, cancellationToken);
+
+
+
+
+
+
+
                 int pin = (step % 8) + 1;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 await InvokeAsync(() =>
+
+
+
+
+
+
+
                 {
+
+
+
+
+
+
+
                     group.Register = 0xFF;
+
+
+
+
+
+
+
                     group.SetPin(pin, true);
+
+
+
+
+
+
+
                     StateHasChanged();
+
+
+
+
+
+
+
                 });
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 step++;
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
         } catch (OperationCanceledException) {
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private string TraceDirectionClass(string direction)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         return $"trace-dir {direction.ToLowerInvariant()}";
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private IEnumerable<CabezalOutputBlockTarjetas> AllBlocks()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         return _yarnBlocks.Concat(_stitchBlocks);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private CabezalOutputBlockTarjetas? FindBlock(string blockKey)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         return AllBlocks().FirstOrDefault(block => block.Key == blockKey);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void RestoreDenSnapshot(int index)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         MotorVisualSnapshot? snapshot = _denRunSnapshots[index];
+
+
+
+
+
+
+
         if (snapshot is null) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         CabezalMotorTarjetas motor = _denMotors[index];
+
+
+
+
+
+
+
         motor.Position = snapshot.Value.Position;
+
+
+
+
+
+
+
         motor.SelectedPositionNumber = snapshot.Value.SelectedPositionNumber;
+
+
+
+
+
+
+
         motor.RunMode = snapshot.Value.RunMode;
+
+
+
+
+
+
+
         _denRunSnapshots[index] = null;
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void RestoreSicSnapshot(int index)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         MotorVisualSnapshot? snapshot = _sicRunSnapshots[index];
+
+
+
+
+
+
+
         if (snapshot is null) {
+
+
+
+
+
+
+
             return;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         CabezalMotorTarjetas motor = _sicMotors[index];
+
+
+
+
+
+
+
         motor.Position = snapshot.Value.Position;
+
+
+
+
+
+
+
         motor.SelectedPositionNumber = snapshot.Value.SelectedPositionNumber;
+
+
+
+
+
+
+
         motor.RunMode = snapshot.Value.RunMode;
+
+
+
+
+
+
+
         _sicRunSnapshots[index] = null;
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void StopDenRun(CabezalMotorTarjetas motor, bool restore = true)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         int index = motor.LogicalIndex;
+
+
+
+
+
+
+
         CancellationTokenSource? token = _denRunTokens[index];
+
+
+
+
+
+
+
         if (token != null) {
+
+
+
+
+
+
+
             token.Cancel();
+
+
+
+
+
+
+
             token.Dispose();
+
+
+
+
+
+
+
             _denRunTokens[index] = null;
+
+
+
+
+
+
+
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         if (restore && token != null) {
+
+
+
+
+
+
+
             RestoreDenSnapshot(index);
+
+
+
+
+
+
+
         } else if (!restore) {
+
+
+
+
+
+
+
             _denRunSnapshots[index] = null;
+
+
+
+
+
+
+
             motor.RunMode = string.Empty;
+
+
+
+
+
+
+
         } else if (token == null) {
+
+
+
+
+
+
+
             motor.RunMode = string.Empty;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void StopSicRun(CabezalMotorTarjetas motor, bool restore = true)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         int index = motor.LogicalIndex;
+
+
+
+
+
+
+
         CancellationTokenSource? token = _sicRunTokens[index];
+
+
+
+
+
+
+
         if (token != null) {
+
+
+
+
+
+
+
             token.Cancel();
+
+
+
+
+
+
+
             token.Dispose();
+
+
+
+
+
+
+
             _sicRunTokens[index] = null;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (restore && token != null) {
+
+
+
+
+
+
+
             RestoreSicSnapshot(index);
+
+
+
+
+
+
+
         } else if (!restore) {
+
+
+
+
+
+
+
             _sicRunSnapshots[index] = null;
+
+
+
+
+
+
+
             motor.RunMode = string.Empty;
+
+
+
+
+
+
+
         } else if (token == null) {
+
+
+
+
+
+
+
             motor.RunMode = string.Empty;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void StopAllMotorRuns(bool restore = true)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         foreach (CabezalMotorTarjetas motor in _denMotors) {
+
+
+
+
+
+
+
             StopDenRun(motor, restore);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalMotorTarjetas motor in _sicMotors) {
+
+
+
+
+
+
+
             StopSicRun(motor, restore);
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
 
-    private bool CanExecuteHeadAction(bool allowDuringEmergency = false)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private bool CanExecuteHeadAction(bool allowDuringEmergency = false, bool allowDuringAlarm = false)
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] El perfil activo actua como interlock; sin programa no se toca el tablero.
+
+
+
+
+
+
+
         if (!HasActiveHeadProgram) {
+
+
+
+
+
+
+
             _headProgramStatus = NoActiveProgramMessage;
+
+
+
+
+
+
+
             ResetHeadVisualStateToNeutral();
+
+
+
+
+
+
+
             _ = InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
             return false;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         if (IsEmergencyLocked && !allowDuringEmergency) {
             return false;
         }
 
+        if (_alarmHaltActive && !allowDuringAlarm) {
+            return false;
+        }
+
         return true;
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void ResetHeadVisualStateToNeutral()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         StopAllMotorRuns();
+
+
+
+
+
+
+
         StopAllJAnimations(restore: false);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalMotorTarjetas motor in _denMotors) {
+
+
+
+
+
+
+
             motor.Position = 0;
+
+
+
+
+
+
+
             motor.SelectedPositionNumber = 0;
+
+
+
+
+
+
+
             motor.RunMode = string.Empty;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalMotorTarjetas motor in _sicMotors) {
+
+
+
+
+
+
+
             motor.Position = 0;
+
+
+
+
+
+
+
             motor.SelectedPositionNumber = 0;
+
+
+
+
+
+
+
             motor.RunMode = string.Empty;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalJGroupTarjetas group in _jGroups) {
+
+
+
+
+
+
+
             group.Register = 0xFF;
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         foreach (CabezalOutputBlockTarjetas block in AllBlocks()) {
+
+
+
+
+
+
+
             for (int index = 0; index < block.States.Length; index++) {
+
+
+
+
+
+
+
                 block.States[index] = false;
+
+
+
+
+
+
+
             }
+
+
+
+
+
+
+
         }
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void OnHeadProfileStateChanged()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         _ = InvokeAsync(RefreshHeadProgramsAsync);
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void OnEmergencyStateChanged()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         _ = InvokeAsync(StateHasChanged);
+
+
+
+
+
+
+
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     public void Dispose()
+
+
+
+
+
+
+
     {
+
+
+
+
+
+
+
         // [ACURATEX] Se quitan handlers y se paran ciclos para no dejar trabajo vivo al cerrar.
+
+
+
+
+
+
+
         Connection.LineReceived -= OnLineReceived;
+
+
+
+
+
+
+
         HeadProfileService.StateChanged -= OnHeadProfileStateChanged;
+
+
+
+
+
+
+
         EmergencyStop.StateChanged -= OnEmergencyStateChanged;
+
+
+
+
+
+
+
         EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
+
+
+
+
+
+
+
         StopAllMotorRuns();
+
+
+
+
+
+
+
         StopAllJAnimations(restore: false);
+
+
+
+
+
+
+
+        CloseCanRxHistory();
+
+
+
+
+
+
+
+        ClearCanRxHistory();
+
+
+
+
+
+
+
+        CloseCanRxHistory();
+
+
+
+
+
+
+
+        ClearCanRxHistory();
+
+        _headTestTimeoutCts?.Cancel();
+        _headTestTimeoutCts?.Dispose();
+        _headTestTimeoutCts = null;
+        _headTestDetector.Cancel();
+        _headTestBusy = false;
+        _headTestLastResult = null;
+        _showHeadTestDetailModal = false;
+        _headTestStatus = "IDLE";
+        _headTestMessage = "TESTEO: listo.";
+        lock (_canAlarmLock) {
+            _pendingCanAlarms.Clear();
+            _canAlarmActivity.Clear();
+            _canAlarmDeduplication.Clear();
+            _activeCanAlarm = null;
+            _alarmHaltActive = false;
+            _showCanAlarmModal = false;
+            _canAlarmPendingCount = 0;
+        }
+
+
+
+
+
+
+
+
     }
+
+
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

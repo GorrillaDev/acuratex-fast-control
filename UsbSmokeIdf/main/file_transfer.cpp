@@ -827,6 +827,7 @@ static esp_err_t app_fs_mount(void)
     }
 
     s_fs_ready = true;
+    ESP_LOGI(TAG, "FILE_FS_READY|BASE=%s|PART=%s", APP_FS_BASE, APP_FS_PARTITION_LABEL);
     app_selected_load();
     return ESP_OK;
 }
@@ -1107,6 +1108,7 @@ static esp_err_t app_file_cmd_end(const char *name, char *response, size_t respo
  */
 static esp_err_t app_file_cmd_list(char *response, size_t response_size)
 {
+    ESP_LOGI(TAG, "FILE_LIST_BEGIN");
     DIR *dir = opendir(APP_FS_BASE);
     if (dir == NULL)
     {
@@ -1118,6 +1120,7 @@ static esp_err_t app_file_cmd_list(char *response, size_t response_size)
     snprintf(response, response_size, "FILE_LIST");
 
     bool any = false;
+    unsigned count = 0;
     struct dirent *entry;
 
     while ((entry = readdir(dir)) != NULL)
@@ -1150,6 +1153,7 @@ static esp_err_t app_file_cmd_list(char *response, size_t response_size)
         }
 
         any = true;
+        count++;
     }
 
     closedir(dir);
@@ -1159,6 +1163,7 @@ static esp_err_t app_file_cmd_list(char *response, size_t response_size)
         snprintf(response, response_size, "FILE_LIST EMPTY");
     }
 
+    ESP_LOGI(TAG, "FILE_LIST_RESULT|COUNT=%u", count);
     return ESP_OK;
 }
 

@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,9 +84,25 @@ static SemaphoreHandle_t s_state_mutex = NULL;
 static app_head_fast_diag_state_t s_state;
 static uint32_t s_testeo_run_seq = 0;
 
+static bool app_head_fast_diag_ensure_mutex(void)
+{
+    if (s_state_mutex != NULL) {
+        return true;
+    }
+
+    s_state_mutex = xSemaphoreCreateMutex();
+    if (s_state_mutex == NULL) {
+        ESP_LOGE(TAG, "HEAD_FAST_DIAG_MUTEX_CREATE_FAIL");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "HEAD_FAST_DIAG_MUTEX_READY");
+    return true;
+}
+
 static bool app_head_fast_diag_take_mutex(TickType_t timeout)
 {
-    return s_state_mutex != NULL && xSemaphoreTake(s_state_mutex, timeout) == pdTRUE;
+    return app_head_fast_diag_ensure_mutex() && xSemaphoreTake(s_state_mutex, timeout) == pdTRUE;
 }
 
 static void app_head_fast_diag_give_mutex(void)
@@ -103,6 +120,42 @@ static uint32_t app_head_fast_diag_now_ms(void)
 static const char *app_head_fast_diag_bus_name(int bus)
 {
     return bus == 2 ? "CAN2" : "CAN1";
+}
+
+static void app_head_fast_diag_format_data_hex(const uint8_t *data,
+                                               size_t len,
+                                               char *out,
+                                               size_t out_len)
+{
+    size_t used = 0;
+
+    if (out == NULL || out_len == 0) {
+        return;
+    }
+
+    out[0] = '\0';
+    if (data == NULL || len == 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < len && used < out_len; ++i) {
+        int written = snprintf(out + used,
+                               out_len - used,
+                               "%s%02X",
+                               i == 0 ? "" : " ",
+                               data[i]);
+        if (written < 0) {
+            out[0] = '\0';
+            return;
+        }
+
+        if ((size_t)written >= out_len - used) {
+            out[out_len - 1] = '\0';
+            return;
+        }
+
+        used += (size_t)written;
+    }
 }
 
 static int app_head_fast_diag_normalize_bus(int bus)
@@ -246,12 +299,17 @@ static esp_err_t app_head_fast_diag_run_script_line(const char *line, int bus, a
     uint32_t id = 0;
     uint8_t data[8] = {0};
     size_t len = 0;
+    esp_err_t err = ESP_OK;
+    char data_hex[32];
 
     if (line == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     if (app_head_fast_diag_parse_wait_line(line, &wait_ms)) {
+        if (kind == APP_HEAD_FAST_DIAG_INIT) {
+            ESP_LOGI(TAG, "INIT_STEP|WAIT_MS=%u", (unsigned)wait_ms);
+        }
         return app_head_fast_diag_delay_cancelable(wait_ms, kind) ? ESP_OK : ESP_ERR_INVALID_STATE;
     }
 
@@ -259,7 +317,28 @@ static esp_err_t app_head_fast_diag_run_script_line(const char *line, int bus, a
         return ESP_ERR_INVALID_ARG;
     }
 
-    return app_can_send_standard(bus, id, data, len);
+    if (kind == APP_HEAD_FAST_DIAG_INIT) {
+        app_head_fast_diag_format_data_hex(data, len, data_hex, sizeof(data_hex));
+        ESP_LOGI(TAG,
+                 "INIT_CAN_BEGIN|ID=0x%03" PRIX32 "|DLC=%u|DATA=%s",
+                 id,
+                 (unsigned)len,
+                 data_hex);
+    }
+
+    err = app_can_send_standard(bus, id, data, len);
+    if (kind == APP_HEAD_FAST_DIAG_INIT) {
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "INIT_CAN_OK|ID=0x%03" PRIX32, id);
+        } else {
+            ESP_LOGE(TAG,
+                     "INIT_CAN_ERROR|ERR=%s|ID=0x%03" PRIX32,
+                     esp_err_to_name(err),
+                     id);
+        }
+    }
+
+    return err;
 }
 
 static bool app_head_fast_diag_clone_route(const app_command_env_t *env,
@@ -307,26 +386,22 @@ static bool app_head_fast_diag_testeo_finish_locked(app_head_testeo_state_t *sta
 }
 
 static void app_head_fast_diag_testeo_on_rx(app_head_testeo_state_t *state,
-                                            const twai_message_t *rx,
+                                            const app_can_rx_event_t *event,
                                             const app_reply_route_t *route)
 {
     uint32_t now_ms = 0;
     char line[160];
 
-    if (state == NULL || rx == NULL || route == NULL) {
+    if (state == NULL || event == NULL || route == NULL) {
         return;
     }
 
-    if (rx->extd || rx->rtr) {
-        return;
-    }
+    now_ms = event->time_ms;
 
-    now_ms = app_head_fast_diag_now_ms();
-
-    if (rx->identifier == 0x702
-        && rx->data_length_code >= 2
-        && rx->data[0] == 0x3F
-        && rx->data[1] == 0x00) {
+    if (event->id == 0x702
+        && event->dlc >= 2
+        && event->data[0] == 0x3F
+        && event->data[1] == 0x00) {
         if ((uint32_t)(now_ms - state->last_reset_ms) < 250U) {
             return;
         }
@@ -349,11 +424,11 @@ static void app_head_fast_diag_testeo_on_rx(app_head_testeo_state_t *state,
         return;
     }
 
-    if (rx->identifier != 0x700 || rx->data_length_code < 1) {
+    if (event->id != 0x700 || event->dlc < 1) {
         return;
     }
 
-    state->last_code = rx->data[0];
+    state->last_code = event->data[0];
     if (!state->got_first) {
         state->got_first = true;
         state->first_code = state->last_code;
@@ -440,6 +515,7 @@ static void app_head_fast_diag_testeo_task(void *arg)
     state->can_bus = bus;
     state->route = task_args->route;
     state->route_release = task_args->route_release;
+    app_can_rx_clear();
     app_head_fast_diag_give_mutex();
 
     s_testeo_run_seq++;
@@ -452,7 +528,7 @@ static void app_head_fast_diag_testeo_task(void *arg)
         bool cancel_requested = false;
         bool waiting = false;
         uint32_t now_ms = app_head_fast_diag_now_ms();
-        twai_message_t rx = {};
+        app_can_rx_event_t rx_event = {};
         esp_err_t rx_err;
 
         if (!app_head_fast_diag_take_mutex(portMAX_DELAY)) {
@@ -534,12 +610,12 @@ static void app_head_fast_diag_testeo_task(void *arg)
             continue;
         }
 
-        rx_err = twai_receive(&rx, pdMS_TO_TICKS(10));
+        rx_err = app_can_rx_receive(&rx_event, pdMS_TO_TICKS(10));
         if (rx_err == ESP_OK) {
             if (!app_head_fast_diag_take_mutex(portMAX_DELAY)) {
                 break;
             }
-            app_head_fast_diag_testeo_on_rx(&s_state.testeo, &rx, route);
+            app_head_fast_diag_testeo_on_rx(&s_state.testeo, &rx_event, route);
             bool still_running = s_state.testeo.running;
             bool still_waiting = s_state.testeo.waiting;
             app_head_fast_diag_give_mutex();
@@ -641,17 +717,22 @@ static void app_head_fast_diag_init_task(void *arg)
     size_t step = 0;
     int bus = 1;
     const app_reply_route_t *route = NULL;
+    const char *end_result = "CANCELLED";
+    esp_err_t end_err = ESP_OK;
 
     if (task_args == NULL) {
         vTaskDelete(NULL);
         return;
     }
 
+    ESP_LOGI(TAG, "INIT_TASK_START");
     if (!app_head_fast_diag_take_mutex(portMAX_DELAY)) {
+        ESP_LOGE(TAG, "INIT_LOCK_TIMEOUT|STAGE=TASK_START");
         app_head_fast_diag_release_route(task_args);
         vTaskDelete(NULL);
         return;
     }
+    ESP_LOGI(TAG, "INIT_LOCK_OK|STAGE=TASK_START");
 
     s_state.init.task_handle = xTaskGetCurrentTaskHandle();
     s_state.init.running = true;
@@ -669,6 +750,10 @@ static void app_head_fast_diag_init_task(void *arg)
                                   (unsigned)s_state.init.started_ms,
                                   app_head_fast_diag_bus_name(bus),
                                   (unsigned)total);
+    ESP_LOGI(TAG,
+             "INIT_BEGIN|BUS=%s|TOTAL=%u",
+             app_head_fast_diag_bus_name(bus),
+             (unsigned)total);
 
     if (app_head_fast_diag_take_mutex(portMAX_DELAY)) {
         bool cancel_requested = app_head_fast_diag_should_cancel_locked(APP_HEAD_FAST_DIAG_INIT);
@@ -700,6 +785,10 @@ static void app_head_fast_diag_init_task(void *arg)
                  (unsigned)(step + 1U),
                  (unsigned)total,
                  INIT1_SEQ[i]);
+        ESP_LOGI(TAG,
+                 "INIT_STEP|N=%u|PHASE=INIT1|LINE=%s",
+                 (unsigned)(step + 1U),
+                 INIT1_SEQ[i]);
         app_head_fast_diag_give_mutex();
         app_head_fast_diag_send_line(route, progress);
 
@@ -710,6 +799,8 @@ static void app_head_fast_diag_init_task(void *arg)
                 goto cleanup;
             }
             if (step_err != ESP_OK) {
+                end_result = "ERROR";
+                end_err = step_err;
                 if (step_err == ESP_ERR_INVALID_ARG) {
                     app_head_fast_diag_send_linef(route, "INIT|ERROR|PARSE|INIT1|%s", INIT1_SEQ[i]);
                 } else {
@@ -733,6 +824,10 @@ static void app_head_fast_diag_init_task(void *arg)
                                   (unsigned)step,
                                   (unsigned)total,
                                   (unsigned)INIT_GAP_MS);
+    ESP_LOGI(TAG,
+             "INIT_STEP|N=%u|PHASE=GAP|WAIT_MS=%u",
+             (unsigned)step,
+             (unsigned)INIT_GAP_MS);
     if (!app_head_fast_diag_delay_cancelable(INIT_GAP_MS, APP_HEAD_FAST_DIAG_INIT)) {
         app_head_fast_diag_send_line(route, "INIT|CANCELLED");
         goto cleanup;
@@ -755,6 +850,10 @@ static void app_head_fast_diag_init_task(void *arg)
                  (unsigned)(step + 1U),
                  (unsigned)total,
                  INIT2_SEQ[i]);
+        ESP_LOGI(TAG,
+                 "INIT_STEP|N=%u|PHASE=INIT2|LINE=%s",
+                 (unsigned)(step + 1U),
+                 INIT2_SEQ[i]);
         app_head_fast_diag_give_mutex();
         app_head_fast_diag_send_line(route, progress);
 
@@ -765,6 +864,8 @@ static void app_head_fast_diag_init_task(void *arg)
                 goto cleanup;
             }
             if (step_err != ESP_OK) {
+                end_result = "ERROR";
+                end_err = step_err;
                 if (step_err == ESP_ERR_INVALID_ARG) {
                     app_head_fast_diag_send_linef(route, "INIT|ERROR|PARSE|INIT2|%s", INIT2_SEQ[i]);
                 } else {
@@ -785,6 +886,8 @@ static void app_head_fast_diag_init_task(void *arg)
     }
 
     app_head_fast_diag_send_line(route, "INIT|DONE");
+    end_result = "OK";
+    end_err = ESP_OK;
     goto cleanup;
 
 cleanup_error:
@@ -797,6 +900,10 @@ cleanup_error:
     goto cleanup;
 
 cleanup:
+    ESP_LOGI(TAG,
+             "INIT_END|RESULT=%s|ERR=%s",
+             end_result,
+             esp_err_to_name(end_err));
     if (app_head_fast_diag_take_mutex(portMAX_DELAY)) {
         app_head_fast_diag_reset_kind_locked(APP_HEAD_FAST_DIAG_INIT);
         app_head_fast_diag_give_mutex();
@@ -824,8 +931,20 @@ static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
         return ESP_ERR_INVALID_STATE;
     }
 
+    bus = app_head_fast_diag_normalize_bus(env->active_bus);
+    if (kind == APP_HEAD_FAST_DIAG_INIT) {
+        ESP_LOGI(TAG, "INIT_BEGIN|REQUEST|BUS=%s", app_head_fast_diag_bus_name(bus));
+    }
+
     if (!app_head_fast_diag_take_mutex(portMAX_DELAY)) {
+        if (kind == APP_HEAD_FAST_DIAG_INIT) {
+            ESP_LOGE(TAG, "INIT_LOCK_TIMEOUT|STAGE=START");
+        }
         return ESP_ERR_TIMEOUT;
+    }
+
+    if (kind == APP_HEAD_FAST_DIAG_INIT) {
+        ESP_LOGI(TAG, "INIT_LOCK_OK|STAGE=START");
     }
 
     if (kind == APP_HEAD_FAST_DIAG_TESTEO) {
@@ -840,7 +959,6 @@ static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
             app_head_fast_diag_give_mutex();
             return ESP_ERR_INVALID_STATE;
         }
-        s_state.init.cancel_requested = false;
     }
     else {
         app_head_fast_diag_give_mutex();
@@ -859,11 +977,32 @@ static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
         return ESP_ERR_NO_MEM;
     }
 
-    bus = app_head_fast_diag_normalize_bus(env->active_bus);
     task_args->kind = kind;
     task_args->route = route;
     task_args->route_release = release_fn;
     task_args->can_bus = bus;
+
+    if (kind == APP_HEAD_FAST_DIAG_INIT) {
+        if (!app_head_fast_diag_take_mutex(portMAX_DELAY)) {
+            ESP_LOGE(TAG, "INIT_LOCK_TIMEOUT|STAGE=RESERVE");
+            release_fn(route);
+            free(task_args);
+            return ESP_ERR_TIMEOUT;
+        }
+
+        if (s_state.init.running || s_state.testeo.running) {
+            app_head_fast_diag_give_mutex();
+            release_fn(route);
+            free(task_args);
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        s_state.init.running = true;
+        s_state.init.cancel_requested = false;
+        s_state.init.can_bus = bus;
+        s_state.init.task_handle = NULL;
+        app_head_fast_diag_give_mutex();
+    }
 
     if (kind == APP_HEAD_FAST_DIAG_TESTEO) {
         ok = xTaskCreatePinnedToCore(app_head_fast_diag_testeo_task,
@@ -895,11 +1034,15 @@ static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
         }
         else {
             if (app_head_fast_diag_take_mutex(portMAX_DELAY)) {
-                s_state.init.task_handle = NULL;
+                app_head_fast_diag_reset_kind_locked(APP_HEAD_FAST_DIAG_INIT);
                 app_head_fast_diag_give_mutex();
             }
         }
         return ESP_ERR_NO_MEM;
+    }
+
+    if (kind == APP_HEAD_FAST_DIAG_INIT) {
+        ESP_LOGI(TAG, "INIT_TASK_START|CREATE_OK|BUS=%s", app_head_fast_diag_bus_name(bus));
     }
 
     return ESP_OK;
@@ -969,3 +1112,7 @@ bool app_head_fast_diag_testeo_can_start(void)
     app_head_fast_diag_give_mutex();
     return can_start;
 }
+
+
+
+

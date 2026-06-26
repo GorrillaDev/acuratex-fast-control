@@ -7,9 +7,11 @@
 #include "esp_timer.h"
 
 #include "command_processor.h"
+#include "file_transfer.h"
 #include "line_codec.h"
 #include "head_state_manager.h"
 #include "head_fast_diag.h"
+#include "wifi_manager.h"
 
 // [ACURATEX] Este archivo es el clasificador central de lineas.
 // Recibe texto ya separado por un transporte y decide si es comando simple,
@@ -17,6 +19,221 @@
 
 // [ESP-IDF] TAG identifica los logs emitidos por este modulo.
 static const char *TAG = "command_processor";
+static bool app_command_is_wifi_config_set(const char *line)
+{
+    return line != NULL && strncasecmp(line, "WIFI_CONFIG_SET", 15) == 0;
+}
+
+static const char *app_command_log_line(const char *line, char *scratch, size_t scratch_size)
+{
+    if (line == NULL) {
+        return "";
+    }
+
+    if (app_command_is_wifi_config_set(line)) {
+        snprintf(scratch, scratch_size, "WIFI_CONFIG_SET|PASS=<redacted>");
+        return scratch;
+    }
+
+    return line;
+}
+
+static bool app_wifi_arg_value(const char *token, const char *key, const char **value)
+{
+    size_t key_len;
+
+    if (token == NULL || key == NULL || value == NULL) {
+        return false;
+    }
+
+    key_len = strlen(key);
+    if (strncasecmp(token, key, key_len) != 0 || token[key_len] != '=') {
+        return false;
+    }
+
+    *value = token + key_len + 1;
+    return true;
+}
+
+static bool app_wifi_copy_config_value(char *dest,
+                                       size_t dest_size,
+                                       const char *value)
+{
+    size_t len;
+
+    if (dest == NULL || value == NULL || dest_size == 0) {
+        return false;
+    }
+
+    len = strlen(value);
+    if (len == 0 || len >= dest_size) {
+        return false;
+    }
+
+    strlcpy(dest, value, dest_size);
+    return true;
+}
+
+static bool app_wifi_parse_config_port(const char *value, int *port)
+{
+    char *endptr = NULL;
+    long parsed;
+
+    if (value == NULL || port == NULL || value[0] == '\0') {
+        return false;
+    }
+
+    parsed = strtol(value, &endptr, 10);
+    if (endptr == value || *endptr != '\0' || parsed < 1 || parsed > 65535) {
+        return false;
+    }
+
+    *port = (int)parsed;
+    return true;
+}
+
+static esp_err_t app_handle_wifi_config_get(app_reply_fn_t reply,
+                                            void *ctx,
+                                            const app_command_env_t *env)
+{
+    app_wifi_settings_t settings = {};
+    char reason[96] = {};
+    char response[192];
+    bool loaded = app_wifi_manager_load_settings(&settings, reason, sizeof(reason));
+    const char *status = "missing";
+
+    if (loaded) {
+        status = env != NULL && env->wifi_connected ? "connected" : "saved";
+        ESP_LOGI(TAG, "WIFI_CONFIG_LOAD_OK|SSID=%s|PORT=%d", settings.ssid, settings.port);
+    }
+
+    snprintf(response,
+             sizeof(response),
+             "WIFI_CONFIG|SSID=%s|PORT=%d|STATUS=%s|IP=%s|REASON=%s",
+             loaded ? settings.ssid : "",
+             loaded ? settings.port : 3333,
+             status,
+             (env != NULL && env->wifi_ip != NULL) ? env->wifi_ip : "0.0.0.0",
+             loaded ? "OK" : reason);
+    return reply(response, ctx);
+}
+
+static esp_err_t app_handle_wifi_config_set(const char *line,
+                                            app_reply_fn_t reply,
+                                            void *ctx)
+{
+    char work[192];
+    char *saveptr = NULL;
+    char *token;
+    app_wifi_settings_t next = {};
+    app_wifi_settings_t existing = {};
+    char reason[96] = {};
+    bool has_existing = false;
+    bool pass_provided = false;
+    bool port_provided = false;
+
+    if (line == NULL) {
+        return reply("ERR WIFI_CONFIG", ctx);
+    }
+
+    has_existing = app_wifi_manager_load_settings(&existing, reason, sizeof(reason));
+    if (has_existing) {
+        next = existing;
+    } else {
+        next.port = 3333;
+    }
+
+    strlcpy(work, line, sizeof(work));
+    token = strtok_r(work, "|", &saveptr);
+    (void)token;
+
+    while ((token = strtok_r(NULL, "|", &saveptr)) != NULL) {
+        const char *value = NULL;
+
+        if (app_wifi_arg_value(token, "SSID", &value)) {
+            char clean[APP_WIFI_MAX_SSID_LEN + 1];
+            strlcpy(clean, value, sizeof(clean));
+            app_trim_line(clean);
+            if (!app_wifi_copy_config_value(next.ssid, sizeof(next.ssid), clean)) {
+                return reply("ERR WIFI_CONFIG SSID", ctx);
+            }
+            continue;
+        }
+
+        if (app_wifi_arg_value(token, "PASS", &value)) {
+            char clean[APP_WIFI_MAX_PASS_LEN + 1];
+            strlcpy(clean, value, sizeof(clean));
+            app_trim_line(clean);
+            if (clean[0] != '\0') {
+                if (!app_wifi_copy_config_value(next.pass, sizeof(next.pass), clean)) {
+                    return reply("ERR WIFI_CONFIG PASS", ctx);
+                }
+                pass_provided = true;
+            }
+            continue;
+        }
+
+        if (app_wifi_arg_value(token, "PORT", &value)) {
+            char clean[12];
+            strlcpy(clean, value, sizeof(clean));
+            app_trim_line(clean);
+            if (!app_wifi_parse_config_port(clean, &next.port)) {
+                return reply("ERR WIFI_CONFIG PORT", ctx);
+            }
+            port_provided = true;
+        }
+    }
+
+    if (next.ssid[0] == '\0') {
+        return reply("ERR WIFI_CONFIG SSID", ctx);
+    }
+
+    if (next.pass[0] == '\0' && !pass_provided) {
+        return reply("ERR WIFI_CONFIG PASS_REQUIRED", ctx);
+    }
+
+    if (!port_provided && next.port <= 0) {
+        next.port = 3333;
+    }
+
+    if (!app_wifi_manager_save_settings(&next, reason, sizeof(reason))) {
+        char response[128];
+        snprintf(response, sizeof(response), "ERR WIFI_CONFIG %s", reason[0] != '\0' ? reason : "SAVE");
+        return reply(response, ctx);
+    }
+
+    ESP_LOGI(TAG, "WIFI_CONFIG_SAVE_OK|SSID=%s|PORT=%d", next.ssid, next.port);
+    return reply("ACK WIFI_CONFIG_SAVE", ctx);
+}
+
+static esp_err_t app_handle_wifi_connect(app_reply_fn_t reply,
+                                         void *ctx,
+                                         const app_command_env_t *env)
+{
+    app_wifi_settings_t settings = {};
+    char reason[96] = {};
+
+    if (env != NULL && env->usb_mounted) {
+        return reply("ERR WIFI_USB_ACTIVE", ctx);
+    }
+
+    if (!app_wifi_manager_load_settings(&settings, reason, sizeof(reason))) {
+        char response[128];
+        snprintf(response, sizeof(response), "ERR WIFI_CONFIG %s", reason[0] != '\0' ? reason : "LOAD");
+        return reply(response, ctx);
+    }
+
+    ESP_LOGI(TAG, "WIFI_CONNECT_BEGIN|SSID=%s|PORT=%d", settings.ssid, settings.port);
+    esp_err_t err = app_wifi_manager_start(&settings);
+    if (err != ESP_OK) {
+        char response[96];
+        snprintf(response, sizeof(response), "ERR WIFI_CONNECT %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "WIFI_CONNECT_ERROR|ERR=%s", esp_err_to_name(err));
+        return reply(response, ctx);
+    }
+
+    return reply("ACK WIFI_CONNECT", ctx);
+}
 
 /**
  * [POR QUE EXISTE]
@@ -815,7 +1032,37 @@ esp_err_t app_command_process_line(const char *incoming_line,
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), line);
+    char log_line[96];
+    ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), app_command_log_line(line, log_line, sizeof(log_line)));
+
+    if (app_file_transfer_is_command(line)) {
+        char response[256];
+        ESP_LOGI(TAG, "CMD CLASS [%s]: file_transfer", app_transport_name(env));
+        esp_err_t err = app_file_transfer_process_line(line, response, sizeof(response));
+        if (err != ESP_OK) {
+            return reply("ERR FILE_CMD", ctx);
+        }
+        if (response[0] == '\0') {
+            return reply("ERR FILE_CMD", ctx);
+        }
+        ESP_LOGI(TAG, "FILE_TX|%s", response);
+        return reply(response, ctx);
+    }
+
+    if (strcasecmp(line, "WIFI_CONFIG_GET") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: wifi_config_get", app_transport_name(env));
+        return app_handle_wifi_config_get(reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "WIFI_CONFIG_SET", 15) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: wifi_config_set", app_transport_name(env));
+        return app_handle_wifi_config_set(line, reply, ctx);
+    }
+
+    if (strcasecmp(line, "WIFI_CONNECT") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: wifi_connect", app_transport_name(env));
+        return app_handle_wifi_connect(reply, ctx, env);
+    }
 
     if (strcasecmp(line, "ping") == 0 || strcasecmp(line, "hello") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: ping", app_transport_name(env));
@@ -862,6 +1109,9 @@ esp_err_t app_command_process_line(const char *incoming_line,
         (void)app_head_state_manager_init();
         esp_err_t err = app_head_fast_diag_start_init(env, ctx);
         if (err != ESP_OK) {
+            if (err == ESP_ERR_INVALID_STATE && app_head_fast_diag_is_busy()) {
+                return reply("ERR|INIT|BUSY", ctx);
+            }
             char response[120];
             snprintf(response, sizeof(response), "ERR|INIT|%s", esp_err_to_name(err));
             return reply(response, ctx);
