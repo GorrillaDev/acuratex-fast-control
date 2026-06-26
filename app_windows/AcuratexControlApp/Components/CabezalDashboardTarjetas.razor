@@ -2488,6 +2488,10 @@
 
 
 
+    private readonly Dictionary<string, CancellationTokenSource> _blockVisualRunTokens = new(StringComparer.OrdinalIgnoreCase);
+
+    private const int BlockVisualRunPeriodMs = 80;
+
     private const int CanRxHistoryMax = 1000;
 
 
@@ -4065,6 +4069,102 @@
 
 
 
+        if (string.Equals(command, "y_run_all", StringComparison.OrdinalIgnoreCase)) {
+            StartAllBlockVisualRuns(_yarnBlocks);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "y_stop_all", StringComparison.OrdinalIgnoreCase)) {
+            StopAllBlockVisualRuns(_yarnBlocks);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_run_all", StringComparison.OrdinalIgnoreCase)) {
+            StartAllBlockVisualRuns(_stitchBlocks);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_stop_all", StringComparison.OrdinalIgnoreCase)) {
+            StopAllBlockVisualRuns(_stitchBlocks);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "y1_run", StringComparison.OrdinalIgnoreCase)) {
+            StartBlockVisualRun("yarn1");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "y2_run", StringComparison.OrdinalIgnoreCase)) {
+            StartBlockVisualRun("yarn2");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "y1_stop", StringComparison.OrdinalIgnoreCase)) {
+            StopBlockVisualRun("yarn1");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "y2_stop", StringComparison.OrdinalIgnoreCase)) {
+            StopBlockVisualRun("yarn2");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_run_1", StringComparison.OrdinalIgnoreCase)) {
+            StartBlockVisualRun("stitch1");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_run_2", StringComparison.OrdinalIgnoreCase)) {
+            StartBlockVisualRun("stitch2");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_run_3", StringComparison.OrdinalIgnoreCase)) {
+            StartBlockVisualRun("stitch3");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_run_4", StringComparison.OrdinalIgnoreCase)) {
+            StartBlockVisualRun("stitch4");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_stop_1", StringComparison.OrdinalIgnoreCase)) {
+            StopBlockVisualRun("stitch1");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_stop_2", StringComparison.OrdinalIgnoreCase)) {
+            StopBlockVisualRun("stitch2");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_stop_3", StringComparison.OrdinalIgnoreCase)) {
+            StopBlockVisualRun("stitch3");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (string.Equals(command, "s_stop_4", StringComparison.OrdinalIgnoreCase)) {
+            StopBlockVisualRun("stitch4");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
         if (string.Equals(command, "j_run_all", StringComparison.OrdinalIgnoreCase)) {
 
 
@@ -4441,7 +4541,7 @@
 
 
 
-            StopDenRun(_denMotors[denStop1Index - 1], restore: true);
+            StopDenRun(_denMotors[denStop1Index - 1], restore: false);
 
 
 
@@ -4489,7 +4589,7 @@
 
 
 
-            StopDenRun(_denMotors[denStopIndex - 1], restore: true);
+            StopDenRun(_denMotors[denStopIndex - 1], restore: false);
 
 
 
@@ -4609,7 +4709,7 @@
 
 
 
-            StopSicRun(_sicMotors[sicStopIndex - 1], restore: true);
+            StopSicRun(_sicMotors[sicStopIndex - 1], restore: false);
 
 
 
@@ -4704,6 +4804,73 @@
 
 
 
+
+    private void StartAllBlockVisualRuns(IEnumerable<CabezalOutputBlockTarjetas> blocks)
+    {
+        foreach (CabezalOutputBlockTarjetas block in blocks) {
+            StartBlockVisualRun(block.Key);
+        }
+    }
+
+    private void StopAllBlockVisualRuns(IEnumerable<CabezalOutputBlockTarjetas> blocks)
+    {
+        foreach (CabezalOutputBlockTarjetas block in blocks) {
+            StopBlockVisualRun(block.Key);
+        }
+    }
+
+    private void StartBlockVisualRun(string blockKey)
+    {
+        CabezalOutputBlockTarjetas? block = FindBlock(blockKey);
+        if (block is null) {
+            return;
+        }
+
+        StopBlockVisualRun(blockKey);
+
+        CancellationTokenSource cts = new();
+        _blockVisualRunTokens[blockKey] = cts;
+        _ = RunBlockVisualAsync(block, cts.Token);
+    }
+
+    private void StopBlockVisualRun(string blockKey)
+    {
+        if (!_blockVisualRunTokens.TryGetValue(blockKey, out CancellationTokenSource? cts)) {
+            return;
+        }
+
+        cts.Cancel();
+        cts.Dispose();
+        _blockVisualRunTokens.Remove(blockKey);
+    }
+
+    private async Task RunBlockVisualAsync(CabezalOutputBlockTarjetas block, CancellationToken cancellationToken)
+    {
+        int pinIndex = 1;
+        bool nextState = true;
+
+        try {
+            while (!cancellationToken.IsCancellationRequested) {
+                int currentPin = pinIndex;
+                bool currentState = nextState;
+
+                await InvokeAsync(() =>
+                {
+                    block.States[currentPin - 1] = currentState;
+                    StateHasChanged();
+                });
+
+                await Task.Delay(BlockVisualRunPeriodMs, cancellationToken);
+
+                pinIndex++;
+                if (pinIndex > block.PinCount) {
+                    pinIndex = 1;
+                    nextState = !nextState;
+                }
+            }
+        } catch (OperationCanceledException) {
+        }
+    }
 
     private async Task HandleManualDoKeyDownAsync(KeyboardEventArgs args)
 
@@ -4809,7 +4976,7 @@
 
 
 
-        StopDenRun(motor);
+        StopDenRun(motor, restore: false);
 
 
 
@@ -4824,6 +4991,11 @@
 
 
 
+
+        motor.Position = option.Value;
+        motor.SelectedPositionNumber = option.Number;
+
+        await InvokeAsync(StateHasChanged);
 
         await SendDenPositionAsync(motor, option.Value, option.Number);
 
@@ -4897,13 +5069,15 @@
 
 
 
-        StopDenRun(motor);
+        StopDenRun(motor, restore: false);
 
 
 
 
 
 
+
+        await InvokeAsync(StateHasChanged);
 
         await SendDenPositionAsync(motor, position, 0);
 
@@ -4929,7 +5103,7 @@
 
 
 
-    private Task StartDenRunAsync(CabezalMotorTarjetas motor)
+    private async Task StartDenRunAsync(CabezalMotorTarjetas motor)
 
 
 
@@ -4953,7 +5127,7 @@
 
 
 
-            return Task.CompletedTask;
+            return;
 
 
 
@@ -4977,7 +5151,15 @@
 
 
 
-        return SendDoCommandAsync($"den_run_{motor.LogicalIndex + 1}");
+        _ = StartDenLoopAsync(
+            motor,
+            CabezalDashboardTarjetasProtocol.DenRunSequence,
+            CabezalDashboardTarjetasProtocol.DenRunPeriodMs,
+            "RUN");
+
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandAsync($"den_run_{motor.LogicalIndex + 1}");
 
 
 
@@ -5001,7 +5183,7 @@
 
 
 
-    private Task StartDenRun1Async(CabezalMotorTarjetas motor)
+    private async Task StartDenRun1Async(CabezalMotorTarjetas motor)
 
 
 
@@ -5025,7 +5207,7 @@
 
 
 
-            return Task.CompletedTask;
+            return;
 
 
 
@@ -5049,7 +5231,15 @@
 
 
 
-        return SendDoCommandAsync($"den_run1_{motor.LogicalIndex + 1}");
+        _ = StartDenLoopAsync(
+            motor,
+            CabezalDashboardTarjetasProtocol.DenRun1Sequence,
+            CabezalDashboardTarjetasProtocol.DenRun1PeriodMs,
+            "RUN1");
+
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandAsync($"den_run1_{motor.LogicalIndex + 1}");
 
 
 
@@ -5073,7 +5263,7 @@
 
 
 
-    private Task StopDenRunAsync(CabezalMotorTarjetas motor)
+    private async Task StopDenRunAsync(CabezalMotorTarjetas motor)
 
     {
 
@@ -5085,7 +5275,7 @@
 
 
 
-            return Task.CompletedTask;
+            return;
 
 
 
@@ -5133,7 +5323,11 @@
 
 
 
-        return SendDoCommandInternalAsync(command);
+        StopDenRun(motor, restore: false);
+
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandInternalAsync(command);
 
 
 
@@ -5205,7 +5399,7 @@
 
 
 
-        StopSicRun(motor);
+        StopSicRun(motor, restore: false);
 
 
 
@@ -5220,6 +5414,11 @@
 
 
 
+
+        motor.Position = option.Value;
+        motor.SelectedPositionNumber = option.Number;
+
+        await InvokeAsync(StateHasChanged);
 
         await SendSicPositionAsync(motor, option.Value, option.Number);
 
@@ -5293,13 +5492,15 @@
 
 
 
-        StopSicRun(motor);
+        StopSicRun(motor, restore: false);
 
 
 
 
 
 
+
+        await InvokeAsync(StateHasChanged);
 
         await SendSicPositionAsync(motor, position, 0);
 
@@ -5325,7 +5526,7 @@
 
 
 
-    private Task StartSicRunAsync(CabezalMotorTarjetas motor)
+    private async Task StartSicRunAsync(CabezalMotorTarjetas motor)
 
 
 
@@ -5349,7 +5550,7 @@
 
 
 
-            return Task.CompletedTask;
+            return;
 
 
 
@@ -5373,7 +5574,10 @@
 
 
 
-        return SendDoCommandAsync($"sic_run_{motor.LogicalIndex + 1}");
+        _ = StartSicLoopAsync(motor);
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandAsync($"sic_run_{motor.LogicalIndex + 1}");
 
 
 
@@ -5397,7 +5601,7 @@
 
 
 
-    private Task StopSicRunAsync(CabezalMotorTarjetas motor)
+    private async Task StopSicRunAsync(CabezalMotorTarjetas motor)
 
     {
 
@@ -5409,7 +5613,7 @@
 
 
 
-            return Task.CompletedTask;
+            return;
 
 
 
@@ -5433,7 +5637,11 @@
 
 
 
-        return SendDoCommandInternalAsync($"sic_stop_{motor.LogicalIndex + 1}");
+        StopSicRun(motor, restore: false);
+
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandInternalAsync($"sic_stop_{motor.LogicalIndex + 1}");
 
 
 
@@ -5913,6 +6121,9 @@
 
 
 
+        block.States[change.PinIndex - 1] = change.On;
+        await InvokeAsync(StateHasChanged);
+
         string line = CabezalDashboardTarjetasProtocol.FormatBlockPinLine(change.BlockKey, change.PinIndex, change.On);
 
 
@@ -6033,6 +6244,10 @@
 
 
 
+        StopBlockVisualRun(block.Key);
+        Array.Fill(block.States, change.On);
+        await InvokeAsync(StateHasChanged);
+
         for (int pin = 1; pin <= block.PinCount; pin++) {
 
 
@@ -6106,6 +6321,8 @@
 
 
         StopAllJAnimations(restore: false);
+        StopAllBlockVisualRuns(_yarnBlocks);
+        StopAllBlockVisualRuns(_stitchBlocks);
 
 
 
@@ -8523,7 +8740,8 @@
 
 
 
-            ApplyMotorPositionState(_denMotors[denIndex], positionNumber, stateEvent.Value);
+            // DEN usa estado visual local; HEAD_STATE queda solo en el log.
+            return;
 
 
 
@@ -8579,7 +8797,8 @@
 
 
 
-            ApplyMotorPositionState(_sicMotors[sicIndex], positionNumber, stateEvent.Value);
+            // SIC usa estado visual local; HEAD_STATE queda solo en el log.
+            return;
 
 
 
@@ -8611,7 +8830,7 @@
 
 
 
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "STITCH", out int stitchIndex)) {
+        if (false && TryParseInstanceIndex(stateEvent.InstanceName, "STITCH", out int stitchIndex)) {
 
 
 
@@ -8803,7 +9022,7 @@
 
 
 
-        if (TryParseInstanceIndex(stateEvent.InstanceName, "YARN", out int yarnIndex)) {
+        if (false && TryParseInstanceIndex(stateEvent.InstanceName, "YARN", out int yarnIndex)) {
 
 
 
@@ -8931,7 +9150,8 @@
 
 
 
-            _denMotors[denIndex].RunMode = isActive ? runMode : string.Empty;
+            // DEN usa estado visual local; HEAD_STATE queda solo en el log.
+            return;
 
 
 
@@ -8987,7 +9207,8 @@
 
 
 
-            _sicMotors[sicIndex].RunMode = isActive ? runMode : string.Empty;
+            // SIC usa estado visual local; HEAD_STATE queda solo en el log.
+            return;
 
 
 
@@ -12578,7 +12799,7 @@
 
 
 
-    private void StopDenRun(CabezalMotorTarjetas motor, bool restore = true)
+    private void StopDenRun(CabezalMotorTarjetas motor, bool restore = false)
 
 
 
@@ -12738,7 +12959,7 @@
 
 
 
-    private void StopSicRun(CabezalMotorTarjetas motor, bool restore = true)
+    private void StopSicRun(CabezalMotorTarjetas motor, bool restore = false)
 
 
 
