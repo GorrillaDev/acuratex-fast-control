@@ -16,11 +16,13 @@
 
 // [ACURATEX] Tamanos de cola elegidos para picos cortos sin reservar memoria
 // enorme: 12 comandos (~2.4 KB) y 16 respuestas (~6.0 KB).
-#define APP_COMMAND_INGRESS_QUEUE_LENGTH 12
+#define APP_COMMAND_INGRESS_QUEUE_LENGTH 32
 #define APP_REPLY_QUEUE_LENGTH 16
 // [ACURATEX] La cola fisica es mas corta: contiene comandos que pueden tocar
 // Cabezal/CAN y deben drenarse en Core 1 sin acumular trabajo ilimitado.
-#define APP_HEAD_COMMAND_QUEUE_LENGTH 8
+#define APP_HEAD_COMMAND_QUEUE_LENGTH 32
+// [ACURATEX] Tracing de perf apagado por defecto para no penalizar Serial.
+#define FAST_PERF_LOG 0
 
 typedef enum
 {

@@ -81,6 +81,7 @@ esp_err_t app_tcp_server_start(int port, app_tcp_line_handler_t handler, void *u
  */
 void app_tcp_server_stop(void);
 esp_err_t app_tcp_server_send_to_session(uint32_t session_id, const char *line);
+uint32_t app_tcp_server_get_active_session_id(void);
 /**
  * [POR QUE EXISTE]
  * Informa si la tarea TCP esta viva y marcada como running.

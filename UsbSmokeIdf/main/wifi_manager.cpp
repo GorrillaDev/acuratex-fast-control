@@ -620,6 +620,42 @@ bool app_wifi_manager_load_settings(app_wifi_settings_t *settings,
     return true;
 }
 
+bool app_wifi_manager_save_settings(const app_wifi_settings_t *settings,
+                                    char *reason,
+                                    size_t reason_size)
+{
+    if (settings == NULL) {
+        app_set_reason(reason, reason_size, "settings NULL");
+        return false;
+    }
+
+    if (settings->ssid[0] == '\0' || settings->pass[0] == '\0' || settings->port < 1 || settings->port > 65535) {
+        app_set_reason(reason, reason_size, "configuracion invalida");
+        return false;
+    }
+
+    FILE *fp = fopen(APP_WIFI_FILE_PATH, "wb");
+    if (fp == NULL) {
+        app_set_reason(reason, reason_size, "no se pudo abrir wifi.txt");
+        return false;
+    }
+
+    int wrote = fprintf(fp,
+                        "SSID=%s\nPASS=%s\nPORT=%d\n",
+                        settings->ssid,
+                        settings->pass,
+                        settings->port);
+    if (fclose(fp) != 0 || wrote <= 0) {
+        app_set_reason(reason, reason_size, "no se pudo escribir wifi.txt");
+        return false;
+    }
+
+    s_settings = *settings;
+    ESP_LOGI(TAG, "WIFI_CONFIG_SAVE_OK|SSID=%s|PORT=%d", settings->ssid, settings->port);
+    app_set_reason(reason, reason_size, "wifi.txt guardado");
+    return true;
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion aplica la configuracion WiFi y arranca el driver en modo STA.

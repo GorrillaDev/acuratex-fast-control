@@ -11,6 +11,7 @@
 @inject AuthStateService AuthState
 @inject IAppAlertService AlertService
 @inject ICommandFileTransferService CommandFileTransferService
+@inject ITesterWifiConfigService TesterWifiConfigService
 @inject IHeadProfileService HeadProfileService
 @inject ILocalTempFileService LocalTempFileService
 
@@ -351,6 +352,76 @@
                             {
                                 <span class="inline-flex items-center rounded border border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-mono text-sky-700">SYSTEM_FILE_ACCESS</span>
                             }
+                        </div>
+                    </section>
+
+                    <section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-4" data-purpose="tester-wifi-config-card">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-base font-bold text-gray-800">Configuraci&oacute;n WiFi del tester</h3>
+                                <p class="text-sm text-gray-600">Gestiona el archivo persistente /fs/wifi.txt del firmware.</p>
+                            </div>
+                            <span class="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600">@_testerWifiStatus</span>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="space-y-1">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-gray-500" for="tester-wifi-ssid">SSID</label>
+                                <input id="tester-wifi-ssid"
+                                       class="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-500"
+                                       value="@_testerWifiSsid"
+                                       @oninput="OnTesterWifiSsidChanged"
+                                       disabled="@(!CanEditTesterWifi || _isTesterWifiBusy)" />
+                            </div>
+
+                            <div class="space-y-1">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-gray-500" for="tester-wifi-pass">Contrase&ntilde;a</label>
+                                <input id="tester-wifi-pass"
+                                       type="password"
+                                       class="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-500"
+                                       value="@_testerWifiPassword"
+                                       @oninput="OnTesterWifiPasswordChanged"
+                                       placeholder="Vac&iacute;a conserva la actual"
+                                       disabled="@(!CanEditTesterWifi || _isTesterWifiBusy)" />
+                            </div>
+
+                            <div class="space-y-1">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-gray-500" for="tester-wifi-port">Puerto TCP</label>
+                                <input id="tester-wifi-port"
+                                       class="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-500"
+                                       value="@_testerWifiPort"
+                                       @oninput="OnTesterWifiPortChanged"
+                                       inputmode="numeric"
+                                       disabled="@(!CanEditTesterWifi || _isTesterWifiBusy)" />
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="text-sm text-gray-600">
+                                <span class="font-semibold">IP:</span> @_testerWifiIp
+                                <span class="mx-2 text-gray-300">|</span>
+                                <span>@_testerWifiMessage</span>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button class="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="ReadTesterWifiConfigAsync"
+                                        disabled="@(!CanReadTesterWifi)">
+                                    Leer configuraci&oacute;n
+                                </button>
+                                <button class="rounded bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="SaveTesterWifiConfigAsync"
+                                        disabled="@(!CanSaveTesterWifi)">
+                                    Guardar configuraci&oacute;n
+                                </button>
+                                <button class="rounded border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                        type="button"
+                                        @onclick="ConnectTesterWifiAsync"
+                                        disabled="@(!CanConnectTesterWifi)">
+                                    Conectar/Reintentar
+                                </button>
+                            </div>
                         </div>
                     </section>
 
@@ -1019,7 +1090,13 @@
     private IReadOnlyList<HeadProgramInfo> _modularHeadPrograms = Array.Empty<HeadProgramInfo>();
     private bool _isHeadProgramBusy;
     private string _headProgramStatusMessage = "Programas de cabezal sin actualizar.";
-
+    private string _testerWifiSsid = string.Empty;
+    private string _testerWifiPassword = string.Empty;
+    private string _testerWifiPort = "3333";
+    private string _testerWifiStatus = "Sin consultar";
+    private string _testerWifiIp = "0.0.0.0";
+    private string _testerWifiMessage = "Lee la configuracion actual antes de guardar cambios.";
+    private bool _isTesterWifiBusy;
     private MainControlPanelState State => Host.State;
 
     private bool IsAuthenticated => AuthState.IsAuthenticated;
@@ -1035,6 +1112,22 @@
     private bool CanViewConfig =>
         IsAuthenticated
         && PermissionService.HasPermission(UserPermission.ConfigView);
+
+    private bool CanEditTesterWifi =>
+        IsAuthenticated
+        && PermissionService.HasPermission(UserPermission.ConfigEditBasic);
+
+    private bool CanReadTesterWifi =>
+        CanViewConfig
+        && State.IsConnected
+        && !_isTesterWifiBusy;
+
+    private bool CanSaveTesterWifi =>
+        CanEditTesterWifi
+        && State.IsConnected
+        && !_isTesterWifiBusy;
+
+    private bool CanConnectTesterWifi => CanSaveTesterWifi;
 
     private bool CanUploadCommandScript =>
         IsAuthenticated
@@ -2826,7 +2919,114 @@
         }
     }
 
-    /// <summary>
+    private void OnTesterWifiSsidChanged(ChangeEventArgs args)
+    {
+        _testerWifiSsid = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnTesterWifiPasswordChanged(ChangeEventArgs args)
+    {
+        _testerWifiPassword = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnTesterWifiPortChanged(ChangeEventArgs args)
+    {
+        _testerWifiPort = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task ReadTesterWifiConfigAsync()
+    {
+        if (!CanReadTesterWifi) {
+            return;
+        }
+
+        _isTesterWifiBusy = true;
+        _testerWifiStatus = "Leyendo...";
+        _testerWifiMessage = "Consultando configuracion WiFi del tester.";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            TesterWifiConfig config = await TesterWifiConfigService.ReadAsync(CancellationToken.None);
+            _testerWifiSsid = config.Ssid;
+            _testerWifiPassword = string.Empty;
+            _testerWifiPort = config.Port.ToString();
+            _testerWifiStatus = FormatTesterWifiStatus(config.Status);
+            _testerWifiIp = string.IsNullOrWhiteSpace(config.Ip) ? "0.0.0.0" : config.Ip;
+            _testerWifiMessage = string.IsNullOrWhiteSpace(config.Reason)
+                ? "Configuracion leida. La contrasena no se muestra."
+                : config.Reason;
+        } catch (Exception ex) {
+            _testerWifiStatus = "Error";
+            _testerWifiMessage = BuildUserErrorMessage(ex, "No se pudo leer la configuracion WiFi.");
+        } finally {
+            _isTesterWifiBusy = false;
+        }
+    }
+
+    private async Task SaveTesterWifiConfigAsync()
+    {
+        if (!CanSaveTesterWifi) {
+            return;
+        }
+
+        if (!int.TryParse(_testerWifiPort.Trim(), out int port)) {
+            _testerWifiStatus = "Error";
+            _testerWifiMessage = "Puerto TCP invalido.";
+            return;
+        }
+
+        _isTesterWifiBusy = true;
+        _testerWifiStatus = "Guardando...";
+        _testerWifiMessage = "Guardando configuracion WiFi del tester.";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            await TesterWifiConfigService.SaveAsync(_testerWifiSsid, _testerWifiPassword, port, CancellationToken.None);
+            _testerWifiPassword = string.Empty;
+            _testerWifiStatus = "Configuracion guardada";
+            _testerWifiMessage = "SSID y puerto guardados. Contrasena vacia conserva la actual.";
+        } catch (Exception ex) {
+            _testerWifiStatus = "Error";
+            _testerWifiMessage = BuildUserErrorMessage(ex, "No se pudo guardar la configuracion WiFi.");
+        } finally {
+            _isTesterWifiBusy = false;
+        }
+    }
+
+    private async Task ConnectTesterWifiAsync()
+    {
+        if (!CanConnectTesterWifi) {
+            return;
+        }
+
+        _isTesterWifiBusy = true;
+        _testerWifiStatus = "Conectando...";
+        _testerWifiMessage = "Solicitando reintento WiFi al firmware.";
+        await InvokeAsync(StateHasChanged);
+
+        try {
+            await TesterWifiConfigService.ConnectAsync(CancellationToken.None);
+            _testerWifiStatus = "Conectando...";
+            _testerWifiMessage = "El firmware acepto el reintento WiFi.";
+        } catch (Exception ex) {
+            _testerWifiStatus = "Error";
+            _testerWifiMessage = BuildUserErrorMessage(ex, "No se pudo iniciar WiFi.");
+        } finally {
+            _isTesterWifiBusy = false;
+        }
+    }
+
+    private static string FormatTesterWifiStatus(string status)
+    {
+        return status.ToLowerInvariant() switch
+        {
+            "connected" => "WiFi conectado",
+            "saved" => "WiFi sin conexion",
+            "missing" => "Sin configuracion",
+            _ => status
+        };
+    }
+
     /// [POR QUÉ EXISTE]
     /// Esta función existe para refrescar la tabla de archivos remotos del tester.
     ///
@@ -2885,7 +3085,7 @@
     private async Task RefreshTesterFilesAsync()
     {
         // [ACURATEX] Esta ruta vuelve a leer FILE_LIST y refresca la tabla remota visible.
-        if (!CanManageTesterFiles) {
+        if (!CanManageTesterFiles || _isTesterFileBusy) {
             return;
         }
 

@@ -7,9 +7,11 @@
 #include "esp_timer.h"
 
 #include "command_processor.h"
-#include "line_codec.h"
 #include "file_transfer.h"
-#include "command_head_program_runner.h"
+#include "line_codec.h"
+#include "head_state_manager.h"
+#include "head_fast_diag.h"
+#include "wifi_manager.h"
 
 // [ACURATEX] Este archivo es el clasificador central de lineas.
 // Recibe texto ya separado por un transporte y decide si es comando simple,
@@ -17,6 +19,221 @@
 
 // [ESP-IDF] TAG identifica los logs emitidos por este modulo.
 static const char *TAG = "command_processor";
+static bool app_command_is_wifi_config_set(const char *line)
+{
+    return line != NULL && strncasecmp(line, "WIFI_CONFIG_SET", 15) == 0;
+}
+
+static const char *app_command_log_line(const char *line, char *scratch, size_t scratch_size)
+{
+    if (line == NULL) {
+        return "";
+    }
+
+    if (app_command_is_wifi_config_set(line)) {
+        snprintf(scratch, scratch_size, "WIFI_CONFIG_SET|PASS=<redacted>");
+        return scratch;
+    }
+
+    return line;
+}
+
+static bool app_wifi_arg_value(const char *token, const char *key, const char **value)
+{
+    size_t key_len;
+
+    if (token == NULL || key == NULL || value == NULL) {
+        return false;
+    }
+
+    key_len = strlen(key);
+    if (strncasecmp(token, key, key_len) != 0 || token[key_len] != '=') {
+        return false;
+    }
+
+    *value = token + key_len + 1;
+    return true;
+}
+
+static bool app_wifi_copy_config_value(char *dest,
+                                       size_t dest_size,
+                                       const char *value)
+{
+    size_t len;
+
+    if (dest == NULL || value == NULL || dest_size == 0) {
+        return false;
+    }
+
+    len = strlen(value);
+    if (len == 0 || len >= dest_size) {
+        return false;
+    }
+
+    strlcpy(dest, value, dest_size);
+    return true;
+}
+
+static bool app_wifi_parse_config_port(const char *value, int *port)
+{
+    char *endptr = NULL;
+    long parsed;
+
+    if (value == NULL || port == NULL || value[0] == '\0') {
+        return false;
+    }
+
+    parsed = strtol(value, &endptr, 10);
+    if (endptr == value || *endptr != '\0' || parsed < 1 || parsed > 65535) {
+        return false;
+    }
+
+    *port = (int)parsed;
+    return true;
+}
+
+static esp_err_t app_handle_wifi_config_get(app_reply_fn_t reply,
+                                            void *ctx,
+                                            const app_command_env_t *env)
+{
+    app_wifi_settings_t settings = {};
+    char reason[96] = {};
+    char response[192];
+    bool loaded = app_wifi_manager_load_settings(&settings, reason, sizeof(reason));
+    const char *status = "missing";
+
+    if (loaded) {
+        status = env != NULL && env->wifi_connected ? "connected" : "saved";
+        ESP_LOGI(TAG, "WIFI_CONFIG_LOAD_OK|SSID=%s|PORT=%d", settings.ssid, settings.port);
+    }
+
+    snprintf(response,
+             sizeof(response),
+             "WIFI_CONFIG|SSID=%s|PORT=%d|STATUS=%s|IP=%s|REASON=%s",
+             loaded ? settings.ssid : "",
+             loaded ? settings.port : 3333,
+             status,
+             (env != NULL && env->wifi_ip != NULL) ? env->wifi_ip : "0.0.0.0",
+             loaded ? "OK" : reason);
+    return reply(response, ctx);
+}
+
+static esp_err_t app_handle_wifi_config_set(const char *line,
+                                            app_reply_fn_t reply,
+                                            void *ctx)
+{
+    char work[192];
+    char *saveptr = NULL;
+    char *token;
+    app_wifi_settings_t next = {};
+    app_wifi_settings_t existing = {};
+    char reason[96] = {};
+    bool has_existing = false;
+    bool pass_provided = false;
+    bool port_provided = false;
+
+    if (line == NULL) {
+        return reply("ERR WIFI_CONFIG", ctx);
+    }
+
+    has_existing = app_wifi_manager_load_settings(&existing, reason, sizeof(reason));
+    if (has_existing) {
+        next = existing;
+    } else {
+        next.port = 3333;
+    }
+
+    strlcpy(work, line, sizeof(work));
+    token = strtok_r(work, "|", &saveptr);
+    (void)token;
+
+    while ((token = strtok_r(NULL, "|", &saveptr)) != NULL) {
+        const char *value = NULL;
+
+        if (app_wifi_arg_value(token, "SSID", &value)) {
+            char clean[APP_WIFI_MAX_SSID_LEN + 1];
+            strlcpy(clean, value, sizeof(clean));
+            app_trim_line(clean);
+            if (!app_wifi_copy_config_value(next.ssid, sizeof(next.ssid), clean)) {
+                return reply("ERR WIFI_CONFIG SSID", ctx);
+            }
+            continue;
+        }
+
+        if (app_wifi_arg_value(token, "PASS", &value)) {
+            char clean[APP_WIFI_MAX_PASS_LEN + 1];
+            strlcpy(clean, value, sizeof(clean));
+            app_trim_line(clean);
+            if (clean[0] != '\0') {
+                if (!app_wifi_copy_config_value(next.pass, sizeof(next.pass), clean)) {
+                    return reply("ERR WIFI_CONFIG PASS", ctx);
+                }
+                pass_provided = true;
+            }
+            continue;
+        }
+
+        if (app_wifi_arg_value(token, "PORT", &value)) {
+            char clean[12];
+            strlcpy(clean, value, sizeof(clean));
+            app_trim_line(clean);
+            if (!app_wifi_parse_config_port(clean, &next.port)) {
+                return reply("ERR WIFI_CONFIG PORT", ctx);
+            }
+            port_provided = true;
+        }
+    }
+
+    if (next.ssid[0] == '\0') {
+        return reply("ERR WIFI_CONFIG SSID", ctx);
+    }
+
+    if (next.pass[0] == '\0' && !pass_provided) {
+        return reply("ERR WIFI_CONFIG PASS_REQUIRED", ctx);
+    }
+
+    if (!port_provided && next.port <= 0) {
+        next.port = 3333;
+    }
+
+    if (!app_wifi_manager_save_settings(&next, reason, sizeof(reason))) {
+        char response[128];
+        snprintf(response, sizeof(response), "ERR WIFI_CONFIG %s", reason[0] != '\0' ? reason : "SAVE");
+        return reply(response, ctx);
+    }
+
+    ESP_LOGI(TAG, "WIFI_CONFIG_SAVE_OK|SSID=%s|PORT=%d", next.ssid, next.port);
+    return reply("ACK WIFI_CONFIG_SAVE", ctx);
+}
+
+static esp_err_t app_handle_wifi_connect(app_reply_fn_t reply,
+                                         void *ctx,
+                                         const app_command_env_t *env)
+{
+    app_wifi_settings_t settings = {};
+    char reason[96] = {};
+
+    if (env != NULL && env->usb_mounted) {
+        return reply("ERR WIFI_USB_ACTIVE", ctx);
+    }
+
+    if (!app_wifi_manager_load_settings(&settings, reason, sizeof(reason))) {
+        char response[128];
+        snprintf(response, sizeof(response), "ERR WIFI_CONFIG %s", reason[0] != '\0' ? reason : "LOAD");
+        return reply(response, ctx);
+    }
+
+    ESP_LOGI(TAG, "WIFI_CONNECT_BEGIN|SSID=%s|PORT=%d", settings.ssid, settings.port);
+    esp_err_t err = app_wifi_manager_start(&settings);
+    if (err != ESP_OK) {
+        char response[96];
+        snprintf(response, sizeof(response), "ERR WIFI_CONNECT %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "WIFI_CONNECT_ERROR|ERR=%s", esp_err_to_name(err));
+        return reply(response, ctx);
+    }
+
+    return reply("ACK WIFI_CONNECT", ctx);
+}
 
 /**
  * [POR QUE EXISTE]
@@ -267,17 +484,8 @@ static esp_err_t app_process_frame_command(const char *line, app_reply_fn_t repl
  */
 static esp_err_t app_process_text_command(const char *line, app_reply_fn_t reply, void *ctx, const app_command_env_t *env)
 {
-    ESP_LOGI(TAG, "TXT RX [%s]: %s", app_transport_name(env), line);
-
-    if (env->text_input != NULL) {
-        // [C/C++] text_input es un puntero a funcion provisto por app_main.
-        // Permite redirigir este caso sin que el parser conozca la implementacion.
-        return env->text_input(line, reply, ctx);
-    }
-
-    char response[160];
-    snprintf(response, sizeof(response), "ACK TXT %s", line);
-    return reply(response, ctx);
+    ESP_LOGW(TAG, "CMD UNKNOWN [%s]: %s", app_transport_name(env), line);
+    return reply("ERR unknown command", ctx);
 }
 
 /**
@@ -318,6 +526,367 @@ static long long app_now_ms(void)
     return (long long)(esp_timer_get_time() / 1000LL);
 }
 
+static bool app_parse_index_value_command(const char *line,
+                                          const char *prefix,
+                                          int *index_out,
+                                          int *value_out)
+{
+    int index = 0;
+    int value = 0;
+    char extra = '\0';
+
+    if (line == NULL || prefix == NULL) {
+        return false;
+    }
+
+    size_t prefix_len = strlen(prefix);
+    if (strncasecmp(line, prefix, prefix_len) != 0) {
+        return false;
+    }
+
+    if (sscanf(line + prefix_len, "%d|%d%c", &index, &value, &extra) != 2) {
+        return false;
+    }
+
+    if (index <= 0 || value < 0 || value > 0xFFFF) {
+        return false;
+    }
+
+    if (index_out != NULL) {
+        *index_out = index;
+    }
+    if (value_out != NULL) {
+        *value_out = value;
+    }
+    return true;
+}
+
+static esp_err_t app_handle_short_position_command(const char *line,
+                                                   const char *prefix,
+                                                   int max_index,
+                                                   int motor_index,
+                                                   app_reply_fn_t reply,
+                                                   void *ctx,
+                                                   const app_command_env_t *env)
+{
+    int index = 0;
+    int value = 0;
+
+    if (!app_parse_index_value_command(line, prefix, &index, &value)) {
+        return reply("ERR posicion invalida", ctx);
+    }
+
+    if (index < 1 || index > max_index) {
+        return reply("ERR posicion invalida", ctx);
+    }
+
+    char frame[64];
+    int physical_index = motor_index + (index - 1);
+    snprintf(frame, sizeof(frame),
+             "320 1C %02X %02X %02X",
+             physical_index & 0xFF,
+             value & 0xFF,
+             (value >> 8) & 0xFF);
+    return app_process_frame_command(frame, reply, ctx, env);
+}
+
+static esp_err_t app_handle_j_short_command(const char *line,
+                                            app_reply_fn_t reply,
+                                            void *ctx,
+                                            const app_command_env_t *env)
+{
+    int bus = (env->active_bus == APP_CMD_CAN_BUS_NONE) ? APP_CMD_CAN_BUS_1 : env->active_bus;
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strcasecmp(line, "j_run_all") == 0) {
+        for (uint8_t j = 1; j <= APP_HEAD_STATE_MAX_J; ++j) {
+            if (!app_head_state_manager_start_j_run(j, bus, now_ms)) {
+                return reply("ERR|J_RUN_ALL", ctx);
+            }
+        }
+
+        ESP_LOGI(TAG, "FW_RX|J_RUN_ALL");
+        return reply("OK j_run_all", ctx);
+    }
+
+    if (strcasecmp(line, "j_stop_all") == 0) {
+        app_head_state_manager_stop_all_j_runs();
+        ESP_LOGI(TAG, "FW_RX|J_STOP_ALL");
+        return reply("OK j_stop_all", ctx);
+    }
+
+    if (strncasecmp(line, "j_run_", 6) == 0) {
+        int instance = 0;
+        if (sscanf(line + 6, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|J_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_j_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|J_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK j_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|J_RUN|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "j_stop_", 7) == 0) {
+        int instance = 0;
+        if (sscanf(line + 7, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|J_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_j_run((uint8_t)instance)) {
+            return reply("ERR|J_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK j_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|J_STOP|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|J_CMD", ctx);
+}
+
+static int app_command_active_bus(const app_command_env_t *env)
+{
+    return (env != NULL && env->active_bus == APP_CMD_CAN_BUS_2) ? APP_CMD_CAN_BUS_2 : APP_CMD_CAN_BUS_1;
+}
+
+static esp_err_t app_handle_yarn_short_command(const char *line,
+                                               app_reply_fn_t reply,
+                                               void *ctx,
+                                               const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+
+    if (strcasecmp(line, "y_run_all") == 0) {
+        for (uint8_t y = 1; y <= APP_HEAD_STATE_MAX_YARN; ++y) {
+            if (!app_head_state_manager_start_yarn_run(y, bus, now_ms)) {
+                return reply("ERR|Y_RUN_ALL", ctx);
+            }
+        }
+
+        ESP_LOGI(TAG, "FW_RX|Y_RUN_ALL");
+        return reply("OK y_run_all", ctx);
+    }
+
+    if (strcasecmp(line, "y_stop_all") == 0) {
+        app_head_state_manager_stop_all_yarn_runs();
+        ESP_LOGI(TAG, "FW_RX|Y_STOP_ALL");
+        return reply("OK y_stop_all", ctx);
+    }
+
+    if (strcasecmp(line, "y1_run") == 0) {
+        if (!app_head_state_manager_start_yarn_run(1, bus, now_ms)) {
+            return reply("ERR|Y1_RUN", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y1_RUN");
+        return reply("OK y1_run", ctx);
+    }
+
+    if (strcasecmp(line, "y1_stop") == 0) {
+        if (!app_head_state_manager_stop_yarn_run(1)) {
+            return reply("ERR|Y1_STOP", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y1_STOP");
+        return reply("OK y1_stop", ctx);
+    }
+
+    if (strcasecmp(line, "y2_run") == 0) {
+        if (!app_head_state_manager_start_yarn_run(2, bus, now_ms)) {
+            return reply("ERR|Y2_RUN", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y2_RUN");
+        return reply("OK y2_run", ctx);
+    }
+
+    if (strcasecmp(line, "y2_stop") == 0) {
+        if (!app_head_state_manager_stop_yarn_run(2)) {
+            return reply("ERR|Y2_STOP", ctx);
+        }
+        ESP_LOGI(TAG, "FW_RX|Y2_STOP");
+        return reply("OK y2_stop", ctx);
+    }
+
+    return reply("ERR|Y_CMD", ctx);
+}
+
+static esp_err_t app_handle_stitch_short_command(const char *line,
+                                                 app_reply_fn_t reply,
+                                                 void *ctx,
+                                                 const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strcasecmp(line, "s_run_all") == 0) {
+        for (uint8_t s = 1; s <= APP_HEAD_STATE_MAX_STITCH; ++s) {
+            if (!app_head_state_manager_start_stitch_run(s, bus, now_ms)) {
+                return reply("ERR|S_RUN_ALL", ctx);
+            }
+        }
+
+        ESP_LOGI(TAG, "FW_RX|S_RUN_ALL");
+        return reply("OK s_run_all", ctx);
+    }
+
+    if (strcasecmp(line, "s_stop_all") == 0) {
+        app_head_state_manager_stop_all_stitch_runs();
+        ESP_LOGI(TAG, "FW_RX|S_STOP_ALL");
+        return reply("OK s_stop_all", ctx);
+    }
+
+    if (strncasecmp(line, "s_run_", 6) == 0) {
+        int instance = 0;
+        if (sscanf(line + 6, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_STITCH) {
+            return reply("ERR|S_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_stitch_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|S_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK s_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|S_RUN|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "s_stop_", 7) == 0) {
+        int instance = 0;
+        if (sscanf(line + 7, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_STITCH) {
+            return reply("ERR|S_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_stitch_run((uint8_t)instance)) {
+            return reply("ERR|S_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK s_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|S_STOP|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|S_CMD", ctx);
+}
+
+static esp_err_t app_handle_den_short_command(const char *line,
+                                              app_reply_fn_t reply,
+                                              void *ctx,
+                                              const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strncasecmp(line, "den_run1_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_RUN1", ctx);
+        }
+
+        if (!app_head_state_manager_start_den_run1((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|DEN_RUN1", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_run1_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_RUN1|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "den_stop1_", 10) == 0) {
+        int instance = 0;
+        if (sscanf(line + 10, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_STOP1", ctx);
+        }
+
+        if (!app_head_state_manager_stop_den_run((uint8_t)instance)) {
+            return reply("ERR|DEN_STOP1", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_stop1_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_STOP1|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "den_run_", 8) == 0) {
+        int instance = 0;
+        if (sscanf(line + 8, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_den_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|DEN_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_RUN|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "den_stop_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_J) {
+            return reply("ERR|DEN_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_den_run((uint8_t)instance)) {
+            return reply("ERR|DEN_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK den_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|DEN_STOP|J%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|DEN_CMD", ctx);
+}
+
+static esp_err_t app_handle_sic_short_command(const char *line,
+                                              app_reply_fn_t reply,
+                                              void *ctx,
+                                              const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strncasecmp(line, "sic_run_", 8) == 0) {
+        int instance = 0;
+        if (sscanf(line + 8, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_SIC) {
+            return reply("ERR|SIC_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_sic_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|SIC_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK sic_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|SIC_RUN|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "sic_stop_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_SIC) {
+            return reply("ERR|SIC_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_sic_run((uint8_t)instance)) {
+            return reply("ERR|SIC_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK sic_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|SIC_STOP|S%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|SIC_CMD", ctx);
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion existe para que Core 0 pueda reconocer comandos fisicos sin
@@ -335,7 +904,8 @@ static long long app_now_ms(void)
  * linea sin prefijo parece trama CAN.
  *
  * [SALIDAS]
- * Devuelve true para HEAD_*, can1, can2, send y tramas CAN directas.
+ * Devuelve true para can1, can2, j_run_*, j_stop_*, y_*, s_*, den_*, sic_*,
+ * den_pos_*, sic_pos_*, send y tramas CAN directas.
  *
  * [ESTADO QUE MODIFICA]
  * No modifica estado. Solo normaliza una copia local y consulta parsers.
@@ -373,11 +943,29 @@ bool app_command_line_is_physical(const char *incoming_line,
         return true;
     }
 
-    if (app_head_program_is_command(line)) {
-        return true;
-    }
-
-    if (strncasecmp(line, "send ", 5) == 0) {
+    if (strncasecmp(line, "j_run_", 6) == 0
+        || strncasecmp(line, "j_stop_", 7) == 0
+        || strcasecmp(line, "y_run_all") == 0
+        || strcasecmp(line, "y_stop_all") == 0
+        || strcasecmp(line, "y1_run") == 0
+        || strcasecmp(line, "y1_stop") == 0
+        || strcasecmp(line, "y2_run") == 0
+        || strcasecmp(line, "y2_stop") == 0
+        || strcasecmp(line, "s_run_all") == 0
+        || strcasecmp(line, "s_stop_all") == 0
+        || strncasecmp(line, "s_run_", 6) == 0
+        || strncasecmp(line, "s_stop_", 7) == 0
+        || strncasecmp(line, "den_run1_", 9) == 0
+        || strncasecmp(line, "den_stop1_", 10) == 0
+        || strncasecmp(line, "den_run_", 8) == 0
+        || strncasecmp(line, "den_stop_", 9) == 0
+        || strncasecmp(line, "sic_run_", 8) == 0
+        || strncasecmp(line, "sic_stop_", 9) == 0
+        || strncasecmp(line, "den_pos_", 8) == 0
+        || strncasecmp(line, "sic_pos_", 8) == 0
+        || strncasecmp(line, "send ", 5) == 0
+        || strcasecmp(line, "stop") == 0
+        || strcasecmp(line, "emergency_stop") == 0) {
         return true;
     }
 
@@ -429,7 +1017,6 @@ esp_err_t app_command_process_line(const char *incoming_line,
                                    const app_command_env_t *env)
 {
     char line[192];
-    esp_err_t err;
 
     if (incoming_line == NULL || reply == NULL || env == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -445,40 +1032,62 @@ esp_err_t app_command_process_line(const char *incoming_line,
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), line);
+    char log_line[96];
+    ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), app_command_log_line(line, log_line, sizeof(log_line)));
 
-    // [ACURATEX] Comandos de vida. No cambian estado; confirman que el enlace y
-    // el procesador estan respondiendo.
+    if (app_file_transfer_is_command(line)) {
+        char response[256];
+        ESP_LOGI(TAG, "CMD CLASS [%s]: file_transfer", app_transport_name(env));
+        esp_err_t err = app_file_transfer_process_line(line, response, sizeof(response));
+        if (err != ESP_OK) {
+            return reply("ERR FILE_CMD", ctx);
+        }
+        if (response[0] == '\0') {
+            return reply("ERR FILE_CMD", ctx);
+        }
+        ESP_LOGI(TAG, "FILE_TX|%s", response);
+        return reply(response, ctx);
+    }
+
+    if (strcasecmp(line, "WIFI_CONFIG_GET") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: wifi_config_get", app_transport_name(env));
+        return app_handle_wifi_config_get(reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "WIFI_CONFIG_SET", 15) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: wifi_config_set", app_transport_name(env));
+        return app_handle_wifi_config_set(line, reply, ctx);
+    }
+
+    if (strcasecmp(line, "WIFI_CONNECT") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: wifi_connect", app_transport_name(env));
+        return app_handle_wifi_connect(reply, ctx, env);
+    }
+
     if (strcasecmp(line, "ping") == 0 || strcasecmp(line, "hello") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: ping", app_transport_name(env));
         ESP_LOGI(TAG, "FW_PING_RX|TIME=%lld|HEAD_STATE=%s",
                  app_now_ms(),
-                 app_head_program_runner_state_name());
+                 "FAST");
         ESP_LOGI(TAG, "FW_PONG_TX|TIME=%lld|HEAD_STATE=%s",
                  app_now_ms(),
-                 app_head_program_runner_state_name());
+                 "FAST");
         return reply("PONG", ctx);
     }
 
-    // [ACURATEX] Respuesta de ayuda textual. El texto forma parte del contrato
-    // esperado por herramientas humanas o app.
     if (strcasecmp(line, "help") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: help", app_transport_name(env));
-        return reply("OK cmds: ping,status,can1,can2,send <hex>,<hex line>,start,stop,testeo,FILE_*,HEAD_*", ctx);
+        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,emergency_stop,j_run_#,j_stop_#,j_run_all,j_stop_all,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,s_run_#,s_stop_#,s_run_all,s_stop_all,den_run_#,den_run1_#,den_stop_#,den_stop1_#,sic_run_#,sic_stop_#,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
     }
 
-    // [ACURATEX] status resume transportes y CAN usando el entorno actual.
     if (strcasecmp(line, "status") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: status", app_transport_name(env));
         return app_send_status(reply, ctx, env);
     }
 
-    // [ACURATEX] can1/can2 seleccionan el bus logico usado por futuras tramas.
-    // No reinstalan TWAI ni cambian pines: actualizan el selector del driver.
     if (strcasecmp(line, "can1") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_select CAN1", app_transport_name(env));
-        err = env->can_select_bus(APP_CMD_CAN_BUS_1);
-        if (err != ESP_OK) {
+        if (env->can_select_bus(APP_CMD_CAN_BUS_1) != ESP_OK) {
             return reply("ERR no se pudo activar CAN1", ctx);
         }
         return reply("OK CAN1", ctx);
@@ -486,66 +1095,126 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "can2") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_select CAN2", app_transport_name(env));
-        err = env->can_select_bus(APP_CMD_CAN_BUS_2);
-        if (err != ESP_OK) {
+        if (env->can_select_bus(APP_CMD_CAN_BUS_2) != ESP_OK) {
             return reply("ERR no se pudo activar CAN2", ctx);
         }
         return reply("OK CAN2", ctx);
     }
 
-    // [ACURATEX] Comandos simples conservados como ACK. No se reinterpretan en
-    // esta fase porque cambiarian protocolo.
-    if (strcasecmp(line, "start") == 0) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: start", app_transport_name(env));
-        return reply("ACK start", ctx);
-    }
-
-    if (strcasecmp(line, "stop") == 0) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
-        return reply("ACK stop", ctx);
+    if (strcasecmp(line, "init") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: init", app_transport_name(env));
+        if (app_head_fast_diag_is_busy()) {
+            return reply("ERR|INIT|BUSY", ctx);
+        }
+        (void)app_head_state_manager_init();
+        esp_err_t err = app_head_fast_diag_start_init(env, ctx);
+        if (err != ESP_OK) {
+            if (err == ESP_ERR_INVALID_STATE && app_head_fast_diag_is_busy()) {
+                return reply("ERR|INIT|BUSY", ctx);
+            }
+            char response[120];
+            snprintf(response, sizeof(response), "ERR|INIT|%s", esp_err_to_name(err));
+            return reply(response, ctx);
+        }
+        return reply("OK init", ctx);
     }
 
     if (strcasecmp(line, "testeo") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: testeo", app_transport_name(env));
-        return reply("ACK testeo", ctx);
-    }
-
-    // [ACURATEX] HEAD_* se evalua antes que FILE_* y antes que CAN textual.
-    // Ese orden evita que comandos de cabezal caigan al handler generico.
-    if (app_head_program_is_command(line)) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: head_program", app_transport_name(env));
-        return app_head_program_process_line(line, reply, ctx, env);
-    }
-
-    // [ACURATEX] FILE_* se procesa aqui, pero el detalle de LittleFS queda en
-    // file_transfer.cpp. La respuesta se guarda en un buffer local y luego se
-    // envia por el transporte original, igual que cualquier ACK/ERR de comando.
-    if (app_file_transfer_is_command(line)) {
-        ESP_LOGI(TAG, "CMD CLASS [%s]: file_transfer", app_transport_name(env));
-        char response[192];
-        err = app_file_transfer_process_line(line, response, sizeof(response));
-        if (err != ESP_OK) {
-            return err;
+        if (app_head_fast_diag_is_busy()) {
+            return reply("ERR|TESTEO|BUSY", ctx);
         }
-        return reply(response, ctx);
+        if (!app_head_fast_diag_testeo_can_start()) {
+            return reply("ERR|TESTEO|LATCHED", ctx);
+        }
+        esp_err_t err = app_head_fast_diag_start_testeo(env, ctx);
+        if (err != ESP_OK) {
+            char response[120];
+            snprintf(response, sizeof(response), "ERR|TESTEO|%s", esp_err_to_name(err));
+            return reply(response, ctx);
+        }
+        return reply("OK testeo", ctx);
     }
 
-    // [ACURATEX] `send ` fuerza que el resto de la linea sea interpretado como
-    // trama CAN aunque no sea el primer caso de clasificacion. El prefijo no se
-    // pasa al parser; el parser recibe solamente ID y bytes.
+    if (strcasecmp(line, "start") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: start", app_transport_name(env));
+        return reply("OK start", ctx);
+    }
+
+    if (strcasecmp(line, "stop") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
+        app_head_state_manager_stop_all_motion();
+        app_head_fast_diag_request_stop();
+        return reply("OK stop", ctx);
+    }
+
+    if (strcasecmp(line, "emergency_stop") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: emergency_stop", app_transport_name(env));
+        app_head_state_manager_stop_all_motion();
+        app_head_fast_diag_request_stop();
+        return reply("OK emergency_stop", ctx);
+    }
+
+    if (strcasecmp(line, "j_run_all") == 0
+        || strcasecmp(line, "j_stop_all") == 0
+        || strncasecmp(line, "j_run_", 6) == 0
+        || strncasecmp(line, "j_stop_", 7) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: j_short", app_transport_name(env));
+        return app_handle_j_short_command(line, reply, ctx, env);
+    }
+
+    if (strcasecmp(line, "y_run_all") == 0
+        || strcasecmp(line, "y_stop_all") == 0
+        || strcasecmp(line, "y1_run") == 0
+        || strcasecmp(line, "y1_stop") == 0
+        || strcasecmp(line, "y2_run") == 0
+        || strcasecmp(line, "y2_stop") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: y_short", app_transport_name(env));
+        return app_handle_yarn_short_command(line, reply, ctx, env);
+    }
+
+    if (strcasecmp(line, "s_run_all") == 0
+        || strcasecmp(line, "s_stop_all") == 0
+        || strncasecmp(line, "s_run_", 6) == 0
+        || strncasecmp(line, "s_stop_", 7) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: s_short", app_transport_name(env));
+        return app_handle_stitch_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "den_run1_", 9) == 0
+        || strncasecmp(line, "den_stop1_", 10) == 0
+        || strncasecmp(line, "den_run_", 8) == 0
+        || strncasecmp(line, "den_stop_", 9) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: den_short", app_transport_name(env));
+        return app_handle_den_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "sic_run_", 8) == 0
+        || strncasecmp(line, "sic_stop_", 9) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: sic_short", app_transport_name(env));
+        return app_handle_sic_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "den_pos_", 8) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: den_pos", app_transport_name(env));
+        return app_handle_short_position_command(line, "den_pos_", 8, 0, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "sic_pos_", 8) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: sic_pos", app_transport_name(env));
+        return app_handle_short_position_command(line, "sic_pos_", 2, 0x08, reply, ctx, env);
+    }
+
     if (strncasecmp(line, "send ", 5) == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_send explicit", app_transport_name(env));
         return app_process_frame_command(line + 5, reply, ctx, env);
     }
 
-    // [ACURATEX] Tambien se acepta una trama CAN directa, por ejemplo una linea
-    // de ID y bytes hexadecimales sin prefijo.
     if (app_looks_like_frame(line, env)) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_frame", app_transport_name(env));
         return app_process_frame_command(line, reply, ctx, env);
     }
 
-    // [ACURATEX] Ultimo caso: texto que no coincide con ningun comando conocido.
     ESP_LOGI(TAG, "CMD CLASS [%s]: text_passthrough", app_transport_name(env));
     return app_process_text_command(line, reply, ctx, env);
 }

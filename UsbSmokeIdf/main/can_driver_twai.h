@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
 
 /**
  * [POR QUE EXISTE]
@@ -140,6 +141,17 @@ esp_err_t app_can_select_bus(int bus);
  * Ningun comando podria llegar fisicamente al bus CAN.
  */
 esp_err_t app_can_send_standard(int bus, uint32_t id, const uint8_t *data, size_t len);
+
+typedef struct {
+    int bus;
+    uint32_t id;
+    uint8_t dlc;
+    uint8_t data[8];
+    uint32_t time_ms;
+} app_can_rx_event_t;
+
+esp_err_t app_can_rx_receive(app_can_rx_event_t *event, TickType_t timeout);
+void app_can_rx_clear(void);
 
 /**
  * [POR QUE EXISTE]

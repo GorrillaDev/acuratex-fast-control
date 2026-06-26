@@ -24,7 +24,7 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
     // [ACURATEX] Cantidad de Base64 que se muestra en trazas para no inundar la consola.
     private const int Base64PreviewChars = 12;
     // [ACURATEX] Tiempo de espera para respuesta del firmware por cada comando FILE_*.
-    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(5);
 
     // [C#] `_connection` es el transporte unico que usa el servicio para enviar lineas.
     private readonly IConnectionController _connection;

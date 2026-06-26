@@ -99,6 +99,7 @@ public partial class Form1 : Form, IMainControlPanelHost
         // [C#] `+=` suscribe métodos a eventos del controlador de conexión.
         // [ACURATEX] La app escucha líneas entrantes y caídas de enlace.
         _connection.LineReceived += OnLineReceived;
+        _connection.LineSent += OnLineSent;
         _connection.ConnectionLost += OnConnectionLost;
 
         // [ACURATEX] Valores iniciales visibles en la UI antes de conectar.
@@ -625,7 +626,6 @@ public partial class Form1 : Form, IMainControlPanelHost
 
         try {
             await _connection.SendLineAsync(line, CancellationToken.None);
-            AppendLog($">> {line}");
         } catch (Exception ex) {
             AppendLog($"ERROR send: {ex.Message}");
             await HandleTransportFaultAsync();
@@ -926,6 +926,7 @@ public partial class Form1 : Form, IMainControlPanelHost
         services.AddSingleton(_authState);
         services.AddSingleton(_permissionService);
         services.AddSingleton<ICommandFileTransferService>(_ => new CommandFileTransferService(_connection));
+        services.AddSingleton<ITesterWifiConfigService>(_ => new TesterWifiConfigService(_connection));
         services.AddSingleton<IHeadProfileService, HeadProfileService>();
         services.AddSingleton<IAppScriptExecutionService, AppScriptExecutionService>();
         services.AddSingleton<IHeadStateEventParser, HeadStateEventParser>();
@@ -973,6 +974,20 @@ public partial class Form1 : Form, IMainControlPanelHost
     {
         // [EQUIV MCU] Es parecido a una interrupción de recepción que entrega la trama a la capa superior.
         AppendLog($"<< {line}");
+    }
+
+    private void OnLineSent(string line)
+    {
+        AppendLog($">> {RedactSensitiveCommandForLog(line)}");
+    }
+
+    private static string RedactSensitiveCommandForLog(string line)
+    {
+        if (line.StartsWith("WIFI_CONFIG_SET", StringComparison.OrdinalIgnoreCase)) {
+            return "WIFI_CONFIG_SET|PASS=<redacted>";
+        }
+
+        return line;
     }
 
     // [C#] Método auxiliar `private` que centraliza la lectura del modo seleccionado.
