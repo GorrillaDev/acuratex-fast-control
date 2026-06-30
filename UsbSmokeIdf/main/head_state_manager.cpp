@@ -9,10 +9,13 @@
 #include "esp_log.h"
 
 #include "app_rtos_types.h"
+#include "head_program_runtime.h"
 
 // [ESP-IDF] TAG se imprime en ESP_LOGW/ESP_LOGI para identificar que el mensaje
 // viene del gestor de estado del cabezal.
 static const char *TAG = "head_state";
+
+static const HeadCommandProfile *app_head_state_active_profile(void);
 
 // [ACURATEX] Estado interno de los modulos J. Cada posicion del arreglo es un
 // modulo independiente: indice 0 = J1, indice 7 = J8.
@@ -51,6 +54,7 @@ typedef struct {
     app_head_cascade_state_t stitch[APP_HEAD_STATE_MAX_STITCH];
     app_head_cascade_state_t den[APP_HEAD_STATE_MAX_J];
     app_head_cascade_state_t sic[APP_HEAD_STATE_MAX_SIC];
+    app_head_cascade_state_t feet[APP_HEAD_STATE_MAX_FEET];
 } app_head_state_manager_state_t;
 
 // [FREERTOS] Mutex que protege `s_state`.
@@ -407,9 +411,12 @@ static void app_head_state_reset_j_run_locked(int index)
  * [SI NO EXISTIERA]
  * RUN no tendria punto de arranque ni bus definido.
  */
-static void app_head_state_start_j_run_locked(int index, int bus, uint32_t now_ms)
+static void app_head_state_start_j_run_locked(int index,
+                                              int bus,
+                                              uint32_t now_ms,
+                                              const HeadJCommandProfile *commands)
 {
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_J || commands == NULL) {
         return;
     }
 
@@ -417,8 +424,8 @@ static void app_head_state_start_j_run_locked(int index, int bus, uint32_t now_m
     s_state.j_turning_on[index] = true;
     s_state.j_bit[index] = 0;
     // [ACURATEX] RUN arranca desde todo apagado fisico: FF equivale a logico 00.
-    s_state.j_physical_register[index] = 0xFF;
-    s_state.j_logical_mask[index] = 0x00;
+    s_state.j_physical_register[index] = commands->initial_register;
+    s_state.j_logical_mask[index] = (uint8_t)~commands->initial_register;
     s_state.j_next_due_ms[index] = now_ms;
     s_state.j_can_bus[index] = app_head_state_normalize_bus(bus);
     app_head_state_bump_revision_locked(index);
@@ -678,6 +685,12 @@ static bool app_head_state_parse_numbered_verb(const char *verb,
  */
 esp_err_t app_head_state_manager_init(void)
 {
+    const HeadCommandProfile *profile = app_head_program_get_active_profile();
+
+    if (profile == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     if (s_head_state_mutex == NULL) {
         // [FREERTOS] Mutex binario con propiedad de exclusion mutua para s_state.
         s_head_state_mutex = xSemaphoreCreateMutex();
@@ -694,7 +707,7 @@ esp_err_t app_head_state_manager_init(void)
     memset(&s_state, 0, sizeof(s_state));
     for (int i = 0; i < APP_HEAD_STATE_MAX_J; ++i) {
         // [ACURATEX] Fuente de verdad inicial: fisico FF = logico 00.
-        app_head_state_set_j_physical_locked(i, 0xFF);
+        app_head_state_set_j_physical_locked(i, profile->j.initial_register);
         app_head_state_reset_j_run_locked(i);
     }
 
@@ -712,6 +725,10 @@ esp_err_t app_head_state_manager_init(void)
 
     for (int i = 0; i < APP_HEAD_STATE_MAX_SIC; ++i) {
         app_head_state_reset_cascade_locked(&s_state.sic[i]);
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_FEET; ++i) {
+        app_head_state_reset_cascade_locked(&s_state.feet[i]);
     }
 
     app_head_state_give_mutex();
@@ -918,18 +935,22 @@ bool app_head_state_manager_get_j_status(uint8_t instance,
 bool app_head_state_manager_start_j_run(uint8_t instance, int can_bus, uint32_t now_ms)
 {
     int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return false;
     }
 
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+    if (profile == NULL
+        || index < 0
+        || index >= APP_HEAD_STATE_MAX_J
+        || (size_t)index >= profile->j.instance_count) {
         app_head_state_give_mutex();
         return false;
     }
 
     if (!s_state.j_running[index]) {
-        app_head_state_start_j_run_locked(index, can_bus, now_ms);
+        app_head_state_start_j_run_locked(index, can_bus, now_ms, &profile->j);
     } else {
         // [ACURATEX] Si RUN ya existe, no reinicia la secuencia; solo corrige el
         // bus que usara el proximo tick.
@@ -1038,18 +1059,15 @@ void app_head_state_manager_stop_all_j_runs(void)
     app_head_state_give_mutex();
 }
 
-// [ACURATEX] Tablas exactas del Arduino antiguo para Yarn y Stitch.
-static const uint8_t YARN1_ADDR[8] = { 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
-static const uint8_t YARN2_ADDR[8] = { 0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23 };
-static const uint8_t STITCH1_ADDR[4] = { 0x00, 0x01, 0x02, 0x05 };
-static const uint8_t STITCH2_ADDR[4] = { 0x06, 0x07, 0x08, 0x0B };
-static const uint8_t STITCH3_ADDR[4] = { 0x0C, 0x0D, 0x0E, 0x11 };
-static const uint8_t STITCH4_ADDR[4] = { 0x12, 0x13, 0x14, 0x17 };
-static const uint8_t DEN_RUN_SEQUENCE[5] = { 1, 3, 5, 2, 4 };
-static const uint8_t DEN_RUN1_SEQUENCE[3] = { 1, 3, 5 };
-static const uint8_t SIC_RUN_SEQUENCE[3] = { 1, 2, 3 };
-static const uint16_t DEN_POSITIONS[5] = { 0x0000, 0x00A2, 0x0145, 0x01E7, 0x028A };
-static const uint16_t SIC_POSITIONS[3] = { 0x0000, 0x0176, 0x02EE };
+static const HeadCommandProfile *app_head_state_active_profile(void)
+{
+    const HeadCommandProfile *profile = app_head_program_get_active_profile();
+    if (profile == NULL) {
+        return app_head_program_get_profile(APP_HEAD_PROGRAM_1);
+    }
+
+    return profile;
+}
 
 /**
  * [POR QUE EXISTE]
@@ -1059,11 +1077,11 @@ static const uint16_t SIC_POSITIONS[3] = { 0x0000, 0x0176, 0x02EE };
  * app_head_state_manager_tick().
  */
 static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_standard_fn_t can_send_standard,
+                                             const HeadCommandProfile *profile,
+                                             const HeadCascadeCommandProfile *commands,
                                              app_head_cascade_state_t *states,
                                              size_t state_count,
                                              int index,
-                                             const uint8_t *addr_table,
-                                             size_t addr_count,
                                              const char *kind,
                                              uint32_t now_ms)
 {
@@ -1073,7 +1091,13 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
     int bus = 1;
     esp_err_t tx_err = ESP_OK;
 
-    if (can_send_standard == NULL || states == NULL || addr_table == NULL || kind == NULL) {
+    if (can_send_standard == NULL
+        || profile == NULL
+        || commands == NULL
+        || states == NULL
+        || commands->addresses == NULL
+        || commands->addresses_per_instance == 0
+        || kind == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1081,7 +1105,10 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
         return ESP_ERR_TIMEOUT;
     }
 
-    if (index < 0 || index >= (int)state_count || !states[index].running) {
+    if (index < 0
+        || index >= (int)state_count
+        || (size_t)index >= commands->instance_count
+        || !states[index].running) {
         app_head_state_give_mutex();
         return ESP_OK;
     }
@@ -1094,7 +1121,7 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
     step = states[index];
     app_head_state_give_mutex();
 
-    if (step.p == 0 || step.p > addr_count) {
+    if (step.p == 0 || step.p > commands->addresses_per_instance) {
         if (!app_head_state_take_mutex(portMAX_DELAY)) {
             return ESP_ERR_TIMEOUT;
         }
@@ -1107,13 +1134,13 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
         return ESP_ERR_INVALID_STATE;
     }
 
-    addr = addr_table[step.p - 1];
-    value = (step.phase == 0) ? 0x01 : 0x00;
+    addr = commands->addresses[(size_t)index * commands->addresses_per_instance + step.p - 1U];
+    value = (step.phase == 0) ? commands->on_value : commands->off_value;
     bus = app_head_state_normalize_bus(step.can_bus);
 
     {
-        uint8_t data[3] = { 0x1E, addr, value };
-        tx_err = can_send_standard(bus, 0x320, data, sizeof(data));
+        uint8_t data[3] = { commands->opcode, addr, value };
+        tx_err = can_send_standard(bus, commands->can_id, data, sizeof(data));
     }
 
     if (tx_err != ESP_OK) {
@@ -1136,6 +1163,14 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
         return tx_err;
     }
 
+    ESP_LOGI(TAG,
+             "PROFILE_COMMAND|PROGRAM=%u|MODULE=%s|INSTANCE=%d|CHANNEL=%u|VALUE=%u",
+             (unsigned)profile->program_id,
+             kind,
+             index + 1,
+             (unsigned)step.p,
+             (unsigned)value);
+
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return ESP_ERR_TIMEOUT;
     }
@@ -1144,7 +1179,7 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
         uint8_t next_p = (uint8_t)(step.p + 1U);
         uint8_t next_phase = step.phase;
 
-        if (next_p > (uint8_t)addr_count) {
+        if (next_p > (uint8_t)commands->addresses_per_instance) {
             next_p = 1;
             next_phase = (uint8_t)(step.phase == 0 ? 1 : 0);
         }
@@ -1166,17 +1201,26 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
 bool app_head_state_manager_start_yarn_run(uint8_t instance, int can_bus, uint32_t now_ms)
 {
     int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return false;
     }
 
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_YARN) {
+    if (profile == NULL
+        || profile->yarn.addresses == NULL
+        || profile->yarn.addresses_per_instance == 0
+        || index < 0
+        || index >= APP_HEAD_STATE_MAX_YARN
+        || (size_t)index >= profile->yarn.instance_count) {
         app_head_state_give_mutex();
         return false;
     }
 
-    app_head_state_start_cascade_locked(&s_state.yarn[index], can_bus, now_ms, 80);
+    app_head_state_start_cascade_locked(&s_state.yarn[index],
+                                        can_bus,
+                                        now_ms,
+                                        (uint16_t)profile->yarn.run_period_ms);
     app_head_state_give_mutex();
     return true;
 }
@@ -1219,17 +1263,26 @@ void app_head_state_manager_stop_all_yarn_runs(void)
 bool app_head_state_manager_start_stitch_run(uint8_t instance, int can_bus, uint32_t now_ms)
 {
     int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return false;
     }
 
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_STITCH) {
+    if (profile == NULL
+        || profile->stitch.addresses == NULL
+        || profile->stitch.addresses_per_instance == 0
+        || index < 0
+        || index >= APP_HEAD_STATE_MAX_STITCH
+        || (size_t)index >= profile->stitch.instance_count) {
         app_head_state_give_mutex();
         return false;
     }
 
-    app_head_state_start_cascade_locked(&s_state.stitch[index], can_bus, now_ms, 80);
+    app_head_state_start_cascade_locked(&s_state.stitch[index],
+                                        can_bus,
+                                        now_ms,
+                                        (uint16_t)profile->stitch.run_period_ms);
     app_head_state_give_mutex();
     return true;
 }
@@ -1265,28 +1318,42 @@ void app_head_state_manager_stop_all_stitch_runs(void)
     app_head_state_give_mutex();
 }
 
-static const uint8_t *app_head_state_select_den_sequence(const app_head_cascade_state_t *state,
-                                                         size_t *count)
+static const uint8_t *app_head_state_select_den_sequence(const HeadCommandProfile *profile,
+                                                          const app_head_cascade_state_t *state,
+                                                          size_t *count)
 {
     if (state == NULL || count == NULL) {
         return NULL;
     }
 
-    if (state->phase == 0) {
-        *count = sizeof(DEN_RUN_SEQUENCE) / sizeof(DEN_RUN_SEQUENCE[0]);
-        return DEN_RUN_SEQUENCE;
+    if (profile == NULL) {
+        return NULL;
     }
 
-    *count = sizeof(DEN_RUN1_SEQUENCE) / sizeof(DEN_RUN1_SEQUENCE[0]);
-    return DEN_RUN1_SEQUENCE;
+    if (state->phase == 0
+        && profile->den.run_sequence != NULL
+        && profile->den.run_sequence_count > 0) {
+        *count = profile->den.run_sequence_count;
+        return profile->den.run_sequence;
+    }
+
+    if (state->phase != 0
+        && profile->den.alternate_run_sequence != NULL
+        && profile->den.alternate_run_sequence_count > 0) {
+        *count = profile->den.alternate_run_sequence_count;
+        return profile->den.alternate_run_sequence;
+    }
+
+    return NULL;
 }
 
 static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_standard_fn_t can_send_standard,
-                                            app_head_cascade_state_t *states,
-                                            size_t state_count,
-                                            int index,
-                                            uint8_t motor_index,
-                                            const uint8_t *sequence,
+                                             const HeadCommandProfile *profile,
+                                             const HeadMotionCommandProfile *commands,
+                                             app_head_cascade_state_t *states,
+                                             size_t state_count,
+                                             int index,
+                                             const uint8_t *sequence,
                                             size_t sequence_count,
                                             const uint16_t *position_table,
                                             size_t position_count,
@@ -1299,7 +1366,13 @@ static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_stan
     int bus = 1;
     esp_err_t tx_err = ESP_OK;
 
-    if (can_send_standard == NULL || states == NULL || sequence == NULL || position_table == NULL || kind == NULL) {
+    if (can_send_standard == NULL
+        || profile == NULL
+        || commands == NULL
+        || states == NULL
+        || sequence == NULL
+        || position_table == NULL
+        || kind == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1307,7 +1380,10 @@ static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_stan
         return ESP_ERR_TIMEOUT;
     }
 
-    if (index < 0 || index >= (int)state_count || !states[index].running) {
+    if (index < 0
+        || index >= (int)state_count
+        || (size_t)index >= commands->instance_count
+        || !states[index].running) {
         app_head_state_give_mutex();
         return ESP_OK;
     }
@@ -1352,12 +1428,12 @@ static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_stan
 
     {
         uint8_t data[4] = {
-            0x1C,
-            motor_index,
+            commands->opcode,
+            (uint8_t)(commands->motor_index_base + index),
             (uint8_t)(position_value & 0xFF),
             (uint8_t)((position_value >> 8) & 0xFF),
         };
-        tx_err = can_send_standard(bus, 0x320, data, sizeof(data));
+        tx_err = can_send_standard(bus, commands->can_id, data, sizeof(data));
     }
 
     if (tx_err != ESP_OK) {
@@ -1378,6 +1454,15 @@ static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_stan
 
         app_head_state_give_mutex();
         return tx_err;
+    }
+
+    if (profile != NULL) {
+        ESP_LOGI(TAG,
+                 "PROFILE_COMMAND|PROGRAM=%u|MODULE=%s|INSTANCE=%d|POS=%u",
+                 (unsigned)profile->program_id,
+                 kind,
+                 index + 1,
+                 (unsigned)position_number);
     }
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
@@ -1405,17 +1490,28 @@ static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_stan
 bool app_head_state_manager_start_den_run(uint8_t instance, int can_bus, uint32_t now_ms)
 {
     int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return false;
     }
 
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+    if (profile == NULL
+        || profile->den.run_sequence == NULL
+        || profile->den.run_sequence_count == 0
+        || profile->den.positions == NULL
+        || profile->den.position_count == 0
+        || index < 0
+        || index >= APP_HEAD_STATE_MAX_J
+        || (size_t)index >= profile->den.instance_count) {
         app_head_state_give_mutex();
         return false;
     }
 
-    app_head_state_start_cascade_locked(&s_state.den[index], can_bus, now_ms, 80U);
+    app_head_state_start_cascade_locked(&s_state.den[index],
+                                        can_bus,
+                                        now_ms,
+                                        (uint16_t)profile->den.run_period_ms);
     s_state.den[index].phase = 0;
     app_head_state_give_mutex();
     return true;
@@ -1424,17 +1520,28 @@ bool app_head_state_manager_start_den_run(uint8_t instance, int can_bus, uint32_
 bool app_head_state_manager_start_den_run1(uint8_t instance, int can_bus, uint32_t now_ms)
 {
     int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return false;
     }
 
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_J) {
+    if (profile == NULL
+        || profile->den.alternate_run_sequence == NULL
+        || profile->den.alternate_run_sequence_count == 0
+        || profile->den.positions == NULL
+        || profile->den.position_count == 0
+        || index < 0
+        || index >= APP_HEAD_STATE_MAX_J
+        || (size_t)index >= profile->den.instance_count) {
         app_head_state_give_mutex();
         return false;
     }
 
-    app_head_state_start_cascade_locked(&s_state.den[index], can_bus, now_ms, 300U);
+    app_head_state_start_cascade_locked(&s_state.den[index],
+                                        can_bus,
+                                        now_ms,
+                                        (uint16_t)profile->den.alternate_run_period_ms);
     s_state.den[index].phase = 1;
     app_head_state_give_mutex();
     return true;
@@ -1474,17 +1581,28 @@ void app_head_state_manager_stop_all_den_runs(void)
 bool app_head_state_manager_start_sic_run(uint8_t instance, int can_bus, uint32_t now_ms)
 {
     int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return false;
     }
 
-    if (index < 0 || index >= APP_HEAD_STATE_MAX_SIC) {
+    if (profile == NULL
+        || profile->sic.run_sequence == NULL
+        || profile->sic.run_sequence_count == 0
+        || profile->sic.positions == NULL
+        || profile->sic.position_count == 0
+        || index < 0
+        || index >= APP_HEAD_STATE_MAX_SIC
+        || (size_t)index >= profile->sic.instance_count) {
         app_head_state_give_mutex();
         return false;
     }
 
-    app_head_state_start_cascade_locked(&s_state.sic[index], can_bus, now_ms, 300U);
+    app_head_state_start_cascade_locked(&s_state.sic[index],
+                                        can_bus,
+                                        now_ms,
+                                        (uint16_t)profile->sic.run_period_ms);
     s_state.sic[index].phase = 0;
     app_head_state_give_mutex();
     return true;
@@ -1521,6 +1639,66 @@ void app_head_state_manager_stop_all_sic_runs(void)
     app_head_state_give_mutex();
 }
 
+bool app_head_state_manager_start_feet_run(uint8_t instance, int can_bus, uint32_t now_ms)
+{
+    int index = (int)instance - 1;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_FEET
+        || profile == NULL
+        || profile->feet.run_sequence == NULL
+        || profile->feet.run_sequence_count == 0
+        || profile->feet.positions == NULL
+        || profile->feet.position_count == 0
+        || (size_t)index >= profile->feet.instance_count) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_start_cascade_locked(&s_state.feet[index],
+                                        can_bus,
+                                        now_ms,
+                                        (uint16_t)profile->feet.run_period_ms);
+    s_state.feet[index].phase = 0;
+    app_head_state_give_mutex();
+    return true;
+}
+
+bool app_head_state_manager_stop_feet_run(uint8_t instance)
+{
+    int index = (int)instance - 1;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    if (index < 0 || index >= APP_HEAD_STATE_MAX_FEET) {
+        app_head_state_give_mutex();
+        return false;
+    }
+
+    app_head_state_stop_cascade_locked(&s_state.feet[index]);
+    app_head_state_give_mutex();
+    return true;
+}
+
+void app_head_state_manager_stop_all_feet_runs(void)
+{
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_FEET; ++i) {
+        app_head_state_stop_cascade_locked(&s_state.feet[i]);
+    }
+
+    app_head_state_give_mutex();
+}
+
 void app_head_state_manager_stop_all_motion(void)
 {
     app_head_state_manager_stop_all_j_runs();
@@ -1528,6 +1706,43 @@ void app_head_state_manager_stop_all_motion(void)
     app_head_state_manager_stop_all_stitch_runs();
     app_head_state_manager_stop_all_den_runs();
     app_head_state_manager_stop_all_sic_runs();
+    app_head_state_manager_stop_all_feet_runs();
+}
+
+bool app_head_state_manager_has_active_motion(void)
+{
+    bool active = false;
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_J && !active; ++i) {
+        active = active || s_state.j_running[i];
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_YARN && !active; ++i) {
+        active = active || s_state.yarn[i].running;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_STITCH && !active; ++i) {
+        active = active || s_state.stitch[i].running;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_J && !active; ++i) {
+        active = active || s_state.den[i].running;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_SIC && !active; ++i) {
+        active = active || s_state.sic[i].running;
+    }
+
+    for (int i = 0; i < APP_HEAD_STATE_MAX_FEET && !active; ++i) {
+        active = active || s_state.feet[i].running;
+    }
+
+    app_head_state_give_mutex();
+    return active;
 }
 
 // [ACURATEX] Snapshot pequeno de un paso RUN. Se copia bajo mutex y luego se
@@ -1581,6 +1796,7 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
     app_head_j_run_step_t pending[APP_HEAD_STATE_MAX_J];
     size_t pending_count = 0;
     esp_err_t result = ESP_OK;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
     if (can_send_standard == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -1631,11 +1847,13 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
         uint8_t candidate = step->turning_on
             ? (uint8_t)(step->physical_register & (uint8_t)~mask)
             : (uint8_t)(step->physical_register | mask);
-        // [ACURATEX] Trama RUN fija: ID 0x320, comando 0x1D, indice J base 0 y
-        // nuevo byte fisico candidato.
-        uint8_t frame[3] = { 0x1D, (uint8_t)step->index, candidate };
+        uint8_t frame[3] = {
+            profile->j.opcode,
+            (uint8_t)(profile->j.instance_index_base + step->index),
+            candidate,
+        };
         int bus = app_head_state_normalize_bus(step->can_bus);
-        esp_err_t tx_err = can_send_standard(bus, 0x320, frame, sizeof(frame));
+        esp_err_t tx_err = can_send_standard(bus, profile->j.can_id, frame, sizeof(frame));
 
         if (tx_err != ESP_OK) {
             ESP_LOGW(TAG,
@@ -1675,7 +1893,7 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
             uint8_t next_bit = (uint8_t)(step->bit + 1U);
             bool next_turning_on = step->turning_on;
 
-            if (next_bit >= 8U) {
+            if (next_bit >= profile->j.channel_count) {
                 next_bit = 0;
                 // [ACURATEX] Tras recorrer los 8 bits, RUN cambia de fase:
                 // primero enciende todos de a uno, luego los apaga de a uno.
@@ -1687,26 +1905,28 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
             s_state.j_running[step->index] = true;
             s_state.j_bit[step->index] = next_bit;
             s_state.j_turning_on[step->index] = next_turning_on;
-            // [ACURATEX] Mantiene el periodo original de 80 ms por paso.
-            s_state.j_next_due_ms[step->index] = step->next_due_ms + 80U;
+            s_state.j_next_due_ms[step->index] = step->next_due_ms + profile->j.run_period_ms;
             app_head_state_bump_revision_locked(step->index);
         }
 
         app_head_state_give_mutex();
+
+        ESP_LOGI(TAG,
+                 "PROFILE_COMMAND|PROGRAM=%u|MODULE=J|INSTANCE=%d|CHANNEL=%u|VALUE=%u",
+                 (unsigned)profile->program_id,
+                 step->index + 1,
+                 (unsigned)(step->bit + 1U),
+                 (unsigned)candidate);
     }
 
     {
-        const uint8_t *const yarn_tables[APP_HEAD_STATE_MAX_YARN] = {
-            YARN1_ADDR,
-            YARN2_ADDR,
-        };
         for (int i = 0; i < APP_HEAD_STATE_MAX_YARN; ++i) {
             esp_err_t cascade_err = app_head_state_tick_cascade(can_send_standard,
+                                                                 profile,
+                                                                 &profile->yarn,
                                                                  s_state.yarn,
                                                                  APP_HEAD_STATE_MAX_YARN,
                                                                  i,
-                                                                 yarn_tables[i],
-                                                                 8,
                                                                  "YARN",
                                                                  now_ms);
             if (cascade_err != ESP_OK) {
@@ -1716,19 +1936,13 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
     }
 
     {
-        const uint8_t *const stitch_tables[APP_HEAD_STATE_MAX_STITCH] = {
-            STITCH1_ADDR,
-            STITCH2_ADDR,
-            STITCH3_ADDR,
-            STITCH4_ADDR,
-        };
         for (int i = 0; i < APP_HEAD_STATE_MAX_STITCH; ++i) {
             esp_err_t cascade_err = app_head_state_tick_cascade(can_send_standard,
+                                                                 profile,
+                                                                 &profile->stitch,
                                                                  s_state.stitch,
                                                                  APP_HEAD_STATE_MAX_STITCH,
                                                                  i,
-                                                                 stitch_tables[i],
-                                                                 4,
                                                                  "STITCH",
                                                                  now_ms);
             if (cascade_err != ESP_OK) {
@@ -1740,21 +1954,22 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
     {
         for (int i = 0; i < APP_HEAD_STATE_MAX_J; ++i) {
             size_t sequence_count = 0;
-            const uint8_t *sequence = app_head_state_select_den_sequence(&s_state.den[i], &sequence_count);
+            const uint8_t *sequence = app_head_state_select_den_sequence(profile, &s_state.den[i], &sequence_count);
             if (sequence == NULL) {
                 continue;
             }
 
             esp_err_t motion_err = app_head_state_tick_motion(can_send_standard,
+                                                              profile,
+                                                              &profile->den,
                                                               s_state.den,
                                                               APP_HEAD_STATE_MAX_J,
                                                               i,
-                                                              (uint8_t)i,
                                                               sequence,
                                                               sequence_count,
-                                                              DEN_POSITIONS,
-                                                              sizeof(DEN_POSITIONS) / sizeof(DEN_POSITIONS[0]),
-                                                              sequence_count == (sizeof(DEN_RUN_SEQUENCE) / sizeof(DEN_RUN_SEQUENCE[0]))
+                                                              profile->den.positions,
+                                                              profile->den.position_count,
+                                                              (sequence == profile->den.run_sequence)
                                                                   ? "DEN"
                                                                   : "DEN1",
                                                               now_ms);
@@ -1767,15 +1982,43 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
     {
         for (int i = 0; i < APP_HEAD_STATE_MAX_SIC; ++i) {
             esp_err_t motion_err = app_head_state_tick_motion(can_send_standard,
+                                                              profile,
+                                                              &profile->sic,
                                                               s_state.sic,
                                                               APP_HEAD_STATE_MAX_SIC,
                                                               i,
-                                                              (uint8_t)(0x08 + i),
-                                                              SIC_RUN_SEQUENCE,
-                                                              sizeof(SIC_RUN_SEQUENCE) / sizeof(SIC_RUN_SEQUENCE[0]),
-                                                              SIC_POSITIONS,
-                                                              sizeof(SIC_POSITIONS) / sizeof(SIC_POSITIONS[0]),
+                                                              profile->sic.run_sequence,
+                                                              profile->sic.run_sequence_count,
+                                                              profile->sic.positions,
+                                                              profile->sic.position_count,
                                                               "SIC",
+                                                              now_ms);
+            if (motion_err != ESP_OK) {
+                result = motion_err;
+            }
+        }
+    }
+
+    {
+        if (profile->feet.run_sequence == NULL
+            || profile->feet.run_sequence_count == 0
+            || profile->feet.positions == NULL
+            || profile->feet.position_count == 0) {
+            return result;
+        }
+
+        for (int i = 0; i < APP_HEAD_STATE_MAX_FEET; ++i) {
+            esp_err_t motion_err = app_head_state_tick_motion(can_send_standard,
+                                                              profile,
+                                                              &profile->feet,
+                                                              s_state.feet,
+                                                              APP_HEAD_STATE_MAX_FEET,
+                                                              i,
+                                                              profile->feet.run_sequence,
+                                                              profile->feet.run_sequence_count,
+                                                              profile->feet.positions,
+                                                              profile->feet.position_count,
+                                                              "FEET",
                                                               now_ms);
             if (motion_err != ESP_OK) {
                 result = motion_err;
@@ -1824,8 +2067,9 @@ bool app_head_state_manager_apply_successful_action(const char *action)
     int index = -1;
     int number = 0;
     bool changed = false;
+    const HeadCommandProfile *profile = app_head_state_active_profile();
 
-    if (action == NULL) {
+    if (action == NULL || profile == NULL) {
         return false;
     }
 
@@ -1837,8 +2081,8 @@ bool app_head_state_manager_apply_successful_action(const char *action)
         return false;
     }
 
-    if (app_head_state_parse_index(instance, "J", APP_HEAD_STATE_MAX_J, &index)) {
-        if (app_head_state_parse_numbered_verb(verb, "CH", APP_HEAD_STATE_MAX_J, &number)) {
+    if (app_head_state_parse_index(instance, "J", (int)profile->j.instance_count, &index)) {
+        if (app_head_state_parse_numbered_verb(verb, "CH", (int)profile->j.channel_count, &number)) {
             // [ACURATEX] CHn alterna el bit fisico n-1. Ejemplo J1.CH1:
             // FF ^ 01 = FE, que logicamente significa canal 1 activo.
             uint8_t mask = (uint8_t)(1U << (number - 1));
@@ -1847,12 +2091,12 @@ bool app_head_state_manager_apply_successful_action(const char *action)
             changed = true;
         } else if (strcasecmp(verb, "ON_ALL") == 0) {
             // [ACURATEX] En activo-bajo, todos encendidos = todos los bits a 0.
-            app_head_state_set_j_physical_locked(index, 0x00);
+            app_head_state_set_j_physical_locked(index, profile->j.on_all_register);
             app_head_state_bump_revision_locked(index);
             changed = true;
         } else if (strcasecmp(verb, "OFF_ALL") == 0) {
             // [ACURATEX] Todos apagados = todos los bits fisicos a 1.
-            app_head_state_set_j_physical_locked(index, 0xFF);
+            app_head_state_set_j_physical_locked(index, profile->j.off_all_register);
             app_head_state_bump_revision_locked(index);
             changed = true;
         }

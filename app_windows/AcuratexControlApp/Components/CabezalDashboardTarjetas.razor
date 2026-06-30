@@ -62,11 +62,6 @@
 
 
 
-@inject IHeadProfileService HeadProfileService
-
-
-
-
 
 
 
@@ -114,7 +109,7 @@
 
 
 
-            <label for="head-program-select-modular" class="head-program-selector-label">Programa de Cabezal</label>
+            <label class="head-program-selector-label">Programa</label>
 
 
 
@@ -124,13 +119,25 @@
 
             <div class="head-program-selector-row">
 
+                <button class="@ProgramSelectorButtonClass(CabezalDashboardTarjetasProgramId.Program1)"
+                        type="button"
+                        @onclick="() => SelectProgramAsync(CabezalDashboardTarjetasProgramId.Program1)">
+                    Programa 1
+                </button>
+
+                <button class="@ProgramSelectorButtonClass(CabezalDashboardTarjetasProgramId.Program2)"
+                        type="button"
+                        @onclick="() => SelectProgramAsync(CabezalDashboardTarjetasProgramId.Program2)">
+                    Programa 2
+                </button>
 
 
 
 
 
 
-                <select id="head-program-select-modular"
+
+                <select id="head-program-select-modular" style="display:none"
 
 
 
@@ -218,7 +225,7 @@
 
 
 
-                <button class="mini-btn" type="button" @onclick="RefreshHeadProgramsAsync" disabled="@(!CanRefreshHeadPrograms)">Actualizar</button>
+                <button class="mini-btn" type="button" style="display:none" @onclick="RefreshHeadProgramsAsync" disabled="@(!CanRefreshHeadPrograms)">Actualizar</button>
 
 
 
@@ -1238,6 +1245,31 @@
     <section class="section-title">
 
 
+
+
+
+
+    </section>
+
+    @if (_feetMotors.Count > 0)
+    {
+        <section class="section-title">
+            Feet
+        </section>
+
+        <section class="motor-grid">
+            @foreach (CabezalMotorTarjetas motor in _feetMotors)
+            {
+                <CabezalMotorCardTarjetas Motor="motor"
+                                          PositionClicked="@((int positionNumber) => SetFeetPositionAsync(motor, positionNumber))"
+                                          SliderCommitted="@((int position) => SetFeetSliderAsync(motor, position))"
+                                          RunClicked="@(() => StartFeetRunAsync(motor))"
+                                          StopClicked="@(() => StopFeetRunAsync(motor))"
+                                          ActionsDisabled="@IsHeadUiBlocked" />
+            }
+        </section>
+    }
+    <section class="section-title">
 
 
 
@@ -2462,6 +2494,12 @@
 
 
 
+    private readonly List<CabezalMotorTarjetas> _feetMotors = CabezalDashboardTarjetasProtocol.CreateFeetMotors().ToList();
+
+
+
+
+
 
 
     private readonly List<CabezalJGroupTarjetas> _jGroups = Enumerable.Range(1, 8).Select(number => new CabezalJGroupTarjetas(number)).ToList();
@@ -2528,6 +2566,7 @@
     private readonly HeadTestResultDetector _headTestDetector = new();
     private CancellationTokenSource? _headTestTimeoutCts;
     private HeadTestResult? _headTestLastResult;
+    private bool _headInitBusy;
     private bool _headTestBusy;
     private string _headTestStatus = "IDLE";
     private string _headTestMessage = "TESTEO: listo.";
@@ -2548,7 +2587,7 @@
     private const int CanAlarmHistoryMax = 500;
     private const int HeadTestTimeoutMs = 3000;
 
-    private readonly CancellationTokenSource?[] _denRunTokens = new CancellationTokenSource?[8];
+    private CancellationTokenSource?[] _denRunTokens = new CancellationTokenSource?[8];
 
 
 
@@ -2556,7 +2595,13 @@
 
 
 
-    private readonly CancellationTokenSource?[] _sicRunTokens = new CancellationTokenSource?[2];
+    private CancellationTokenSource?[] _sicRunTokens = new CancellationTokenSource?[2];
+
+
+
+
+
+    private CancellationTokenSource?[] _feetRunTokens = new CancellationTokenSource?[2];
 
 
 
@@ -2564,7 +2609,7 @@
 
 
 
-    private readonly CancellationTokenSource?[] _jRunTokens = new CancellationTokenSource?[8];
+    private CancellationTokenSource?[] _jRunTokens = new CancellationTokenSource?[8];
 
 
 
@@ -2572,7 +2617,7 @@
 
 
 
-    private readonly MotorVisualSnapshot?[] _denRunSnapshots = new MotorVisualSnapshot?[8];
+    private MotorVisualSnapshot?[] _denRunSnapshots = new MotorVisualSnapshot?[8];
 
 
 
@@ -2580,7 +2625,13 @@
 
 
 
-    private readonly MotorVisualSnapshot?[] _sicRunSnapshots = new MotorVisualSnapshot?[2];
+    private MotorVisualSnapshot?[] _sicRunSnapshots = new MotorVisualSnapshot?[2];
+
+
+
+
+
+    private MotorVisualSnapshot?[] _feetRunSnapshots = new MotorVisualSnapshot?[2];
 
 
 
@@ -2588,7 +2639,7 @@
 
 
 
-    private readonly byte[] _jRunPreviousRegisters = Enumerable.Repeat((byte)0xFF, 8).ToArray();
+    private byte[] _jRunPreviousRegisters = Enumerable.Repeat((byte)0xFF, 8).ToArray();
 
 
 
@@ -2637,6 +2688,26 @@
 
 
     private string _logLine = "Listo.";
+
+
+
+
+
+
+    private CabezalDashboardTarjetasProgramId _selectedProgram = CabezalDashboardTarjetasProgramId.Program1;
+
+
+
+
+
+    private CabezalDashboardTarjetasProgramId? _syncedFirmwareProgram;
+
+
+
+
+
+
+    private CabezalDashboardTarjetasProgramProfile CurrentProgramProfile => CabezalDashboardTarjetasProgramCatalog.Get(_selectedProgram);
 
 
 
@@ -2924,7 +2995,7 @@
 
 
 
-        // [ACURATEX] La vista rapida mantiene solo la sincronizacion de emergencia y de linea recibida.
+        // [ACURATEX] El tablero modular arranca siempre con el perfil 1 y memoria temporal limpia.
 
 
 
@@ -2933,6 +3004,7 @@
 
 
         Connection.LineReceived += OnLineReceived;
+        Connection.ConnectionLost += OnConnectionLost;
 
 
 
@@ -2956,15 +3028,8 @@
 
 
 
-        ResetHeadVisualStateToNeutral();
-
-
-
-
-
-
-
-        _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+        ApplyProgramProfile(_selectedProgram);
+        ResetTransientSessionState();
 
 
 
@@ -2988,7 +3053,189 @@
 
 
 
-    private Task SendInitAsync()
+
+    private void ApplyProgramProfile(CabezalDashboardTarjetasProgramId program)
+    {
+        CabezalDashboardTarjetasProgramProfile profile = CabezalDashboardTarjetasProgramCatalog.Get(program);
+
+        _selectedProgram = program;
+        _syncedFirmwareProgram = null;
+
+        _denMotors.Clear();
+        _denMotors.AddRange(profile.CreateDenMotors());
+
+        _sicMotors.Clear();
+        _sicMotors.AddRange(profile.CreateSicMotors());
+
+        _feetMotors.Clear();
+        _feetMotors.AddRange(profile.CreateFeetMotors());
+
+        _jGroups.Clear();
+        _jGroups.AddRange(profile.CreateJGroups());
+
+        _yarnBlocks.Clear();
+        _yarnBlocks.AddRange(profile.CreateYarnBlocks());
+
+        _stitchBlocks.Clear();
+        _stitchBlocks.AddRange(profile.CreateStitchBlocks());
+
+        _denRunTokens = new CancellationTokenSource?[_denMotors.Count];
+        _sicRunTokens = new CancellationTokenSource?[_sicMotors.Count];
+        _feetRunTokens = new CancellationTokenSource?[_feetMotors.Count];
+        _jRunTokens = new CancellationTokenSource?[_jGroups.Count];
+        _denRunSnapshots = new MotorVisualSnapshot?[_denMotors.Count];
+        _sicRunSnapshots = new MotorVisualSnapshot?[_sicMotors.Count];
+        _feetRunSnapshots = new MotorVisualSnapshot?[_feetMotors.Count];
+        _jRunPreviousRegisters = Enumerable.Repeat((byte)0xFF, _jGroups.Count).ToArray();
+        _headProgramStatus = $"{profile.DisplayName} activo.";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) {
+            await SyncFirmwareProgramSelectionAsync();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private void ResetTransientSessionState()
+    {
+        ResetHeadVisualStateToNeutral();
+        StopAllMotorRuns(restore: false);
+        StopAllFeetRuns(restore: false);
+        StopAllJAnimations(restore: false);
+        _syncedFirmwareProgram = null;
+        _headInitBusy = false;
+
+
+
+
+
+        StopAllBlockVisualRuns(_yarnBlocks);
+
+
+
+
+
+        StopAllBlockVisualRuns(_stitchBlocks);
+
+        CloseCanRxHistory();
+        ClearCanRxHistory();
+        CloseCanAlarmHistory();
+        ClearCanAlarmHistoryForSession();
+        ClearTrace();
+
+        _manualCanLine = string.Empty;
+        _manualDoCommand = string.Empty;
+        _lastRx = "Pendiente de respuesta.";
+        _lastCommand = "ninguno";
+        _logLine = "Listo.";
+
+        _headTestTimeoutCts?.Cancel();
+        _headTestTimeoutCts?.Dispose();
+        _headTestTimeoutCts = null;
+        _headTestDetector.Cancel();
+        _headTestLastResult = null;
+        _headTestBusy = false;
+        _headTestStatus = "IDLE";
+        _headTestMessage = "TESTEO: listo.";
+        _showHeadTestDetailModal = false;
+
+        lock (_canAlarmLock) {
+            _pendingCanAlarms.Clear();
+            _canAlarmActivity.Clear();
+            _canAlarmDeduplication.Clear();
+            _activeCanAlarm = null;
+            _activeCanAlarmHistoryItem = null;
+            _alarmHaltActive = false;
+            _showCanAlarmModal = false;
+            _canAlarmPendingCount = 0;
+        }
+    }
+
+    private void ClearCanAlarmHistoryForSession()
+    {
+        lock (_canAlarmLock) {
+            _canAlarmHistory.Clear();
+            _selectedCanAlarmHistoryItem = null;
+            _showCanAlarmHistoryModal = false;
+        }
+    }
+
+    private bool HasActiveProgramRoutine()
+    {
+        return _headInitBusy
+            || _headTestBusy
+            || _denRunTokens.Any(static token => token is not null)
+            || _sicRunTokens.Any(static token => token is not null)
+            || _feetRunTokens.Any(static token => token is not null)
+            || _jRunTokens.Any(static token => token is not null)
+            || _blockVisualRunTokens.Count > 0
+            || _denMotors.Any(motor => !string.IsNullOrEmpty(motor.RunMode))
+            || _sicMotors.Any(motor => !string.IsNullOrEmpty(motor.RunMode))
+            || _feetMotors.Any(motor => !string.IsNullOrEmpty(motor.RunMode));
+    }
+
+    private string ProgramSelectorButtonClass(CabezalDashboardTarjetasProgramId program)
+    {
+        return _selectedProgram == program ? "head-program-tab active" : "head-program-tab";
+    }
+
+    private async Task SelectProgramAsync(CabezalDashboardTarjetasProgramId program)
+    {
+        if (HasActiveProgramRoutine()) {
+            _headProgramStatus = "Detenga las rutinas antes de cambiar de programa.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (program == _selectedProgram) {
+            _headProgramStatus = $"{CurrentProgramProfile.DisplayName} activo.";
+            await SyncFirmwareProgramSelectionAsync();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        CabezalDashboardTarjetasProgramId previousProgram = _selectedProgram;
+        _selectedProgram = program;
+
+        bool synced = await SyncFirmwareProgramSelectionAsync();
+        if (!synced) {
+            _selectedProgram = previousProgram;
+            _headProgramStatus = "No se pudo sincronizar el programa con el firmware.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        ResetTransientSessionState();
+        ApplyProgramProfile(program);
+        _syncedFirmwareProgram = program;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<bool> SyncFirmwareProgramSelectionAsync()
+    {
+        if (!Connection.IsConnected) {
+            return false;
+        }
+
+        if (_syncedFirmwareProgram == _selectedProgram) {
+            return true;
+        }
+
+        string command = $"program_select_{(int)_selectedProgram}";
+        try {
+            await CommandService.SendDoCommandAsync(command);
+            _syncedFirmwareProgram = _selectedProgram;
+            return true;
+        } catch (Exception ex) {
+            _headProgramStatus = ex.Message;
+            return false;
+        }
+    }
+
+    private async Task SendInitAsync()
 
 
 
@@ -3020,7 +3267,7 @@
 
 
 
-            return Task.CompletedTask;
+            return;
 
 
 
@@ -3044,7 +3291,15 @@
 
 
 
-        if (IsEmergencyLocked) {
+        if (_headInitBusy) {
+            _logLine = "INIT ya esta en curso.";
+            return;
+        }
+
+        _headInitBusy = true;
+
+        try {
+            if (IsEmergencyLocked) {
 
 
 
@@ -3076,7 +3331,15 @@
 
 
 
-        return SendDoCommandInternalAsync("init");
+        bool sent = await SendTrackedAsync("DO", "init", token => CommandService.SendDoCommandAsync("init", token));
+        if (!sent) {
+            _headInitBusy = false;
+        }
+
+        } catch {
+            _headInitBusy = false;
+            throw;
+        }
 
 
 
@@ -3116,7 +3379,7 @@
 
 
 
-        _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+        _headProgramStatus = $"{CurrentProgramProfile.DisplayName} activo.";
 
 
 
@@ -3172,7 +3435,7 @@
 
 
 
-        _headProgramStatus = "Modo rapido activo. Programas deshabilitados.";
+        _headProgramStatus = $"{CurrentProgramProfile.DisplayName} activo.";
 
 
 
@@ -3277,12 +3540,12 @@
         AddTrace("TESTEO", "[TESTEO] Inicio");
         await InvokeAsync(StateHasChanged);
 
-        bool sent = await SendTrackedAsync("CAN", "320 07", token => CommandService.SendCanLineAsync("320 07", token));
+        bool sent = await SendTrackedAsync("DO", "testeo", token => CommandService.SendDoCommandAsync("testeo", token));
         if (!sent) {
             _headTestBusy = false;
             _headTestStatus = "ERROR";
-            _headTestMessage = "TESTEO: error enviando 320 07.";
-            AddTrace("TESTEO", "[TESTEO] Error al enviar 320 07");
+            _headTestMessage = "TESTEO: error iniciando diagnostico.";
+            AddTrace("TESTEO", "[TESTEO] Error al iniciar diagnostico");
             return;
         }
 
@@ -5647,7 +5910,138 @@
 
 
 
+    }
 
+
+
+
+
+    private async Task SetFeetPositionAsync(CabezalMotorTarjetas motor, int positionNumber)
+
+    {
+
+        if (!CanExecuteHeadAction()) {
+
+            return;
+
+        }
+
+        StopFeetRun(motor, restore: false);
+
+        CabezalPositionTarjetas option = motor.Positions.First(position => position.Number == positionNumber);
+
+        motor.Position = option.Value;
+        motor.SelectedPositionNumber = option.Number;
+
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandAsync($"feet_select_{motor.LogicalIndex + 1}|{option.Number}");
+    }
+
+
+
+
+
+    private async Task SetFeetSliderAsync(CabezalMotorTarjetas motor, int position)
+
+    {
+
+        if (!CanExecuteHeadAction()) {
+
+            return;
+
+        }
+
+        StopFeetRun(motor, restore: false);
+
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandAsync($"feet_pos_{motor.LogicalIndex + 1}|{position}");
+    }
+
+
+
+
+
+    private async Task StartFeetRunAsync(CabezalMotorTarjetas motor)
+
+    {
+
+        if (!CanExecuteHeadAction()) {
+
+            return;
+
+        }
+
+        _ = StartFeetLoopAsync(motor);
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandAsync($"feet_run_{motor.LogicalIndex + 1}");
+    }
+
+
+
+
+
+    private async Task StopFeetRunAsync(CabezalMotorTarjetas motor)
+
+    {
+
+        if (!CanExecuteHeadAction(allowDuringAlarm: true)) {
+
+            return;
+
+        }
+
+        StopFeetRun(motor, restore: false);
+        await InvokeAsync(StateHasChanged);
+
+        await SendDoCommandInternalAsync($"feet_stop_{motor.LogicalIndex + 1}");
+    }
+
+
+
+
+
+    private Task StartFeetLoopAsync(CabezalMotorTarjetas motor)
+
+    {
+
+        int index = motor.LogicalIndex;
+
+        CancellationTokenSource? previousToken = _feetRunTokens[index];
+
+        if (previousToken != null && string.Equals(motor.RunMode, "RUN", StringComparison.OrdinalIgnoreCase)) {
+
+            return Task.CompletedTask;
+
+        }
+
+        if (_feetRunSnapshots[index] is null) {
+
+            _feetRunSnapshots[index] = new MotorVisualSnapshot(motor.Position, motor.SelectedPositionNumber, motor.RunMode);
+
+        }
+
+        if (previousToken != null) {
+
+            previousToken.Cancel();
+
+            previousToken.Dispose();
+
+            _feetRunTokens[index] = null;
+
+        }
+
+        motor.RunMode = "RUN";
+
+        CancellationTokenSource cts = new();
+
+        _feetRunTokens[index] = cts;
+
+        _ = RunSicLoopAsync(motor, CurrentProgramProfile.FeetRunSequence, CurrentProgramProfile.FeetRunPeriodMs, cts.Token);
+
+        return Task.CompletedTask;
 
     }
 
@@ -6312,7 +6706,7 @@
 
 
 
-        StopAllMotorRuns();
+        StopAllMotorRuns(restore: false);
 
 
 
@@ -6321,7 +6715,17 @@
 
 
         StopAllJAnimations(restore: false);
+
+
+
+
+
         StopAllBlockVisualRuns(_yarnBlocks);
+
+
+
+
+
         StopAllBlockVisualRuns(_stitchBlocks);
 
 
@@ -6337,6 +6741,16 @@
 
 
 
+
+        foreach (CabezalMotorTarjetas motor in _feetMotors) {
+
+            motor.Position = 0;
+
+            motor.SelectedPositionNumber = 0;
+
+            motor.RunMode = string.Empty;
+
+        }
 
         foreach (CabezalJGroupTarjetas group in _jGroups) {
 
@@ -6675,14 +7089,7 @@
 
 
         // [ACURATEX] En emergencia se detienen ciclos y se apaga el tablero para no dejar acciones pendientes.
-
-
-
-
-
-
-
-        StopAllMotorRuns();
+        StopAllMotorRuns(restore: false);
 
 
 
@@ -7642,7 +8049,7 @@
 
 
 
-        _ = RunSicLoopAsync(motor, cts.Token);
+        _ = RunSicLoopAsync(motor, CurrentProgramProfile.SicRunSequence, CurrentProgramProfile.SicRunPeriodMs, cts.Token);
 
 
 
@@ -7866,7 +8273,7 @@
 
 
 
-    private async Task RunSicLoopAsync(CabezalMotorTarjetas motor, CancellationToken cancellationToken)
+    private async Task RunSicLoopAsync(CabezalMotorTarjetas motor, IReadOnlyList<int> sequence, int periodMs, CancellationToken cancellationToken)
 
 
 
@@ -7906,7 +8313,7 @@
 
 
 
-                int positionNumber = CabezalDashboardTarjetasProtocol.SicRunSequence[step % CabezalDashboardTarjetasProtocol.SicRunSequence.Length];
+                int positionNumber = sequence[step % sequence.Count];
 
 
 
@@ -8002,7 +8409,7 @@
 
 
 
-                await Task.Delay(CabezalDashboardTarjetasProtocol.SicRunPeriodMs, cancellationToken);
+                await Task.Delay(periodMs, cancellationToken);
 
 
 
@@ -8114,6 +8521,10 @@
 
 
 
+        if (!cleanMessage.StartsWith("program_select_", StringComparison.OrdinalIgnoreCase)) {
+            await SyncFirmwareProgramSelectionAsync();
+        }
+
         AddTrace(direction, cleanMessage);
 
 
@@ -8155,6 +8566,9 @@
 
 
             await sender(CancellationToken.None);
+            if (cleanMessage.StartsWith("program_select_", StringComparison.OrdinalIgnoreCase)) {
+                _syncedFirmwareProgram = _selectedProgram;
+            }
 
 
 
@@ -8229,6 +8643,18 @@
 
 
 
+
+
+
+
+
+    private void OnConnectionLost()
+
+    {
+
+        _syncedFirmwareProgram = null;
+
+    }
 
 
 
@@ -8397,6 +8823,12 @@
 
 
                 _headProgramStatus = _lastRx;
+
+                if (_lastRx.StartsWith("INIT|DONE", StringComparison.OrdinalIgnoreCase)
+                    || _lastRx.StartsWith("INIT|ERROR", StringComparison.OrdinalIgnoreCase)
+                    || _lastRx.StartsWith("INIT|CANCELLED", StringComparison.OrdinalIgnoreCase)) {
+                    _headInitBusy = false;
+                }
 
 
 
@@ -12799,6 +13231,34 @@
 
 
 
+    private void RestoreFeetSnapshot(int index)
+
+    {
+
+        MotorVisualSnapshot? snapshot = _feetRunSnapshots[index];
+
+        if (snapshot is null) {
+
+            return;
+
+        }
+
+        CabezalMotorTarjetas motor = _feetMotors[index];
+
+        motor.Position = snapshot.Value.Position;
+
+        motor.SelectedPositionNumber = snapshot.Value.SelectedPositionNumber;
+
+        motor.RunMode = snapshot.Value.RunMode;
+
+        _feetRunSnapshots[index] = null;
+
+    }
+
+
+
+
+
     private void StopDenRun(CabezalMotorTarjetas motor, bool restore = false)
 
 
@@ -13119,6 +13579,46 @@
 
 
 
+    private void StopFeetRun(CabezalMotorTarjetas motor, bool restore = false)
+
+    {
+
+        int index = motor.LogicalIndex;
+
+        CancellationTokenSource? token = _feetRunTokens[index];
+
+        if (token != null) {
+
+            token.Cancel();
+
+            token.Dispose();
+
+            _feetRunTokens[index] = null;
+
+        }
+
+        if (restore && token != null) {
+
+            RestoreFeetSnapshot(index);
+
+        } else if (!restore) {
+
+            _feetRunSnapshots[index] = null;
+
+            motor.RunMode = string.Empty;
+
+        } else if (token == null) {
+
+            motor.RunMode = string.Empty;
+
+        }
+
+    }
+
+
+
+
+
     private void StopAllMotorRuns(bool restore = true)
 
 
@@ -13202,6 +13702,22 @@
 
 
 
+
+
+
+
+
+    private void StopAllFeetRuns(bool restore = true)
+
+    {
+
+        foreach (CabezalMotorTarjetas motor in _feetMotors) {
+
+            StopFeetRun(motor, restore);
+
+        }
+
+    }
 
 
 
@@ -13335,7 +13851,7 @@
 
 
 
-        StopAllMotorRuns();
+        StopAllMotorRuns(restore: false);
 
 
 
@@ -13648,6 +14164,7 @@
 
 
         Connection.LineReceived -= OnLineReceived;
+        Connection.ConnectionLost -= OnConnectionLost;
 
 
 
@@ -13655,7 +14172,6 @@
 
 
 
-        HeadProfileService.StateChanged -= OnHeadProfileStateChanged;
 
 
 
@@ -13672,14 +14188,7 @@
 
 
         EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
-
-
-
-
-
-
-
-        StopAllMotorRuns();
+        ResetTransientSessionState();
 
 
 

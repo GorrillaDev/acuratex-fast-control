@@ -1,0 +1,162 @@
+#include "head_program_2_commands.h"
+
+static const char *const kInitPhase1[] = {
+    "320 07", "WAIT 2000", "320 30", "WAIT 2000", "370 fd 06 10 00", "WAIT 2000",
+    "370 fd 06 11 00", "WAIT 2000", "320 2d 00 bf ff", "WAIT 2000", "320 00", "320 07",
+    "320 07", "320 07", "320 07", "320 02", "320 07", "320 25 07",
+    "320 05", "320 19 04", "320 1a 19", "320 4d 18 0d 00", "320 4d 19 0d 00", "320 2b 00 03",
+    "320 2c 00 03", "320 43 00", "320 2d 00 bf ff", "320 4c 02 32 00", "320 5a 08 b0 04", "320 5a 09 b0 04",
+    "320 48 00 01 00", "320 00", "320 53 00 ff 03", "320 38 00 5a 01", "320 54 00", "320 58 00 00",
+    "320 54 01", "320 58 01 00", "320 54 02", "320 58 02 00", "320 54 03", "320 58 03 00",
+    "320 54 04", "320 58 04 00", "320 54 05", "320 58 05 00", "320 54 06", "320 58 06 00",
+    "320 54 07", "320 58 07 00", "320 54 08", "320 58 08 00", "320 54 09", "320 58 09 00",
+    "320 07", "320 1e 18 01", "320 1e 19 01", "320 1e 1a 01", "320 1e 1b 01", "320 1e 1c 01",
+    "320 1e 1d 01", "320 1e 1e 01", "320 1e 1f 01", "320 1e 20 01", "320 1e 21 01", "320 1e 22 01",
+    "320 1e 23 01", "320 1e 24 01", "320 1e 25 01", "320 1e 26 01", "320 1e 27 01",
+};
+
+static const char *const kInitPhase2[] = {
+    "320 30", "WAIT 2000", "320 30", "WAIT 2000",
+    "320 0d 00", "320 0e 00", "320 0c 00", "320 0e 01", "320 0d 01", "320 0d 02",
+    "320 0e 02", "320 0c 01", "320 0e 03", "320 0d 03", "320 0d 04", "320 0e 04",
+    "320 0c 02", "320 0e 05", "320 0d 05", "320 0d 06", "320 0e 06", "320 0c 03",
+    "320 0e 07", "320 0d 07", "320 09", "320 26 01", "320 26 00", "320 09",
+    "320 26 02", "320 26 03", "320 0b", "320 54 00", "320 54 01", "320 54 02",
+    "320 54 03", "320 54 04", "320 54 05", "320 54 06", "320 54 07", "320 54 08",
+    "320 54 09",
+    "320 1c 00 08 00", "WAIT 200", "320 1c 00 00 00", "WAIT 200", "320 07", "320 0e 00",
+    "320 1c 01 08 00", "WAIT 200", "320 1c 01 00 00", "WAIT 200", "320 07", "320 0e 01",
+    "320 1c 02 08 00", "WAIT 200", "320 1c 02 00 00", "WAIT 200", "320 07", "320 0e 02",
+    "320 1c 03 08 00", "WAIT 200", "320 1c 03 00 00", "WAIT 200", "320 07", "320 0e 03",
+    "320 1c 04 08 00", "WAIT 200", "320 1c 04 00 00", "WAIT 200", "320 07", "320 0e 04",
+    "320 1c 05 08 00", "WAIT 200", "320 1c 05 00 00", "WAIT 200", "320 07", "320 0e 05",
+    "320 1c 06 08 00", "WAIT 200", "320 1c 06 00 00", "WAIT 200", "320 07", "320 0e 06",
+    "320 1c 07 08 00", "WAIT 200", "320 1c 07 00 00", "WAIT 200", "320 07", "320 0e 07",
+    "320 1c 08 08 00", "WAIT 200", "320 1c 08 00 00", "WAIT 200", "320 07", "320 0e 08",
+    "320 1c 09 08 00", "WAIT 200", "320 1c 09 00 00", "WAIT 200", "320 07", "320 0e 09",
+};
+
+static const uint8_t kDenRunSequence[] = { 1, 3, 5, 2, 4 };
+static const uint8_t kDenRun1Sequence[] = { 1, 3, 5 };
+static const uint8_t kSicRunSequence[] = { 1, 2, 3 };
+static const uint8_t kFeetRunSequence[] = { 1, 2 };
+static const uint16_t kDenPositions[] = { 0x0000, 0x00A2, 0x0145, 0x01E7, 0x028A };
+static const uint16_t kSicPositions[] = { 0x0000, 0x0176, 0x02EE };
+static const uint16_t kFeetPositions[] = { 0x0000, 0x0176 };
+static const uint8_t kYarnAddresses[] = {
+    0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+    0x24, 0x25, 0x26, 0x27, 0x20, 0x21, 0x22, 0x23,
+};
+static const uint8_t kStitchAddresses[] = {
+    0x00, 0x01, 0x02, 0x05,
+    0x06, 0x07, 0x08, 0x0B,
+    0x0C, 0x0D, 0x0E, 0x11,
+    0x12, 0x13, 0x14, 0x17,
+};
+
+const HeadCommandProfile kProgram2Commands = {
+    .program_id = APP_HEAD_PROGRAM_2,
+    .program_name = "Programa 2",
+    .init_sequence = {
+        .phase1_steps = kInitPhase1,
+        .phase1_step_count = sizeof(kInitPhase1) / sizeof(kInitPhase1[0]),
+        .phase1_step_delay_ms = 80U,
+        .phase_gap_ms = 5000U,
+        .phase2_steps = kInitPhase2,
+        .phase2_step_count = sizeof(kInitPhase2) / sizeof(kInitPhase2[0]),
+        .phase2_step_delay_ms = 200U,
+    },
+    .testeo = {
+        .ping = { .can_id = 0x320, .data = { 0x07 }, .dlc = 1 },
+        .response_can_id = 0x700,
+        .reset_can_id = 0x702,
+        .reset_data = { 0x3F, 0x00 },
+        .reset_dlc = 2,
+        .success_code = 0xCB,
+        .missing_expansion_code = 0xBC,
+        .missing_force_code = 0xBF,
+        .force_board_1_code = 0xA1,
+        .force_board_2_code = 0xA2,
+        .max_tries = 25,
+        .response_timeout_ms = 300U,
+        .retry_delay_ms = 60U,
+        .reset_debounce_ms = 250U,
+    },
+    .den = {
+        .can_id = 0x320,
+        .opcode = 0x1C,
+        .motor_index_base = 0x00,
+        .instance_count = 8,
+        .run_sequence = kDenRunSequence,
+        .run_sequence_count = sizeof(kDenRunSequence) / sizeof(kDenRunSequence[0]),
+        .alternate_run_sequence = kDenRun1Sequence,
+        .alternate_run_sequence_count = sizeof(kDenRun1Sequence) / sizeof(kDenRun1Sequence[0]),
+        .positions = kDenPositions,
+        .position_count = sizeof(kDenPositions) / sizeof(kDenPositions[0]),
+        .run_period_ms = 80U,
+        .alternate_run_period_ms = 300U,
+    },
+    .sic = {
+        .can_id = 0x320,
+        .opcode = 0x1C,
+        .motor_index_base = 0x08,
+        .instance_count = 2,
+        .run_sequence = kSicRunSequence,
+        .run_sequence_count = sizeof(kSicRunSequence) / sizeof(kSicRunSequence[0]),
+        .alternate_run_sequence = NULL,
+        .alternate_run_sequence_count = 0,
+        .positions = kSicPositions,
+        .position_count = sizeof(kSicPositions) / sizeof(kSicPositions[0]),
+        .run_period_ms = 300U,
+        .alternate_run_period_ms = 0,
+    },
+    .feet = {
+        .can_id = 0x320,
+        .opcode = 0x1C,
+        .motor_index_base = 0x08,
+        .instance_count = 2,
+        .run_sequence = kFeetRunSequence,
+        .run_sequence_count = sizeof(kFeetRunSequence) / sizeof(kFeetRunSequence[0]),
+        .alternate_run_sequence = NULL,
+        .alternate_run_sequence_count = 0,
+        .positions = kFeetPositions,
+        .position_count = sizeof(kFeetPositions) / sizeof(kFeetPositions[0]),
+        .run_period_ms = 300U,
+        .alternate_run_period_ms = 0,
+    },
+    .j = {
+        .can_id = 0x320,
+        .opcode = 0x1D,
+        .instance_index_base = 0x00,
+        .instance_count = 8,
+        .channel_count = 8,
+        .initial_register = 0xFF,
+        .on_all_register = 0x00,
+        .off_all_register = 0xFF,
+        .run_period_ms = 80U,
+    },
+    .yarn = {
+        .can_id = 0x320,
+        .opcode = 0x1E,
+        .addresses = kYarnAddresses,
+        .addresses_per_instance = 8,
+        .instance_count = 2,
+        .on_value = 0x01,
+        .off_value = 0x00,
+        .run_period_ms = 80U,
+    },
+    .stitch = {
+        .can_id = 0x320,
+        .opcode = 0x1E,
+        .addresses = kStitchAddresses,
+        .addresses_per_instance = 4,
+        .instance_count = 4,
+        .on_value = 0x01,
+        .off_value = 0x00,
+        .run_period_ms = 80U,
+    },
+    .stop = {
+        .sends_can_frame = false,
+        .frame = { .can_id = 0, .data = {}, .dlc = 0 },
+    },
+};

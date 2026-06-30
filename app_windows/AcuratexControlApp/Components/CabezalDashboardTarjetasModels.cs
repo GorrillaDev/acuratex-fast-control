@@ -857,6 +857,12 @@ public static class CabezalDashboardTarjetasProtocol
         new(3, 0x02EE),
     };
 
+    private static readonly CabezalPositionTarjetas[] FeetPositions =
+    {
+        new(1, 0x0000),
+        new(2, 0x0176),
+    };
+
     public static IReadOnlyList<CabezalMotorTarjetas> CreateDenMotors()
     {
         return Enumerable.Range(0, 8)
@@ -881,6 +887,20 @@ public static class CabezalDashboardTarjetasProtocol
                 MotorIndex = SicMotorIndexes[index],
                 Title = $"SIC {index + 1}",
                 Positions = SicPositions,
+                MaxPosition = SicMaxPosition,
+            })
+            .ToArray();
+    }
+
+    public static IReadOnlyList<CabezalMotorTarjetas> CreateFeetMotors()
+    {
+        return Enumerable.Range(0, SicMotorIndexes.Length)
+            .Select(index => new CabezalMotorTarjetas
+            {
+                LogicalIndex = index,
+                MotorIndex = SicMotorIndexes[index],
+                Title = $"Feet{index + 1}",
+                Positions = FeetPositions,
                 MaxPosition = SicMaxPosition,
             })
             .ToArray();

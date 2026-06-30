@@ -11,6 +11,7 @@
 #include "line_codec.h"
 #include "head_state_manager.h"
 #include "head_fast_diag.h"
+#include "head_program_runtime.h"
 #include "wifi_manager.h"
 
 // [ACURATEX] Este archivo es el clasificador central de lineas.
@@ -562,32 +563,235 @@ static bool app_parse_index_value_command(const char *line,
 }
 
 static esp_err_t app_handle_short_position_command(const char *line,
-                                                   const char *prefix,
-                                                   int max_index,
-                                                   int motor_index,
-                                                   app_reply_fn_t reply,
-                                                   void *ctx,
-                                                   const app_command_env_t *env)
+                                                    const char *prefix,
+                                                    const HeadMotionCommandProfile *commands,
+                                                    app_reply_fn_t reply,
+                                                    void *ctx,
+                                                    const app_command_env_t *env)
 {
     int index = 0;
     int value = 0;
 
-    if (!app_parse_index_value_command(line, prefix, &index, &value)) {
+    if (commands == NULL || !app_parse_index_value_command(line, prefix, &index, &value)) {
         return reply("ERR posicion invalida", ctx);
     }
 
-    if (index < 1 || index > max_index) {
+    if (index < 1 || (size_t)index > commands->instance_count) {
         return reply("ERR posicion invalida", ctx);
     }
 
     char frame[64];
-    int physical_index = motor_index + (index - 1);
+    int physical_index = commands->motor_index_base + (index - 1);
     snprintf(frame, sizeof(frame),
-             "320 1C %02X %02X %02X",
+             "%03" PRIX32 " %02X %02X %02X %02X",
+             commands->can_id,
+             commands->opcode,
              physical_index & 0xFF,
              value & 0xFF,
              (value >> 8) & 0xFF);
     return app_process_frame_command(frame, reply, ctx, env);
+}
+
+static esp_err_t app_handle_profile_position_selection(const char *line,
+                                                       const char *prefix,
+                                                       const HeadMotionCommandProfile *commands,
+                                                       app_reply_fn_t reply,
+                                                       void *ctx,
+                                                       const app_command_env_t *env)
+{
+    int index = 0;
+    int position_number = 0;
+    char frame[64];
+
+    if (commands == NULL
+        || commands->positions == NULL
+        || !app_parse_index_value_command(line, prefix, &index, &position_number)
+        || index < 1
+        || (size_t)index > commands->instance_count
+        || position_number < 1
+        || (size_t)position_number > commands->position_count) {
+        return reply("ERR posicion invalida", ctx);
+    }
+
+    uint16_t value = commands->positions[position_number - 1];
+    int physical_index = commands->motor_index_base + (index - 1);
+    snprintf(frame,
+             sizeof(frame),
+             "%03" PRIX32 " %02X %02X %02X %02X",
+             commands->can_id,
+             commands->opcode,
+             physical_index & 0xFF,
+             value & 0xFF,
+             (value >> 8) & 0xFF);
+    return app_process_frame_command(frame, reply, ctx, env);
+}
+
+static esp_err_t app_send_profile_j_register(uint8_t instance,
+                                             uint8_t value,
+                                             app_reply_fn_t reply,
+                                             void *ctx,
+                                             const app_command_env_t *env)
+{
+    const HeadCommandProfile *profile = app_head_program_get_active_profile();
+    char frame[64];
+
+    if (profile == NULL
+        || instance == 0
+        || instance > profile->j.instance_count) {
+        return reply("ERR|J_SET", ctx);
+    }
+
+    snprintf(frame,
+             sizeof(frame),
+             "%03" PRIX32 " %02X %02X %02X",
+             profile->j.can_id,
+             profile->j.opcode,
+             (unsigned)(profile->j.instance_index_base + instance - 1U),
+             value);
+
+    esp_err_t err = app_process_frame_command(frame, reply, ctx, env);
+    if (err == ESP_OK) {
+        (void)app_head_state_manager_commit_j_physical_register(instance, value);
+        ESP_LOGI(TAG,
+                 "PROFILE_COMMAND|PROGRAM=%u|MODULE=J|INSTANCE=%u|VALUE=%u",
+                 (unsigned)profile->program_id,
+                 (unsigned)instance,
+                 (unsigned)value);
+    }
+    return err;
+}
+
+static esp_err_t app_handle_j_output_command(const char *line,
+                                             app_reply_fn_t reply,
+                                             void *ctx,
+                                             const app_command_env_t *env)
+{
+    const HeadCommandProfile *profile = app_head_program_get_active_profile();
+    int instance = 0;
+    int value = 0;
+    int channel = 0;
+    char extra = '\0';
+
+    if (profile == NULL) {
+        return reply("ERR|J_PROFILE", ctx);
+    }
+
+    if (strncasecmp(line, "j_set_", 6) == 0) {
+        if (sscanf(line + 6, "%d|%d%c", &instance, &value, &extra) != 2
+            || instance < 1
+            || (size_t)instance > profile->j.instance_count
+            || value < 0
+            || value > 0xFF) {
+            return reply("ERR|J_SET", ctx);
+        }
+
+        return app_send_profile_j_register((uint8_t)instance,
+                                           (uint8_t)value,
+                                           reply,
+                                           ctx,
+                                           env);
+    }
+
+    if (strncasecmp(line, "j_ch_", 5) == 0) {
+        uint8_t current = 0;
+        if (sscanf(line + 5, "%d_%d%c", &instance, &channel, &extra) != 2
+            || instance < 1
+            || (size_t)instance > profile->j.instance_count
+            || channel < 1
+            || channel > profile->j.channel_count
+            || !app_head_state_manager_get_j_physical_register((uint8_t)instance, &current)) {
+            return reply("ERR|J_CH", ctx);
+        }
+
+        current ^= (uint8_t)(1U << (channel - 1));
+        return app_send_profile_j_register((uint8_t)instance,
+                                           current,
+                                           reply,
+                                           ctx,
+                                           env);
+    }
+
+    return reply("ERR|J_CMD", ctx);
+}
+
+static esp_err_t app_handle_cascade_pin_command(const char *line,
+                                                const char *prefix,
+                                                const char *module_name,
+                                                const HeadCascadeCommandProfile *commands,
+                                                app_head_program_id_t program_id,
+                                                app_reply_fn_t reply,
+                                                void *ctx,
+                                                const app_command_env_t *env)
+{
+    int instance = 0;
+    int pin = 0;
+    int on = 0;
+    char extra = '\0';
+    char frame[64];
+
+    if (commands == NULL
+        || commands->addresses == NULL
+        || commands->addresses_per_instance == 0
+        || sscanf(line + strlen(prefix), "%d|%d|%d%c", &instance, &pin, &on, &extra) != 3
+        || instance < 1
+        || (size_t)instance > commands->instance_count
+        || pin < 1
+        || (size_t)pin > commands->addresses_per_instance
+        || (on != 0 && on != 1)) {
+        return reply("ERR|BLOCK_PIN", ctx);
+    }
+
+    uint8_t address = commands->addresses[
+        (size_t)(instance - 1) * commands->addresses_per_instance + (size_t)(pin - 1)];
+    uint8_t value = on != 0 ? commands->on_value : commands->off_value;
+    snprintf(frame,
+             sizeof(frame),
+             "%03" PRIX32 " %02X %02X %02X",
+             commands->can_id,
+             commands->opcode,
+             address,
+             value);
+
+    esp_err_t err = app_process_frame_command(frame, reply, ctx, env);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "PROFILE_COMMAND|PROGRAM=%u|MODULE=%s|INSTANCE=%d|CHANNEL=%d|VALUE=%u",
+                 (unsigned)program_id,
+                 module_name,
+                 instance,
+                 pin,
+                 (unsigned)value);
+    }
+    return err;
+}
+
+static esp_err_t app_send_profile_stop_command(const app_command_env_t *env)
+{
+    const HeadCommandProfile *profile = app_head_program_get_active_profile();
+
+    if (profile == NULL || env == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!profile->stop.sends_can_frame) {
+        return ESP_OK;
+    }
+
+    if (profile->stop.frame.dlc > APP_HEAD_PROFILE_MAX_DLC) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    int bus = (env->active_bus == APP_CMD_CAN_BUS_NONE) ? APP_CMD_CAN_BUS_1 : env->active_bus;
+    esp_err_t err = env->can_send_standard(bus,
+                                           profile->stop.frame.can_id,
+                                           profile->stop.frame.data,
+                                           profile->stop.frame.dlc);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "PROFILE_COMMAND|PROGRAM=%u|MODULE=STOP|STEP=1",
+                 (unsigned)profile->program_id);
+    }
+    return err;
 }
 
 static esp_err_t app_handle_j_short_command(const char *line,
@@ -887,6 +1091,82 @@ static esp_err_t app_handle_sic_short_command(const char *line,
     return reply("ERR|SIC_CMD", ctx);
 }
 
+static esp_err_t app_handle_feet_short_command(const char *line,
+                                               app_reply_fn_t reply,
+                                               void *ctx,
+                                               const app_command_env_t *env)
+{
+    int bus = app_command_active_bus(env);
+    uint32_t now_ms = (uint32_t)app_now_ms();
+    char response[80];
+
+    if (strncasecmp(line, "feet_run_", 9) == 0) {
+        int instance = 0;
+        if (sscanf(line + 9, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_FEET) {
+            return reply("ERR|FEET_RUN", ctx);
+        }
+
+        if (!app_head_state_manager_start_feet_run((uint8_t)instance, bus, now_ms)) {
+            return reply("ERR|FEET_RUN", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK feet_run_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|FEET_RUN|F%d", instance);
+        return reply(response, ctx);
+    }
+
+    if (strncasecmp(line, "feet_stop_", 10) == 0) {
+        int instance = 0;
+        if (sscanf(line + 10, "%d", &instance) != 1 || instance < 1 || instance > APP_HEAD_STATE_MAX_FEET) {
+            return reply("ERR|FEET_STOP", ctx);
+        }
+
+        if (!app_head_state_manager_stop_feet_run((uint8_t)instance)) {
+            return reply("ERR|FEET_STOP", ctx);
+        }
+
+        snprintf(response, sizeof(response), "OK feet_stop_%d", instance);
+        ESP_LOGI(TAG, "FW_RX|FEET_STOP|F%d", instance);
+        return reply(response, ctx);
+    }
+
+    return reply("ERR|FEET_CMD", ctx);
+}
+
+static esp_err_t app_handle_program_select_command(const char *line,
+                                                   app_reply_fn_t reply,
+                                                   void *ctx)
+{
+    app_head_program_id_t requested = APP_HEAD_PROGRAM_1;
+    app_head_program_id_t previous = app_head_program_get_active_id();
+    esp_err_t err;
+
+    if (strcasecmp(line, "program_select_1") == 0) {
+        requested = APP_HEAD_PROGRAM_1;
+    } else if (strcasecmp(line, "program_select_2") == 0) {
+        requested = APP_HEAD_PROGRAM_2;
+    } else {
+        return reply("ERR PROGRAM_CMD", ctx);
+    }
+
+    if (app_head_state_manager_has_active_motion() || app_head_fast_diag_is_busy()) {
+        return reply("ERR PROGRAM_BUSY", ctx);
+    }
+
+    err = app_head_program_select(requested, &previous);
+    if (err != ESP_OK) {
+        return reply("ERR PROGRAM_CMD", ctx);
+    }
+
+    ESP_LOGI(TAG,
+             "PROGRAM_SELECT|OLD=%u|NEW=%u",
+             (unsigned)previous,
+             (unsigned)requested);
+    ESP_LOGI(TAG, "PROGRAM_ACTIVE|%u", (unsigned)requested);
+
+    return reply(requested == APP_HEAD_PROGRAM_1 ? "OK program_select_1" : "OK program_select_2", ctx);
+}
+
 /**
  * [POR QUE EXISTE]
  * Esta funcion existe para que Core 0 pueda reconocer comandos fisicos sin
@@ -944,6 +1224,11 @@ bool app_command_line_is_physical(const char *incoming_line,
     }
 
     if (strncasecmp(line, "j_run_", 6) == 0
+        || strncasecmp(line, "j_set_", 6) == 0
+        || strncasecmp(line, "j_ch_", 5) == 0
+        || strcasecmp(line, "program_select_1") == 0
+        || strcasecmp(line, "program_select_2") == 0
+        || strcasecmp(line, "program_status") == 0
         || strncasecmp(line, "j_stop_", 7) == 0
         || strcasecmp(line, "y_run_all") == 0
         || strcasecmp(line, "y_stop_all") == 0
@@ -951,18 +1236,26 @@ bool app_command_line_is_physical(const char *incoming_line,
         || strcasecmp(line, "y1_stop") == 0
         || strcasecmp(line, "y2_run") == 0
         || strcasecmp(line, "y2_stop") == 0
+        || strncasecmp(line, "yarn_pin_", 9) == 0
         || strcasecmp(line, "s_run_all") == 0
         || strcasecmp(line, "s_stop_all") == 0
         || strncasecmp(line, "s_run_", 6) == 0
         || strncasecmp(line, "s_stop_", 7) == 0
+        || strncasecmp(line, "stitch_pin_", 11) == 0
         || strncasecmp(line, "den_run1_", 9) == 0
         || strncasecmp(line, "den_stop1_", 10) == 0
         || strncasecmp(line, "den_run_", 8) == 0
         || strncasecmp(line, "den_stop_", 9) == 0
         || strncasecmp(line, "sic_run_", 8) == 0
         || strncasecmp(line, "sic_stop_", 9) == 0
+        || strncasecmp(line, "feet_run_", 9) == 0
+        || strncasecmp(line, "feet_stop_", 10) == 0
+        || strncasecmp(line, "den_select_", 11) == 0
+        || strncasecmp(line, "sic_select_", 11) == 0
+        || strncasecmp(line, "feet_select_", 12) == 0
         || strncasecmp(line, "den_pos_", 8) == 0
         || strncasecmp(line, "sic_pos_", 8) == 0
+        || strncasecmp(line, "feet_pos_", 9) == 0
         || strncasecmp(line, "send ", 5) == 0
         || strcasecmp(line, "stop") == 0
         || strcasecmp(line, "emergency_stop") == 0) {
@@ -1077,7 +1370,18 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "help") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: help", app_transport_name(env));
-        return reply("OK cmds: ping,status,can1,can2,init,testeo,start,stop,emergency_stop,j_run_#,j_stop_#,j_run_all,j_stop_all,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,s_run_#,s_stop_#,s_run_all,s_stop_all,den_run_#,den_run1_#,den_stop_#,den_stop1_#,sic_run_#,sic_stop_#,den_pos_#|#,sic_pos_#|#,send <hex>,<hex line>", ctx);
+        return reply("OK cmds: ping,status,can1,can2,init,testeo,program_select_1,program_select_2,program_status,start,stop,emergency_stop,j_set_#|#,j_ch_#_#,j_run_#,j_stop_#,j_run_all,j_stop_all,yarn_pin_#|#|#,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,stitch_pin_#|#|#,s_run_#,s_stop_#,s_run_all,s_stop_all,den_run_#,den_run1_#,den_stop_#,den_stop1_#,sic_run_#,sic_stop_#,feet_run_#,feet_stop_#,den_select_#|#,sic_select_#|#,feet_select_#|#,den_pos_#|#,sic_pos_#|#,feet_pos_#|#,send <hex>,<hex line>", ctx);
+    }
+
+    if (strcasecmp(line, "program_select_1") == 0 || strcasecmp(line, "program_select_2") == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: program_select", app_transport_name(env));
+        return app_handle_program_select_command(line, reply, ctx);
+    }
+
+    if (strcasecmp(line, "program_status") == 0) {
+        app_head_program_id_t active_program = app_head_program_get_active_id();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: program_status", app_transport_name(env));
+        return reply(active_program == APP_HEAD_PROGRAM_2 ? "PROGRAM_STATE|ACTIVE=2" : "PROGRAM_STATE|ACTIVE=1", ctx);
     }
 
     if (strcasecmp(line, "status") == 0) {
@@ -1145,6 +1449,10 @@ esp_err_t app_command_process_line(const char *incoming_line,
         ESP_LOGI(TAG, "CMD CLASS [%s]: stop", app_transport_name(env));
         app_head_state_manager_stop_all_motion();
         app_head_fast_diag_request_stop();
+        esp_err_t stop_err = app_send_profile_stop_command(env);
+        if (stop_err != ESP_OK) {
+            return reply("ERR|STOP|CAN_TX", ctx);
+        }
         return reply("OK stop", ctx);
     }
 
@@ -1152,7 +1460,43 @@ esp_err_t app_command_process_line(const char *incoming_line,
         ESP_LOGI(TAG, "CMD CLASS [%s]: emergency_stop", app_transport_name(env));
         app_head_state_manager_stop_all_motion();
         app_head_fast_diag_request_stop();
+        esp_err_t stop_err = app_send_profile_stop_command(env);
+        if (stop_err != ESP_OK) {
+            return reply("ERR|EMERGENCY_STOP|CAN_TX", ctx);
+        }
         return reply("OK emergency_stop", ctx);
+    }
+
+    if (strncasecmp(line, "j_set_", 6) == 0
+        || strncasecmp(line, "j_ch_", 5) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: j_output", app_transport_name(env));
+        return app_handle_j_output_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "yarn_pin_", 9) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: yarn_pin", app_transport_name(env));
+        return app_handle_cascade_pin_command(line,
+                                              "yarn_pin_",
+                                              "YARN",
+                                              profile != NULL ? &profile->yarn : NULL,
+                                              profile != NULL ? profile->program_id : APP_HEAD_PROGRAM_1,
+                                              reply,
+                                              ctx,
+                                              env);
+    }
+
+    if (strncasecmp(line, "stitch_pin_", 11) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: stitch_pin", app_transport_name(env));
+        return app_handle_cascade_pin_command(line,
+                                              "stitch_pin_",
+                                              "STITCH",
+                                              profile != NULL ? &profile->stitch : NULL,
+                                              profile != NULL ? profile->program_id : APP_HEAD_PROGRAM_1,
+                                              reply,
+                                              ctx,
+                                              env);
     }
 
     if (strcasecmp(line, "j_run_all") == 0
@@ -1195,14 +1539,76 @@ esp_err_t app_command_process_line(const char *incoming_line,
         return app_handle_sic_short_command(line, reply, ctx, env);
     }
 
+    if (strncasecmp(line, "feet_run_", 9) == 0
+        || strncasecmp(line, "feet_stop_", 10) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: feet_short", app_transport_name(env));
+        return app_handle_feet_short_command(line, reply, ctx, env);
+    }
+
+    if (strncasecmp(line, "den_select_", 11) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: den_select", app_transport_name(env));
+        return app_handle_profile_position_selection(line,
+                                                     "den_select_",
+                                                     profile != NULL ? &profile->den : NULL,
+                                                     reply,
+                                                     ctx,
+                                                     env);
+    }
+
+    if (strncasecmp(line, "sic_select_", 11) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: sic_select", app_transport_name(env));
+        return app_handle_profile_position_selection(line,
+                                                     "sic_select_",
+                                                     profile != NULL ? &profile->sic : NULL,
+                                                     reply,
+                                                     ctx,
+                                                     env);
+    }
+
+    if (strncasecmp(line, "feet_select_", 12) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: feet_select", app_transport_name(env));
+        return app_handle_profile_position_selection(line,
+                                                     "feet_select_",
+                                                     profile != NULL ? &profile->feet : NULL,
+                                                     reply,
+                                                     ctx,
+                                                     env);
+    }
+
     if (strncasecmp(line, "den_pos_", 8) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
         ESP_LOGI(TAG, "CMD CLASS [%s]: den_pos", app_transport_name(env));
-        return app_handle_short_position_command(line, "den_pos_", 8, 0, reply, ctx, env);
+        return app_handle_short_position_command(line,
+                                                 "den_pos_",
+                                                 profile != NULL ? &profile->den : NULL,
+                                                 reply,
+                                                 ctx,
+                                                 env);
     }
 
     if (strncasecmp(line, "sic_pos_", 8) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
         ESP_LOGI(TAG, "CMD CLASS [%s]: sic_pos", app_transport_name(env));
-        return app_handle_short_position_command(line, "sic_pos_", 2, 0x08, reply, ctx, env);
+        return app_handle_short_position_command(line,
+                                                 "sic_pos_",
+                                                 profile != NULL ? &profile->sic : NULL,
+                                                 reply,
+                                                 ctx,
+                                                 env);
+    }
+
+    if (strncasecmp(line, "feet_pos_", 9) == 0) {
+        const HeadCommandProfile *profile = app_head_program_get_active_profile();
+        ESP_LOGI(TAG, "CMD CLASS [%s]: feet_pos", app_transport_name(env));
+        return app_handle_short_position_command(line,
+                                                 "feet_pos_",
+                                                 profile != NULL ? &profile->feet : NULL,
+                                                 reply,
+                                                 ctx,
+                                                 env);
     }
 
     if (strncasecmp(line, "send ", 5) == 0) {

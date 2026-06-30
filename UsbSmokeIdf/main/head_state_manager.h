@@ -11,6 +11,7 @@
 #define APP_HEAD_STATE_MAX_J 8
 #define APP_HEAD_STATE_MAX_YARN 2
 #define APP_HEAD_STATE_MAX_SIC 2
+#define APP_HEAD_STATE_MAX_FEET 2
 #define APP_HEAD_STATE_MAX_STITCH 4
 
 // [C/C++] `typedef` crea un nombre corto para un puntero a funcion.
@@ -285,6 +286,14 @@ bool app_head_state_manager_stop_sic_run(uint8_t instance);
 
 void app_head_state_manager_stop_all_sic_runs(void);
 
+bool app_head_state_manager_start_feet_run(uint8_t instance,
+                                           int can_bus,
+                                           uint32_t now_ms);
+
+bool app_head_state_manager_stop_feet_run(uint8_t instance);
+
+void app_head_state_manager_stop_all_feet_runs(void);
+
 /**
  * [POR QUE EXISTE]
  * Inicia una secuencia RUN de Yarn.
@@ -357,6 +366,12 @@ void app_head_state_manager_stop_all_stitch_runs(void);
  * Detiene todo RUN fisico del cabezal en una sola llamada.
  */
 void app_head_state_manager_stop_all_motion(void);
+
+/**
+ * [POR QUE EXISTE]
+ * Indica si hay alguna secuencia fisica o visual activa en el cabezal.
+ */
+bool app_head_state_manager_has_active_motion(void);
 
 /**
  * [POR QUE EXISTE]

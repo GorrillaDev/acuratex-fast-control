@@ -28,8 +28,9 @@ public sealed class FastDashboardCommandService : ICabezalDashboardTarjetasComma
         int selectedPositionNumber = 0,
         CancellationToken cancellationToken = default)
     {
-        _ = selectedPositionNumber;
-        string line = $"den_pos_{motorIndex + 1}|{position}";
+        string line = selectedPositionNumber > 0
+            ? $"den_select_{motorIndex + 1}|{selectedPositionNumber}"
+            : $"den_pos_{motorIndex + 1}|{position}";
         return SendLineAsync(line, cancellationToken);
     }
 
@@ -39,14 +40,15 @@ public sealed class FastDashboardCommandService : ICabezalDashboardTarjetasComma
         int selectedPositionNumber = 0,
         CancellationToken cancellationToken = default)
     {
-        _ = selectedPositionNumber;
-        string line = $"sic_pos_{sicIndex + 1}|{position}";
+        string line = selectedPositionNumber > 0
+            ? $"sic_select_{sicIndex + 1}|{selectedPositionNumber}"
+            : $"sic_pos_{sicIndex + 1}|{position}";
         return SendLineAsync(line, cancellationToken);
     }
 
     public Task SendJRegisterAsync(int jIndex, byte value, CancellationToken cancellationToken = default)
     {
-        string line = CabezalDashboardTarjetasProtocol.FormatJRegisterLine(jIndex, value);
+        string line = $"j_set_{jIndex}|{value}";
         return SendLineAsync(line, cancellationToken);
     }
 
@@ -63,7 +65,31 @@ public sealed class FastDashboardCommandService : ICabezalDashboardTarjetasComma
 
     public Task SendBlockPinAsync(string blockKey, int pinIndex, bool on, CancellationToken cancellationToken = default)
     {
-        string line = CabezalDashboardTarjetasProtocol.FormatBlockPinLine(blockKey, pinIndex, on);
+        string cleanKey = (blockKey ?? string.Empty).Trim().ToLowerInvariant();
+        string module;
+        string suffix;
+
+        if (cleanKey.StartsWith("yarn", StringComparison.Ordinal))
+        {
+            module = "yarn";
+            suffix = cleanKey[4..];
+        }
+        else if (cleanKey.StartsWith("stitch", StringComparison.Ordinal))
+        {
+            module = "stitch";
+            suffix = cleanKey[6..];
+        }
+        else
+        {
+            throw new ArgumentOutOfRangeException(nameof(blockKey));
+        }
+
+        if (!int.TryParse(suffix, out int instance) || instance <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(blockKey));
+        }
+
+        string line = $"{module}_pin_{instance}|{pinIndex}|{(on ? 1 : 0)}";
         return SendLineAsync(line, cancellationToken);
     }
 
