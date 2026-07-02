@@ -8,6 +8,7 @@ idf_component_register(
         "head_program_runtime.cpp"
         "head_program_1_commands.cpp"
         "head_program_2_commands.cpp"
+        "head_program_3_commands.cpp"
         "can_driver_twai.cpp"
         "line_codec.cpp"
         "file_transfer.cpp"

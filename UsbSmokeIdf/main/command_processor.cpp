@@ -1145,6 +1145,8 @@ static esp_err_t app_handle_program_select_command(const char *line,
         requested = APP_HEAD_PROGRAM_1;
     } else if (strcasecmp(line, "program_select_2") == 0) {
         requested = APP_HEAD_PROGRAM_2;
+    } else if (strcasecmp(line, "program_select_3") == 0) {
+        requested = APP_HEAD_PROGRAM_3;
     } else {
         return reply("ERR PROGRAM_CMD", ctx);
     }
@@ -1164,7 +1166,16 @@ static esp_err_t app_handle_program_select_command(const char *line,
              (unsigned)requested);
     ESP_LOGI(TAG, "PROGRAM_ACTIVE|%u", (unsigned)requested);
 
-    return reply(requested == APP_HEAD_PROGRAM_1 ? "OK program_select_1" : "OK program_select_2", ctx);
+    switch (requested) {
+    case APP_HEAD_PROGRAM_1:
+        return reply("OK program_select_1", ctx);
+    case APP_HEAD_PROGRAM_2:
+        return reply("OK program_select_2", ctx);
+    case APP_HEAD_PROGRAM_3:
+        return reply("OK program_select_3", ctx);
+    default:
+        return reply("ERR PROGRAM_CMD", ctx);
+    }
 }
 
 /**
@@ -1228,6 +1239,7 @@ bool app_command_line_is_physical(const char *incoming_line,
         || strncasecmp(line, "j_ch_", 5) == 0
         || strcasecmp(line, "program_select_1") == 0
         || strcasecmp(line, "program_select_2") == 0
+        || strcasecmp(line, "program_select_3") == 0
         || strcasecmp(line, "program_status") == 0
         || strncasecmp(line, "j_stop_", 7) == 0
         || strcasecmp(line, "y_run_all") == 0
@@ -1370,10 +1382,12 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     if (strcasecmp(line, "help") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: help", app_transport_name(env));
-        return reply("OK cmds: ping,status,can1,can2,init,testeo,program_select_1,program_select_2,program_status,start,stop,emergency_stop,j_set_#|#,j_ch_#_#,j_run_#,j_stop_#,j_run_all,j_stop_all,yarn_pin_#|#|#,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,stitch_pin_#|#|#,s_run_#,s_stop_#,s_run_all,s_stop_all,den_run_#,den_run1_#,den_stop_#,den_stop1_#,sic_run_#,sic_stop_#,feet_run_#,feet_stop_#,den_select_#|#,sic_select_#|#,feet_select_#|#,den_pos_#|#,sic_pos_#|#,feet_pos_#|#,send <hex>,<hex line>", ctx);
+        return reply("OK cmds: ping,status,can1,can2,init,testeo,program_select_1,program_select_2,program_select_3,program_status,start,stop,emergency_stop,j_set_#|#,j_ch_#_#,j_run_#,j_stop_#,j_run_all,j_stop_all,yarn_pin_#|#|#,y1_run,y1_stop,y2_run,y2_stop,y_run_all,y_stop_all,stitch_pin_#|#|#,s_run_#,s_stop_#,s_run_all,s_stop_all,den_run_#,den_run1_#,den_stop_#,den_stop1_#,sic_run_#,sic_stop_#,feet_run_#,feet_stop_#,den_select_#|#,sic_select_#|#,feet_select_#|#,den_pos_#|#,sic_pos_#|#,feet_pos_#|#,send <hex>,<hex line>", ctx);
     }
 
-    if (strcasecmp(line, "program_select_1") == 0 || strcasecmp(line, "program_select_2") == 0) {
+    if (strcasecmp(line, "program_select_1") == 0
+        || strcasecmp(line, "program_select_2") == 0
+        || strcasecmp(line, "program_select_3") == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: program_select", app_transport_name(env));
         return app_handle_program_select_command(line, reply, ctx);
     }
@@ -1381,7 +1395,17 @@ esp_err_t app_command_process_line(const char *incoming_line,
     if (strcasecmp(line, "program_status") == 0) {
         app_head_program_id_t active_program = app_head_program_get_active_id();
         ESP_LOGI(TAG, "CMD CLASS [%s]: program_status", app_transport_name(env));
-        return reply(active_program == APP_HEAD_PROGRAM_2 ? "PROGRAM_STATE|ACTIVE=2" : "PROGRAM_STATE|ACTIVE=1", ctx);
+
+        switch (active_program) {
+        case APP_HEAD_PROGRAM_1:
+            return reply("PROGRAM_STATE|ACTIVE=1", ctx);
+        case APP_HEAD_PROGRAM_2:
+            return reply("PROGRAM_STATE|ACTIVE=2", ctx);
+        case APP_HEAD_PROGRAM_3:
+            return reply("PROGRAM_STATE|ACTIVE=3", ctx);
+        default:
+            return reply("ERR PROGRAM_STATE", ctx);
+        }
     }
 
     if (strcasecmp(line, "status") == 0) {

@@ -9,6 +9,7 @@
 typedef enum {
     APP_HEAD_PROGRAM_1 = 1,
     APP_HEAD_PROGRAM_2 = 2,
+    APP_HEAD_PROGRAM_3 = 3,
 } app_head_program_id_t;
 
 typedef struct {
