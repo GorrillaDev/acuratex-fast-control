@@ -4,6 +4,7 @@ public enum CabezalDashboardTarjetasProgramId
 {
     Program1 = 1,
     Program2 = 2,
+    Program3 = 3,
 }
 
 public sealed record CabezalDashboardTarjetasProgramProfile(
@@ -36,8 +37,12 @@ public static class CabezalDashboardTarjetasProgramCatalog
 {
     public static CabezalDashboardTarjetasProgramProfile Get(CabezalDashboardTarjetasProgramId program)
     {
-        return program == CabezalDashboardTarjetasProgramId.Program2
-            ? CabezalDashboardTarjetasProgram2Commands.Profile
-            : CabezalDashboardTarjetasProgram1Commands.Profile;
+        return program switch
+        {
+            CabezalDashboardTarjetasProgramId.Program1 => CabezalDashboardTarjetasProgram1Commands.Profile,
+            CabezalDashboardTarjetasProgramId.Program2 => CabezalDashboardTarjetasProgram2Commands.Profile,
+            CabezalDashboardTarjetasProgramId.Program3 => CabezalDashboardTarjetasProgram3Commands.Profile,
+            _ => CabezalDashboardTarjetasProgram1Commands.Profile,
+        };
     }
 }
