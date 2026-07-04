@@ -5,6 +5,7 @@ idf_component_register(
         "command_head_program_runner.cpp"
         "head_state_manager.cpp"
         "head_fast_diag.cpp"
+        "profile_store.cpp"
         "head_program_runtime.cpp"
         "head_program_1_commands.cpp"
         "head_program_2_commands.cpp"

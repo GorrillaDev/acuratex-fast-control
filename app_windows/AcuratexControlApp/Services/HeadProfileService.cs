@@ -321,19 +321,18 @@ public sealed class HeadProfileService : IHeadProfileService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // [ACURATEX] Se parte desde la lista real de archivos del tester.
-        IReadOnlyList<string> fileNames = await _commandFiles.ListFilesAsync(cancellationToken).ConfigureAwait(false);
-        // [C#] `List<T>` permite separar primero la seleccion de archivos y luego el orden final.
+        IReadOnlyList<HeadRuntimeProfileFileInfo> firmwareProfiles = await _commandFiles
+            .ListProfilesAsync(cancellationToken)
+            .ConfigureAwait(false);
         List<ProgramCandidate> candidates = new();
 
-        foreach (string fileName in fileNames) {
-            // [ACURATEX] Solo los archivos que cumplen el patron oficial pueden entrar al catalogo.
-            if (TryParseProgramFileName(fileName, out HeadSystemKind detectedKind, out int programNumber)
+        foreach (HeadRuntimeProfileFileInfo profileFile in firmwareProfiles) {
+            if (profileFile.IsValid
+                && TryParseProgramFileName(profileFile.FileName, out HeadSystemKind detectedKind, out int programNumber)
                 && detectedKind == systemKind) {
-                candidates.Add(new ProgramCandidate(fileName, detectedKind, programNumber));
+                candidates.Add(new ProgramCandidate(profileFile.FileName, detectedKind, programNumber));
             }
         }
-
         // [C#] El orden se fija por numero de programa y luego por nombre para que la UI sea estable.
         candidates = candidates
             .OrderBy(static candidate => candidate.ProgramNumber)
@@ -466,27 +465,39 @@ public sealed class HeadProfileService : IHeadProfileService
         }
 
         try {
-            // [ACURATEX] El firmware tambien debe confirmar que programa queda activo.
             bool firmwareSelected = await _commandFiles
-                .SelectHeadProgramAsync(candidate.FileName, cancellationToken)
+                .SelectProfileAsync(candidate.FileName, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!firmwareSelected) {
                 return new HeadProfileLoadResult(
                     false,
-                    $"El tester no acepto HEAD_PROGRAM_SELECT para {candidate.FileName}.",
+                    $"El tester no acepto PROFILE_SELECT para {candidate.FileName}.",
                     null,
-                    new[] { "No se pudo seleccionar el programa activo en el firmware." },
+                    new[] { "No se pudo seleccionar el perfil activo en el firmware." },
+                    inspection.Warnings);
+            }
+
+            HeadRuntimeProfileActiveInfo? active = await _commandFiles
+                .GetActiveProfileAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (active is null
+                || !string.Equals(active.FileName, candidate.FileName, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(active.Origin, "FILE", StringComparison.OrdinalIgnoreCase)) {
+                return new HeadProfileLoadResult(
+                    false,
+                    $"PROFILE_ACTIVE no confirmo {candidate.FileName}.",
+                    null,
+                    new[] { "El firmware no confirmo el perfil dinamico activo esperado." },
                     inspection.Warnings);
             }
         } catch (Exception ex) {
-            // [ACURATEX] Si la seleccion remota falla, el perfil no puede darse por activo.
             string message = string.IsNullOrWhiteSpace(ex.Message)
                 ? $"No se pudo seleccionar {candidate.FileName} en el firmware."
                 : ex.Message;
             return new HeadProfileLoadResult(false, message, null, new[] { message }, inspection.Warnings);
         }
-
         // [ACURATEX] El perfil activo queda guardado para que la UI consulte el estado.
         lock (ActiveProfilesGate) {
             ActiveProfiles[systemKind] = inspection.Profile;

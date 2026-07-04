@@ -112,6 +112,8 @@
 
 #include "head_runtime.h"
 
+#include "profile_store.h"
+
 
 
 
@@ -6618,15 +6620,43 @@ extern "C" void app_main(void)
 
 
 
-    // [ACURATEX] Inicializa el estado rapido del cabezal antes de aceptar
+    // [ACURATEX] LittleFS debe estar montado antes de restaurar el perfil dinamico.
 
 
 
-    // comandos cortos RUN/STOP y el scheduler fisico J.
+    app_file_transfer_init();
 
 
 
-    app_head_state_manager_init();
+    if (app_profile_store_init() != ESP_OK) {
+
+
+
+        ESP_LOGE(TAG, "PROFILE_STORE|INIT|FAIL");
+
+
+
+    }
+
+
+
+    if (app_profile_load_selected() != ESP_OK) {
+
+
+
+        ESP_LOGW(TAG, "PROFILE_STORE|LOAD_SELECTED|FALLBACK");
+
+
+
+    }
+
+
+
+    // [ACURATEX] Inicializa el runner despues de decidir el perfil activo.
+
+
+
+    app_head_program_runner_init();
 
 
 
@@ -6639,10 +6669,6 @@ extern "C" void app_main(void)
 
 
     app_reply_mutexes_init();
-
-
-
-    app_file_transfer_init();
 
 
 

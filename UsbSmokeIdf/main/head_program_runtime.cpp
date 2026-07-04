@@ -3,16 +3,25 @@
 #include "head_program_1_commands.h"
 #include "head_program_2_commands.h"
 #include "head_program_3_commands.h"
+#include "profile_store.h"
 
 static app_head_program_id_t s_active_program = APP_HEAD_PROGRAM_1;
 
 void app_head_program_runtime_init(void)
 {
     s_active_program = APP_HEAD_PROGRAM_1;
+    if (app_profile_get_active_origin() != APP_PROFILE_ORIGIN_FILE) {
+        (void)app_profile_apply_compiled(APP_HEAD_PROGRAM_1);
+    }
 }
 
 app_head_program_id_t app_head_program_get_active_id(void)
 {
+    const HeadCommandProfile *profile = app_profile_get_active_command_profile();
+    if (profile != NULL) {
+        return profile->program_id;
+    }
+
     return s_active_program;
 }
 
@@ -35,7 +44,8 @@ const HeadCommandProfile *app_head_program_get_profile(app_head_program_id_t pro
 
 const HeadCommandProfile *app_head_program_get_active_profile(void)
 {
-    return app_head_program_get_profile(s_active_program);
+    const HeadCommandProfile *profile = app_profile_get_active_command_profile();
+    return profile != NULL ? profile : &kProgram1Commands;
 }
 
 esp_err_t app_head_program_select(app_head_program_id_t program_id,
@@ -48,7 +58,12 @@ esp_err_t app_head_program_select(app_head_program_id_t program_id,
     }
 
     if (previous_program_id != NULL) {
-        *previous_program_id = s_active_program;
+        *previous_program_id = app_head_program_get_active_id();
+    }
+
+    esp_err_t err = app_profile_apply_compiled(program_id);
+    if (err != ESP_OK) {
+        return err;
     }
 
     s_active_program = program_id;

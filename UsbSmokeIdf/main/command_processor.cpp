@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "command_head_program_runner.h"
 #include "command_processor.h"
 #include "file_transfer.h"
 #include "line_codec.h"
@@ -1643,6 +1644,11 @@ esp_err_t app_command_process_line(const char *incoming_line,
     if (app_looks_like_frame(line, env)) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: can_frame", app_transport_name(env));
         return app_process_frame_command(line, reply, ctx, env);
+    }
+
+    if (app_head_program_is_command(line)) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: head_program_runner", app_transport_name(env));
+        return app_head_program_process_line(line, reply, ctx, env);
     }
 
     ESP_LOGI(TAG, "CMD CLASS [%s]: text_passthrough", app_transport_name(env));

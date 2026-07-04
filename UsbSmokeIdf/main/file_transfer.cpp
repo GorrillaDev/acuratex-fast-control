@@ -9,6 +9,10 @@
 #include "esp_littlefs.h"
 
 #include "file_transfer.h"
+#include "command_head_program_runner.h"
+#include "head_fast_diag.h"
+#include "head_state_manager.h"
+#include "profile_store.h"
 
 // [ACURATEX] Punto de montaje LittleFS visto por stdio: fopen("/fs/...").
 #define APP_FS_BASE              "/fs"
@@ -72,6 +76,24 @@ static app_file_upload_t s_upload;
 static app_file_download_t s_download;
 // [ACURATEX] Programa marcado como seleccionado. Se sincroniza con .selected.
 static char s_selected_name[APP_FILE_MAX_NAME_LEN + 1] = {0};
+static bool app_file_profile_replace_blocked(const char *name)
+{
+    if (name == NULL || !app_profile_is_valid_filename(name)) {
+        return false;
+    }
+
+    if (app_profile_is_loading_filename(name)) {
+        return true;
+    }
+
+    if (!app_profile_is_active_filename(name)) {
+        return false;
+    }
+
+    return app_head_program_runner_is_busy()
+        || app_head_fast_diag_is_busy()
+        || app_head_state_manager_has_active_motion();
+}
 
 /**
  * [POR QUE EXISTE]
@@ -875,6 +897,10 @@ static esp_err_t app_file_cmd_begin(const char *name, const char *size_str, char
         return ESP_OK;
     }
 
+    if (s_upload.active) {
+        snprintf(response, response_size, "ERR FILE_BUSY");
+        return ESP_OK;
+    }
     // [ACURATEX] El tamano declarado debe ser decimal y no superar 64 KiB.
     parsed_size = strtoul(size_str, &endptr, 10);
     if (endptr == size_str || *endptr != '\0' || parsed_size > APP_FILE_MAX_SIZE)
@@ -1053,6 +1079,11 @@ static esp_err_t app_file_cmd_end(const char *name, char *response, size_t respo
         return ESP_OK;
     }
 
+    if (app_file_profile_replace_blocked(s_upload.name))
+    {
+        snprintf(response, response_size, "ERR FILE_BUSY");
+        return ESP_OK;
+    }
     fclose(s_upload.fp);
     s_upload.fp = NULL;
 
@@ -1257,6 +1288,17 @@ static esp_err_t app_file_cmd_delete(const char *name, char *response, size_t re
         return ESP_OK;
     }
 
+    if (app_profile_is_active_filename(name))
+    {
+        snprintf(response, response_size, "ERR FILE_PROTECTED");
+        return ESP_OK;
+    }
+
+    if (app_profile_is_loading_filename(name))
+    {
+        snprintf(response, response_size, "ERR FILE_BUSY");
+        return ESP_OK;
+    }
     app_build_path(path, sizeof(path), name);
     if (remove(path) != 0)
     {

@@ -542,6 +542,93 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
         }
     }
 
+
+    public async Task<IReadOnlyList<HeadRuntimeProfileFileInfo>> ListProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try {
+            IReadOnlyList<string> lines = await SendProfileListCommandAsync(cancellationToken).ConfigureAwait(false);
+            return lines.Select(ParseProfileFileInfoLine).Where(static item => item is not null).Cast<HeadRuntimeProfileFileInfo>().ToArray();
+        } finally {
+            _operationGate.Release();
+        }
+    }
+
+    public async Task<HeadRuntimeProfileFileInfo?> GetProfileInfoAsync(string fileName, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        string cleanName = ValidateFileNameOrThrow(fileName);
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try {
+            FileCommandResponse response = await SendHeadProgramCommandAsync(
+                $"PROFILE_INFO|{cleanName}",
+                line => line.StartsWith($"PROFILE_INFO|FILE={cleanName}|", StringComparison.OrdinalIgnoreCase),
+                line => line.StartsWith("ERR|PROFILE_INFO|", StringComparison.OrdinalIgnoreCase),
+                cancellationToken).ConfigureAwait(false);
+
+            if (response.IsError) {
+                throw new InvalidOperationException($"Tester respondio error en PROFILE_INFO: {response.Line}");
+            }
+
+            return ParseProfileFileInfoLine(response.Line);
+        } finally {
+            _operationGate.Release();
+        }
+    }
+
+    public async Task<bool> SelectProfileAsync(string fileName, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        string cleanName = ValidateFileNameOrThrow(fileName);
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try {
+            FileCommandResponse response = await SendHeadProgramCommandAsync(
+                $"PROFILE_SELECT|{cleanName}",
+                line => string.Equals(line, $"OK|PROFILE_SELECT|{cleanName}", StringComparison.OrdinalIgnoreCase),
+                line => line.StartsWith("ERR|PROFILE_SELECT|", StringComparison.OrdinalIgnoreCase),
+                cancellationToken).ConfigureAwait(false);
+
+            return !response.IsError;
+        } finally {
+            _operationGate.Release();
+        }
+    }
+
+    public async Task<HeadRuntimeProfileActiveInfo?> GetActiveProfileAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try {
+            FileCommandResponse response = await SendHeadProgramCommandAsync(
+                "PROFILE_ACTIVE",
+                line => line.StartsWith("PROFILE_ACTIVE|", StringComparison.OrdinalIgnoreCase),
+                line => line.StartsWith("ERR|PROFILE_ACTIVE|", StringComparison.OrdinalIgnoreCase),
+                cancellationToken).ConfigureAwait(false);
+
+            if (response.IsError) {
+                throw new InvalidOperationException($"Tester respondio error en PROFILE_ACTIVE: {response.Line}");
+            }
+
+            return ParseProfileActiveLine(response.Line);
+        } finally {
+            _operationGate.Release();
+        }
+    }
     /// <summary>
     /// [POR QUÉ EXISTE]
     /// Esta función existe para consultar tamaño y selección de un archivo remoto.
@@ -909,6 +996,99 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
     /// [SI NO EXISTIERA]
     /// Cada comando `FILE_*` tendria que duplicar la logica de espera.
     /// </summary>
+
+    private static HeadRuntimeProfileFileInfo? ParseProfileFileInfoLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)
+            || (!line.StartsWith("PROFILE_INFO|", StringComparison.OrdinalIgnoreCase)
+                && !line.StartsWith("PROFILE_LIST|", StringComparison.OrdinalIgnoreCase))) {
+            return null;
+        }
+
+        Dictionary<string, string> fields = ParsePipeKeyValues(line);
+        string fileName = GetField(fields, "FILE") ?? string.Empty;
+        if (fileName.Length == 0) {
+            return null;
+        }
+
+        bool isValid = string.Equals(GetField(fields, "VALID"), "1", StringComparison.OrdinalIgnoreCase);
+        return new HeadRuntimeProfileFileInfo(
+            fileName,
+            NormalizeProfileField(GetField(fields, "PROFILE")),
+            NormalizeProfileField(GetField(fields, "VERSION")),
+            NormalizeProfileField(GetField(fields, "CRC")),
+            string.Equals(GetField(fields, "CRC_DECLARED"), "1", StringComparison.OrdinalIgnoreCase),
+            ParseIntField(fields, "ACTIONS"),
+            ParseIntField(fields, "COMMANDS"),
+            ParseIntField(fields, "MODULES"),
+            isValid,
+            line,
+            NormalizeProfileField(GetField(fields, "ERROR")));
+    }
+
+    private static HeadRuntimeProfileActiveInfo? ParseProfileActiveLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)
+            || !line.StartsWith("PROFILE_ACTIVE|", StringComparison.OrdinalIgnoreCase)) {
+            return null;
+        }
+
+        Dictionary<string, string> fields = ParsePipeKeyValues(line);
+        string fileName = GetField(fields, "FILE") ?? string.Empty;
+        if (fileName.Length == 0) {
+            return null;
+        }
+
+        return new HeadRuntimeProfileActiveInfo(
+            fileName,
+            NormalizeProfileField(GetField(fields, "PROFILE")),
+            NormalizeProfileField(GetField(fields, "VERSION")),
+            NormalizeProfileField(GetField(fields, "CRC")),
+            ParseUIntField(fields, "GEN"),
+            NormalizeProfileField(GetField(fields, "ORIGIN")) ?? string.Empty,
+            ParseIntField(fields, "ACTIONS"),
+            ParseIntField(fields, "COMMANDS"),
+            line);
+    }
+
+    private static Dictionary<string, string> ParsePipeKeyValues(string line)
+    {
+        Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string part in line.Split('|', StringSplitOptions.TrimEntries).Skip(1)) {
+            int equalsIndex = part.IndexOf('=');
+            if (equalsIndex <= 0 || equalsIndex >= part.Length - 1) {
+                continue;
+            }
+
+            values[part[..equalsIndex]] = part[(equalsIndex + 1)..];
+        }
+
+        return values;
+    }
+
+    private static string? GetField(IReadOnlyDictionary<string, string> fields, string key)
+    {
+        return fields.TryGetValue(key, out string? value) ? value : null;
+    }
+
+    private static string? NormalizeProfileField(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "NONE", StringComparison.OrdinalIgnoreCase)) {
+            return null;
+        }
+
+        return value.Trim();
+    }
+
+    private static int ParseIntField(IReadOnlyDictionary<string, string> fields, string key)
+    {
+        return int.TryParse(GetField(fields, key), out int value) ? value : 0;
+    }
+
+    private static uint ParseUIntField(IReadOnlyDictionary<string, string> fields, string key)
+    {
+        return uint.TryParse(GetField(fields, key), out uint value) ? value : 0U;
+    }
     private async Task<FileCommandResponse> SendFileCommandAsync(
         string commandLine,
         Func<string, bool> successMatcher,
@@ -997,6 +1177,53 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
     /// [SI NO EXISTIERA]
     /// La selección de programa no tendría una ruta de confirmación uniforme.
     /// </summary>
+
+    private async Task<IReadOnlyList<string>> SendProfileListCommandAsync(CancellationToken cancellationToken)
+    {
+        List<string> profileLines = new();
+        TaskCompletionSource<IReadOnlyList<string>> waiter = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void HandleLine(string line)
+        {
+            string clean = line?.Trim() ?? string.Empty;
+            if (clean.Length == 0) {
+                return;
+            }
+
+            if (clean.StartsWith("ERR|PROFILE_LIST|", StringComparison.OrdinalIgnoreCase)) {
+                waiter.TrySetException(new InvalidOperationException(clean));
+                return;
+            }
+
+            if (clean.StartsWith("PROFILE_LIST|FILE=", StringComparison.OrdinalIgnoreCase)) {
+                profileLines.Add(clean);
+                return;
+            }
+
+            if (clean.StartsWith("PROFILE_LIST|COUNT=", StringComparison.OrdinalIgnoreCase)) {
+                waiter.TrySetResult(profileLines.ToArray());
+            }
+        }
+
+        _connection.LineReceived += HandleLine;
+        try {
+            using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(ResponseTimeout);
+            using CancellationTokenRegistration registration = timeoutCts.Token.Register(
+                static state => ((TaskCompletionSource<IReadOnlyList<string>>)state!).TrySetCanceled(),
+                waiter);
+
+            await _connection.SendLineAsync("PROFILE_LIST", cancellationToken).ConfigureAwait(false);
+
+            try {
+                return await waiter.Task.ConfigureAwait(false);
+            } catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) {
+                throw new TimeoutException("Timeout esperando respuesta de: PROFILE_LIST");
+            }
+        } finally {
+            _connection.LineReceived -= HandleLine;
+        }
+    }
     private async Task<FileCommandResponse> SendHeadProgramCommandAsync(
         string commandLine,
         Func<string, bool> successMatcher,

@@ -103,6 +103,8 @@ const char *app_head_program_runner_state_name(void);
  */
 const char *app_head_program_runner_last_stage(void);
 
+bool app_head_program_runner_is_busy(void);
+
 /**
  * [POR QUE EXISTE]
  * Permite al procesador central reconocer si una linea pertenece a HEAD_*.

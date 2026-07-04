@@ -108,6 +108,29 @@ public sealed record CommandFileInfo(
     int SizeBytes,
     bool IsSelected,
     string RawLine);
+public sealed record HeadRuntimeProfileFileInfo(
+    string FileName,
+    string? ProfileName,
+    string? Version,
+    string? Crc,
+    bool CrcDeclared,
+    int ActionCount,
+    int CommandCount,
+    int ModuleCount,
+    bool IsValid,
+    string RawLine,
+    string? Error);
+
+public sealed record HeadRuntimeProfileActiveInfo(
+    string FileName,
+    string? ProfileName,
+    string? Version,
+    string? Crc,
+    uint Generation,
+    string Origin,
+    int ActionCount,
+    int CommandCount,
+    string RawLine);
 
 /// <summary>
 /// [POR QUE EXISTE]
@@ -498,6 +521,13 @@ public interface ICommandFileTransferService
     /// El perfil de cabezal no podría activarse desde el tester.
     /// </summary>
     Task<bool> SelectHeadProgramAsync(string fileName, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<HeadRuntimeProfileFileInfo>> ListProfilesAsync(CancellationToken cancellationToken = default);
+
+    Task<HeadRuntimeProfileFileInfo?> GetProfileInfoAsync(string fileName, CancellationToken cancellationToken = default);
+
+    Task<bool> SelectProfileAsync(string fileName, CancellationToken cancellationToken = default);
+
+    Task<HeadRuntimeProfileActiveInfo?> GetActiveProfileAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// [POR QUÉ EXISTE]

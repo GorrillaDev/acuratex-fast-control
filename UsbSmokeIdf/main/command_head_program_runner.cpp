@@ -1,5 +1,7 @@
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +18,8 @@
 
 #include "command_head_program_runner.h"
 #include "head_state_manager.h"
+#include "head_fast_diag.h"
+#include "profile_store.h"
 #include "app_rtos_types.h"
 #include "line_codec.h"
 
@@ -115,6 +119,10 @@ static app_head_module_counts_t s_module_counts;
 static TaskHandle_t s_runner_task_handle = NULL;
 // [FREERTOS] Mutex que protege estado compartido del runner.
 static SemaphoreHandle_t s_state_mutex = NULL;
+// [CONCURRENCIA] Protegidos por s_state_mutex. PROFILE_SELECT marca una
+// transicion corta para impedir HEAD_ACTION mientras se carga y aplica el perfil.
+static bool s_profile_switch_in_progress = false;
+static bool s_profile_info_in_progress = false;
 
 static void app_head_state_lock(void);
 static void app_head_state_unlock(void);
@@ -145,10 +153,32 @@ static bool app_head_emit_state_event(const char *action,
                                       int value,
                                       app_reply_fn_t reply,
                                       void *ctx);
+static app_head_module_counts_t app_head_counts_from_profile(const HeadRuntimeProfile *profile);
+static esp_err_t app_head_select_profile_file(const char *file_name,
+                                             const char *command_name,
+                                             app_reply_fn_t reply,
+                                             void *ctx);
+static esp_err_t app_head_profile_list(app_reply_fn_t reply, void *ctx);
+static esp_err_t app_head_profile_info_file(const char *file_name, app_reply_fn_t reply, void *ctx);
+static esp_err_t app_head_profile_active(app_reply_fn_t reply, void *ctx);
+static esp_err_t app_head_execute_runtime_action(const HeadRuntimeProfile *profile,
+                                                 const HeadRuntimeAction *action_def,
+                                                 const char *target_action,
+                                                 app_head_j_dynamic_context_t *dynamic_ctx,
+                                                 int64_t start_us,
+                                                 long long start_ms,
+                                                 app_reply_fn_t reply,
+                                                 void *ctx,
+                                                 const app_command_env_t *env,
+                                                 app_head_action_result_t *result);
 
 typedef struct {
     char program[APP_HEAD_MAX_NAME_LEN + 1];
     char action[APP_HEAD_MAX_ACTION_LEN + 1];
+    const HeadRuntimeProfile *runtime_profile;
+    const HeadRuntimeAction *runtime_action;
+    uint32_t profile_generation;
+    int64_t start_us;
     app_head_j_dynamic_context_t dynamic_ctx;
     app_reply_fn_t reply;
     void *reply_ctx;
@@ -730,6 +760,20 @@ static bool app_head_is_busy_state(app_head_runner_state_t state)
     return state == APP_HEAD_RUNNER_RUNNING || state == APP_HEAD_RUNNER_STOPPING;
 }
 
+bool app_head_program_runner_is_busy(void)
+{
+    bool busy = false;
+
+    if (s_state_mutex == NULL) {
+        return false;
+    }
+
+    app_head_state_lock();
+    busy = app_head_is_busy_state(s_runner_state) || s_profile_switch_in_progress;
+    app_head_state_unlock();
+    return busy;
+}
+
 /**
  * [POR QUE EXISTE]
  * Guarda el ultimo error visible por HEAD_STATUS.
@@ -999,6 +1043,24 @@ static app_head_module_counts_t app_head_default_module_counts(void)
     return counts;
 }
 
+// [ACURATEX] Convierte el perfil RAM activo a los conteos usados por HEAD_STATUS
+// y validaciones de acciones directas J.
+static app_head_module_counts_t app_head_counts_from_profile(const HeadRuntimeProfile *profile)
+{
+    app_head_module_counts_t counts = app_head_default_module_counts();
+
+    if (profile == NULL) {
+        return counts;
+    }
+
+    counts.den_count = profile->modules.den_count;
+    counts.sic_count = profile->modules.sic_count;
+    counts.j_count = profile->modules.j_count;
+    counts.yarn_count = profile->modules.yarn_count;
+    counts.stitch_count = profile->modules.stitch_count;
+    counts.has_explicit_configuration = profile->modules.has_explicit_configuration;
+    return counts;
+}
 // [ACURATEX] Mapea el nombre textual de modulo a su contador, default y maximo.
 static bool app_head_try_get_module_slot(app_head_module_counts_t *counts,
                                          const char *module_name,
@@ -1681,6 +1743,194 @@ static esp_err_t app_head_execute_allowed_line(const char *line,
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+static esp_err_t app_head_execute_runtime_action(const HeadRuntimeProfile *profile,
+                                                 const HeadRuntimeAction *action_def,
+                                                 const char *target_action,
+                                                 app_head_j_dynamic_context_t *dynamic_ctx,
+                                                 int64_t start_us,
+                                                 long long start_ms,
+                                                 app_reply_fn_t reply,
+                                                 void *ctx,
+                                                 const app_command_env_t *env,
+                                                 app_head_action_result_t *result)
+{
+    int active_bus;
+    const char *active_bus_name;
+    bool first_can_reported = false;
+
+    if (result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(result, 0, sizeof(*result));
+
+    if (profile == NULL || action_def == NULL || target_action == NULL || reply == NULL || env == NULL) {
+        snprintf(result->error, sizeof(result->error), "NO_RUNTIME_ACTION");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    result->found = true;
+    result->has_value = action_def->has_value;
+    result->value = action_def->value;
+    active_bus = env->active_bus == APP_CMD_CAN_BUS_NONE ? APP_CMD_CAN_BUS_1 : env->active_bus;
+    active_bus_name = active_bus == APP_CMD_CAN_BUS_2 ? "CAN2" : "CAN1";
+
+    app_head_set_stage("RAM_BLOCK_FOUND");
+    (void)app_head_reply_logged(reply, ctx, "HEAD_TASK_STAGE|RAM_BLOCK_FOUND");
+
+    for (size_t i = 0; i < action_def->command_count; ++i) {
+        const HeadRuntimeCommand *command = &profile->commands[(size_t)action_def->first_command + i];
+        const char *line = app_profile_command_text(profile, command);
+
+        app_head_state_lock();
+        s_current_line = command->line_number;
+        app_head_state_unlock();
+
+        ESP_LOGI(TAG, "HEAD_LINE_RAM|%d|%s", command->line_number, line);
+        app_head_set_stage("EXECUTE_RAM_COMMAND");
+        (void)app_head_replyf(reply,
+                              ctx,
+                              "HEAD_TASK_STAGE|EXECUTE_RAM_COMMAND|LINE=%d|TEXT=%s",
+                              command->line_number,
+                              line);
+
+        if (s_stop_requested) {
+            snprintf(result->error, sizeof(result->error), "STOPPED");
+            result->error_line = command->line_number;
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        switch (command->type) {
+        case APP_PROFILE_RUNTIME_COMMAND_WAIT:
+            if (command->wait_ms > 0) {
+                ESP_LOGI(TAG, "HEAD_WAIT_BEGIN|MS=%d|TIME=%lld", command->wait_ms, app_head_now_ms());
+                esp_err_t wait_err = app_head_wait_cancelable(target_action,
+                                                              command->line_number,
+                                                              command->wait_ms,
+                                                              start_ms,
+                                                              reply,
+                                                              ctx);
+                if (wait_err != ESP_OK) {
+                    snprintf(result->error, sizeof(result->error), "STOPPED");
+                    result->error_line = command->line_number;
+                    return wait_err;
+                }
+                ESP_LOGI(TAG, "HEAD_WAIT_END|MS=%d|TIME=%lld", command->wait_ms, app_head_now_ms());
+            }
+            break;
+
+        case APP_PROFILE_RUNTIME_COMMAND_CAN_SELECT:
+            active_bus = command->can_bus == APP_CMD_CAN_BUS_2 ? APP_CMD_CAN_BUS_2 : APP_CMD_CAN_BUS_1;
+            active_bus_name = active_bus == APP_CMD_CAN_BUS_2 ? "CAN2" : "CAN1";
+            if (env->can_select_bus(active_bus) != ESP_OK) {
+                snprintf(result->error,
+                         sizeof(result->error),
+                         "CAN_SELECT_FAILED|%s",
+                         active_bus_name);
+                result->error_line = command->line_number;
+                return ESP_FAIL;
+            }
+            (void)app_head_reply_logged(reply, ctx, active_bus == APP_CMD_CAN_BUS_2 ? "OK CAN2" : "OK CAN1");
+            break;
+
+        case APP_PROFILE_RUNTIME_COMMAND_STATUS:
+            (void)app_head_reply_status_line(reply, ctx, env);
+            break;
+
+        case APP_PROFILE_RUNTIME_COMMAND_SEND:
+        case APP_PROFILE_RUNTIME_COMMAND_SEND_DYNAMIC: {
+            uint32_t can_id = command->can_id;
+            uint8_t data[APP_HEAD_PROFILE_MAX_DLC] = {0};
+            size_t dlc = command->dlc;
+            bool used_placeholder = false;
+
+            if (command->type == APP_PROFILE_RUNTIME_COMMAND_SEND_DYNAMIC) {
+                char expanded_line[APP_HEAD_MAX_LINE_LEN];
+                char error[96];
+                const char *payload = NULL;
+
+                esp_err_t expand_err = app_head_expand_send_line(line,
+                                                                 dynamic_ctx,
+                                                                 expanded_line,
+                                                                 sizeof(expanded_line),
+                                                                 &used_placeholder,
+                                                                 error,
+                                                                 sizeof(error));
+                if (expand_err != ESP_OK) {
+                    strlcpy(result->error, error[0] != '\0' ? error : "J_DYNAMIC_EXPAND", sizeof(result->error));
+                    result->error_line = command->line_number;
+                    return expand_err;
+                }
+
+                payload = expanded_line;
+                if (app_head_command_has_prefix(expanded_line, "send")) {
+                    payload = expanded_line + 4;
+                } else if (app_head_command_has_prefix(expanded_line, "CAN")) {
+                    payload = expanded_line + 3;
+                }
+                while (*payload == ' ' || *payload == '\t' || *payload == '|') {
+                    payload++;
+                }
+
+                if (!app_parse_frame_line(payload, &can_id, data, &dlc, env->can_max_frame_len, env->can_std_id_mask)) {
+                    snprintf(result->error, sizeof(result->error), "FRAME_INVALID|LINE=%d", command->line_number);
+                    result->error_line = command->line_number;
+                    return ESP_ERR_INVALID_ARG;
+                }
+            } else {
+                memcpy(data, command->data, dlc);
+            }
+
+            if (!first_can_reported) {
+                int64_t first_can_us = esp_timer_get_time() - start_us;
+                ESP_LOGI(TAG, "ACTION_TIMING|FIRST_CAN_US=%lld|ACTION=%s", (long long)first_can_us, target_action);
+                (void)app_head_replyf(reply, ctx, "ACTION_TIMING|FIRST_CAN_US=%lld", (long long)first_can_us);
+                first_can_reported = true;
+            }
+
+            ESP_LOGI(TAG, "CAN_TX_BEGIN|ID=0x%03" PRIX32 "|DLC=%u|SOURCE=RAM", can_id, (unsigned)dlc);
+            esp_err_t tx_err = env->can_send_standard(active_bus, can_id, data, dlc);
+            if (tx_err != ESP_OK) {
+                ESP_LOGE(TAG, "CAN_TX_RESULT|RESULT=%s|ID=0x%03" PRIX32, esp_err_to_name(tx_err), can_id);
+                snprintf(result->error, sizeof(result->error), "CAN_TX_FAILED|CODE=%d", (int)tx_err);
+                result->error_line = command->line_number;
+                return tx_err;
+            }
+
+            if (dynamic_ctx != NULL && dynamic_ctx->active && used_placeholder) {
+                if (!app_head_state_manager_commit_j_physical_register(dynamic_ctx->instance,
+                                                                       dynamic_ctx->candidate_physical)) {
+                    snprintf(result->error,
+                             sizeof(result->error),
+                             "J_DYNAMIC_COMMIT_FAILED|J%u",
+                             (unsigned)dynamic_ctx->instance);
+                    result->error_line = command->line_number;
+                    return ESP_ERR_INVALID_STATE;
+                }
+                dynamic_ctx->state_committed = true;
+                dynamic_ctx->active = false;
+            }
+
+            ESP_LOGI(TAG, "CAN_TX_RESULT|RESULT=OK|ID=0x%03" PRIX32 "|DLC=%u", can_id, (unsigned)dlc);
+            (void)app_head_replyf(reply,
+                                  ctx,
+                                  "TX_OK bus=%s id=0x%03" PRIX32 " dlc=%u",
+                                  active_bus_name,
+                                  can_id,
+                                  (unsigned)dlc);
+            app_head_emit_progress(reply, ctx, target_action, command->line_number, start_ms);
+            break;
+        }
+
+        default:
+            snprintf(result->error, sizeof(result->error), "UNSUPPORTED_COMMAND|LINE=%d", command->line_number);
+            result->error_line = command->line_number;
+            return ESP_ERR_NOT_SUPPORTED;
+        }
+    }
+
+    return ESP_OK;
+}
 /**
  * [POR QUE EXISTE]
  * Interpreta el encabezado `BEGIN|accion` y extrae opcionalmente `VALUE=`.
@@ -2214,10 +2464,12 @@ static void app_head_run_action_task(void *parameter)
         goto cleanup;
     }
 
-    err = app_head_find_and_execute_action(
-        args->program,
+    err = app_head_execute_runtime_action(
+        args->runtime_profile,
+        args->runtime_action,
         action,
         &args->dynamic_ctx,
+        args->start_us,
         args->start_ms,
         args->reply,
         args->reply_ctx,
@@ -2902,56 +3154,332 @@ static bool app_head_emit_state_event(const char *action,
  * [SI NO EXISTIERA]
  * HEAD_ACTION no sabria que TXT abrir.
  */
-static esp_err_t app_head_select_program(const char *file_name, app_reply_fn_t reply, void *ctx)
+static const char *app_head_profile_origin_text(app_profile_origin_t origin)
 {
-    char clean_name[APP_HEAD_MAX_NAME_LEN + 1];
-    bool exists = false;
-    app_head_runner_state_t current_state;
-    char current_action[APP_HEAD_MAX_ACTION_LEN + 1];
+    return origin == APP_PROFILE_ORIGIN_FILE ? "FILE" : "COMPILED_FALLBACK";
+}
 
-    if (file_name == NULL) {
-        ESP_LOGI(TAG, "HEAD SELECT: file=<null>");
-        return app_head_reply_logged(reply, ctx, "ERR|HEAD_PROGRAM_SELECT|INVALID_NAME|<null>");
+static void app_head_profile_version_text(const HeadRuntimeProfile *profile, char *buffer, size_t buffer_len)
+{
+    if (buffer == NULL || buffer_len == 0) {
+        return;
     }
 
-    strlcpy(clean_name, file_name, sizeof(clean_name));
-    app_trim_line(clean_name);
-    if (!app_head_is_valid_program_name(clean_name)) {
-        return app_head_replyf(reply, ctx, "ERR|HEAD_PROGRAM_SELECT|INVALID_NAME|%s",
-                               clean_name[0] == '\0' ? "<empty>" : clean_name);
+    if (profile != NULL && profile->has_version) {
+        snprintf(buffer, buffer_len, "%" PRIu32, profile->version);
+    } else {
+        strlcpy(buffer, "NONE", buffer_len);
+    }
+}
+
+static void app_head_profile_crc_text(const HeadRuntimeProfile *profile, char *buffer, size_t buffer_len)
+{
+    if (buffer == NULL || buffer_len == 0) {
+        return;
     }
 
-    exists = app_head_program_exists(clean_name);
-    if (!exists) {
-        return app_head_replyf(reply, ctx, "ERR|HEAD_PROGRAM_SELECT|FILE_NOT_FOUND|%s", clean_name);
+    if (profile != NULL && profile->origin == APP_PROFILE_ORIGIN_FILE) {
+        snprintf(buffer, buffer_len, "0x%08" PRIX32, profile->has_declared_crc ? profile->declared_crc32 : profile->computed_crc32);
+    } else {
+        strlcpy(buffer, "NONE", buffer_len);
+    }
+}
+
+static int app_head_profile_module_total(const HeadRuntimeProfile *profile)
+{
+    if (profile == NULL) {
+        return 0;
+    }
+
+    return profile->modules.den_count
+        + profile->modules.sic_count
+        + profile->modules.j_count
+        + profile->modules.yarn_count
+        + profile->modules.stitch_count
+        + profile->modules.feet_count;
+}
+
+static bool app_head_profile_info_begin(char *reason, size_t reason_len)
+{
+    bool ok = false;
+
+    app_head_state_lock();
+    if (s_profile_switch_in_progress) {
+        strlcpy(reason, "PROFILE_SWITCHING", reason_len);
+    } else if (s_profile_info_in_progress) {
+        strlcpy(reason, "PROFILE_INFO_BUSY", reason_len);
+    } else {
+        s_profile_info_in_progress = true;
+        ok = true;
+    }
+    app_head_state_unlock();
+
+    return ok;
+}
+
+static void app_head_profile_info_end(void)
+{
+    app_head_state_lock();
+    s_profile_info_in_progress = false;
+    app_head_state_unlock();
+}
+
+static bool app_head_profile_switch_begin(char *reason, size_t reason_len)
+{
+    bool ok = false;
+
+    app_head_state_lock();
+    if (app_head_is_busy_state(s_runner_state)) {
+        snprintf(reason, reason_len, "ACTION_ACTIVE|%s", s_current_action[0] != '\0' ? s_current_action : "NONE");
+    } else if (s_profile_switch_in_progress) {
+        strlcpy(reason, "PROFILE_SWITCHING", reason_len);
+    } else if (s_profile_info_in_progress) {
+        strlcpy(reason, "PROFILE_INFO_BUSY", reason_len);
+    } else {
+        s_profile_switch_in_progress = true;
+        ok = true;
+    }
+    app_head_state_unlock();
+
+    if (!ok) {
+        return false;
+    }
+
+    if (app_head_fast_diag_is_busy() || app_head_state_manager_has_active_motion()) {
+        app_head_state_lock();
+        s_profile_switch_in_progress = false;
+        app_head_state_unlock();
+        strlcpy(reason, "TRANSITION_ACTIVE", reason_len);
+        return false;
+    }
+
+    return true;
+}
+
+static void app_head_profile_switch_end(void)
+{
+    app_head_state_lock();
+    s_profile_switch_in_progress = false;
+    app_head_state_unlock();
+}
+
+static void app_head_sync_active_profile_state(const HeadRuntimeProfile *profile)
+{
+    if (profile == NULL) {
+        return;
     }
 
     app_head_state_lock();
-    current_state = s_runner_state;
-    strlcpy(current_action, s_current_action, sizeof(current_action));
-    if (app_head_is_busy_state(current_state)) {
-        app_head_state_unlock();
-        return app_head_replyf(reply, ctx, "ERR|HEAD_PROGRAM_SELECT|BUSY|%s",
-                               current_action[0] == '\0' ? "NONE" : current_action);
-    }
-
     app_head_state_manager_stop_all_j_runs();
-    // [ACURATEX] A partir de este punto el archivo pasa a ser la fuente activa
-    // para HEAD_ACTION.
-    strlcpy(s_active_program, clean_name, sizeof(s_active_program));
+    strlcpy(s_active_program,
+            profile->filename[0] != '\0' ? profile->filename : profile->profile_name,
+            sizeof(s_active_program));
     s_runner_state = APP_HEAD_RUNNER_IDLE;
     s_current_action[0] = '\0';
     s_current_line = 0;
     s_action_start_ms = 0;
     app_head_set_error("");
-    app_head_load_module_counts_from_program(s_active_program);
+    s_module_counts = app_head_counts_from_profile(profile);
     s_runner_task_handle = NULL;
     s_stop_requested = false;
+    s_profile_switch_in_progress = false;
     app_head_state_unlock();
-
-    return app_head_replyf(reply, ctx, "OK|HEAD_PROGRAM_SELECT|%s", s_active_program);
 }
 
+static esp_err_t app_head_reply_profile_file_summary(const char *prefix,
+                                                     const HeadRuntimeProfile *profile,
+                                                     app_reply_fn_t reply,
+                                                     void *ctx)
+{
+    char version[24];
+    char crc[24];
+
+    if (profile == NULL || prefix == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    app_head_profile_version_text(profile, version, sizeof(version));
+    app_head_profile_crc_text(profile, crc, sizeof(crc));
+    return app_head_replyf(reply,
+                           ctx,
+                           "%s|FILE=%s|PROFILE=%s|VERSION=%s|CRC=%s|CRC_DECLARED=%u|ACTIONS=%u|COMMANDS=%u|MODULES=%d|VALID=1",
+                           prefix,
+                           profile->filename,
+                           profile->profile_name,
+                           version,
+                           crc,
+                           profile->has_declared_crc ? 1U : 0U,
+                           (unsigned)profile->action_count,
+                           (unsigned)profile->command_count,
+                           app_head_profile_module_total(profile));
+}
+
+static esp_err_t app_head_profile_list(app_reply_fn_t reply, void *ctx)
+{
+    char reason[64] = {0};
+    DIR *dir = NULL;
+    struct dirent *entry = NULL;
+    size_t count = 0;
+    HeadRuntimeProfile *scratch = NULL;
+
+    if (!app_head_profile_info_begin(reason, sizeof(reason))) {
+        return app_head_replyf(reply, ctx, "ERR|PROFILE_LIST|BUSY|%s", reason[0] != '\0' ? reason : "UNKNOWN");
+    }
+
+    scratch = app_profile_get_inactive_scratch();
+    dir = opendir(APP_HEAD_FS_BASE);
+    if (dir == NULL || scratch == NULL) {
+        if (dir != NULL) {
+            closedir(dir);
+        }
+        app_head_profile_info_end();
+        return app_head_reply_logged(reply, ctx, "ERR|PROFILE_LIST|FILE_FS");
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        if (!app_profile_is_valid_filename(name)) {
+            continue;
+        }
+
+        if (!app_profile_load_from_file(name, scratch)) {
+            continue;
+        }
+
+        (void)app_head_reply_profile_file_summary("PROFILE_LIST", scratch, reply, ctx);
+        count++;
+    }
+
+    closedir(dir);
+    app_head_profile_info_end();
+    return app_head_replyf(reply, ctx, "PROFILE_LIST|COUNT=%u", (unsigned)count);
+}
+
+static esp_err_t app_head_profile_info_file(const char *file_name, app_reply_fn_t reply, void *ctx)
+{
+    char clean_name[APP_HEAD_MAX_NAME_LEN + 1];
+    char reason[64] = {0};
+    HeadRuntimeProfile *scratch = NULL;
+    bool loaded = false;
+
+    if (file_name == NULL) {
+        return app_head_reply_logged(reply, ctx, "ERR|PROFILE_INFO|INVALID_NAME|<null>");
+    }
+
+    strlcpy(clean_name, file_name, sizeof(clean_name));
+    app_trim_line(clean_name);
+    if (!app_profile_is_valid_filename(clean_name)) {
+        return app_head_replyf(reply,
+                               ctx,
+                               "PROFILE_INFO|FILE=%s|VALID=0|ERROR=INVALID_NAME",
+                               clean_name[0] != '\0' ? clean_name : "<empty>");
+    }
+
+    if (!app_head_profile_info_begin(reason, sizeof(reason))) {
+        return app_head_replyf(reply, ctx, "ERR|PROFILE_INFO|BUSY|%s", reason[0] != '\0' ? reason : "UNKNOWN");
+    }
+
+    scratch = app_profile_get_inactive_scratch();
+    loaded = scratch != NULL && app_profile_load_from_file(clean_name, scratch);
+    app_head_profile_info_end();
+
+    if (!loaded) {
+        return app_head_replyf(reply,
+                               ctx,
+                               "PROFILE_INFO|FILE=%s|VALID=0|ERROR=INVALID_PROFILE",
+                               clean_name);
+    }
+
+    return app_head_reply_profile_file_summary("PROFILE_INFO", scratch, reply, ctx);
+}
+
+static esp_err_t app_head_profile_active(app_reply_fn_t reply, void *ctx)
+{
+    const HeadRuntimeProfile *profile = app_profile_get_active();
+    char version[24];
+    char crc[24];
+
+    if (profile == NULL) {
+        return app_head_reply_logged(reply, ctx, "ERR|PROFILE_ACTIVE|NO_PROFILE");
+    }
+
+    app_head_profile_version_text(profile, version, sizeof(version));
+    app_head_profile_crc_text(profile, crc, sizeof(crc));
+    return app_head_replyf(reply,
+                           ctx,
+                           "PROFILE_ACTIVE|FILE=%s|PROFILE=%s|VERSION=%s|CRC=%s|GEN=%" PRIu32 "|ORIGIN=%s|ACTIONS=%u|COMMANDS=%u",
+                           profile->filename[0] != '\0' ? profile->filename : "COMPILED",
+                           profile->profile_name,
+                           version,
+                           crc,
+                           profile->generation,
+                           app_head_profile_origin_text(profile->origin),
+                           (unsigned)profile->action_count,
+                           (unsigned)profile->command_count);
+}
+
+static esp_err_t app_head_select_profile_file(const char *file_name,
+                                             const char *command_name,
+                                             app_reply_fn_t reply,
+                                             void *ctx)
+{
+    char clean_name[APP_HEAD_MAX_NAME_LEN + 1];
+    char reason[64] = {0};
+    esp_err_t err;
+
+    if (file_name == NULL || command_name == NULL) {
+        return app_head_replyf(reply, ctx, "ERR|%s|INVALID_NAME|<null>", command_name != NULL ? command_name : "PROFILE_SELECT");
+    }
+
+    strlcpy(clean_name, file_name, sizeof(clean_name));
+    app_trim_line(clean_name);
+    if (!app_profile_is_valid_filename(clean_name)) {
+        return app_head_replyf(reply,
+                               ctx,
+                               "ERR|%s|INVALID_NAME|%s",
+                               command_name,
+                               clean_name[0] != '\0' ? clean_name : "<empty>");
+    }
+
+    if (!app_head_profile_switch_begin(reason, sizeof(reason))) {
+        return app_head_replyf(reply,
+                               ctx,
+                               "ERR|%s|BUSY|%s",
+                               command_name,
+                               reason[0] != '\0' ? reason : "UNKNOWN");
+    }
+
+    err = app_profile_select(clean_name);
+    if (err == ESP_OK || app_profile_is_active_filename(clean_name)) {
+        const HeadRuntimeProfile *profile = app_profile_get_active();
+        app_head_sync_active_profile_state(profile);
+    } else {
+        app_head_profile_switch_end();
+    }
+
+    if (err == ESP_OK) {
+        return app_head_replyf(reply, ctx, "OK|%s|%s", command_name, clean_name);
+    }
+
+    if (app_profile_is_active_filename(clean_name)) {
+        return app_head_replyf(reply,
+                               ctx,
+                               "ERR|%s|SAVE_SELECTED|%s|RAM_ACTIVE=1",
+                               command_name,
+                               clean_name);
+    }
+
+    return app_head_replyf(reply,
+                           ctx,
+                           "ERR|%s|%s|%s",
+                           command_name,
+                           esp_err_to_name(err),
+                           clean_name);
+}
+static esp_err_t app_head_select_program(const char *file_name, app_reply_fn_t reply, void *ctx)
+{
+    return app_head_select_profile_file(file_name, "HEAD_PROGRAM_SELECT", reply, ctx);
+}
 /**
  * [POR QUE EXISTE]
  * Implementa HEAD_STATUS para reportar estado detallado del runner y del
@@ -3418,13 +3946,14 @@ static esp_err_t app_head_run_action(const char *action,
     BaseType_t task_ok;
     const UBaseType_t head_stack_size = 8192;
     size_t free_heap = 0;
+    const HeadRuntimeProfile *active_profile = NULL;
+    const HeadRuntimeAction *runtime_action = NULL;
+    uint32_t active_generation = 0;
+    int64_t action_start_us = 0;
+    int64_t lookup_us = 0;
+    long long action_start_ms_snapshot = 0;
 
-    if (s_active_program[0] == '\0') {
-        // [ACURATEX] Sin HEAD_PROGRAM_SELECT previo no hay archivo TXT que abrir.
-        return app_head_reply_logged(reply, ctx, "ERR|HEAD_ACTION|NO_PROGRAM");
-    }
-
-    if (action == NULL) {
+    if (action == NULL || env == NULL) {
         return app_head_reply_logged(reply, ctx, "ERR|HEAD_ACTION|INVALID_ACTION");
     }
 
@@ -3462,6 +3991,10 @@ static esp_err_t app_head_run_action(const char *action,
     app_head_state_lock();
     current_state = s_runner_state;
     strlcpy(current_action, s_current_action, sizeof(current_action));
+    if (s_profile_switch_in_progress) {
+        app_head_state_unlock();
+        return app_head_reply_logged(reply, ctx, "ERR|HEAD_ACTION|PROFILE_SWITCHING");
+    }
     if (app_head_is_busy_state(current_state)) {
         app_head_state_unlock();
         return app_head_replyf(reply, ctx, "ERR|HEAD_ACTION|BUSY|%s",
@@ -3472,10 +4005,49 @@ static esp_err_t app_head_run_action(const char *action,
     s_runner_state = APP_HEAD_RUNNER_RUNNING;
     s_current_line = 0;
     s_action_start_ms = app_head_now_ms();
+    action_start_ms_snapshot = s_action_start_ms;
     strlcpy(s_current_action, clean_action, sizeof(s_current_action));
     app_head_set_error("");
     s_runner_task_handle = NULL;
     app_head_state_unlock();
+
+    action_start_us = esp_timer_get_time();
+    active_profile = app_profile_get_active();
+    if (active_profile == NULL || active_profile->origin != APP_PROFILE_ORIGIN_FILE) {
+        app_head_state_lock();
+        s_runner_state = APP_HEAD_RUNNER_ERROR;
+        s_current_action[0] = '\0';
+        s_current_line = 0;
+        s_action_start_ms = 0;
+        app_head_set_error("NO_DYNAMIC_PROFILE");
+        s_runner_task_handle = NULL;
+        s_stop_requested = false;
+        app_head_state_unlock();
+        return app_head_reply_logged(reply, ctx, "ERR|HEAD_ACTION|NO_DYNAMIC_PROFILE");
+    }
+
+    runtime_action = app_profile_find_action(active_profile, clean_action);
+    lookup_us = esp_timer_get_time() - action_start_us;
+    ESP_LOGI(TAG, "ACTION_TIMING|LOOKUP_US=%lld|ACTION=%s|GEN=%" PRIu32,
+             (long long)lookup_us,
+             clean_action,
+             active_profile->generation);
+    (void)app_head_replyf(reply, ctx, "ACTION_TIMING|LOOKUP_US=%lld", (long long)lookup_us);
+
+    if (runtime_action == NULL) {
+        app_head_state_lock();
+        s_runner_state = APP_HEAD_RUNNER_ERROR;
+        s_current_action[0] = '\0';
+        s_current_line = 0;
+        s_action_start_ms = 0;
+        app_head_set_error("NO_RUNTIME_ACTION");
+        s_runner_task_handle = NULL;
+        s_stop_requested = false;
+        app_head_state_unlock();
+        return app_head_replyf(reply, ctx, "ERR|HEAD_ACTION|NO_RUNTIME_ACTION|%s", clean_action);
+    }
+
+    active_generation = active_profile->generation;
 
     task_args = (app_head_runner_task_args_t *)calloc(1, sizeof(app_head_runner_task_args_t));
     if (task_args == NULL) {
@@ -3489,9 +4061,6 @@ static esp_err_t app_head_run_action(const char *action,
     }
 
     if (ctx != NULL && env->reply_ctx_clone != NULL) {
-        // [RTOS] El contexto puede apuntar a una ruta de respuesta creada en el
-        // dispatcher. Se clona para que head_action_task no guarde punteros a
-        // stack ni sockets crudos despues de que el handler retorne.
         reply_ctx_copy = env->reply_ctx_clone(ctx);
         if (reply_ctx_copy == NULL) {
             free(task_args);
@@ -3511,14 +4080,15 @@ static esp_err_t app_head_run_action(const char *action,
         task_args->reply_ctx_owned = false;
     }
 
-    strlcpy(task_args->program, s_active_program, sizeof(task_args->program));
+    strlcpy(task_args->program, active_profile->filename, sizeof(task_args->program));
     strlcpy(task_args->action, clean_action, sizeof(task_args->action));
-    // [ACURATEX] Para Jx.CHy se captura ahora el estado fisico anterior y el
-    // byte candidato. La tarea usara este contexto mas adelante cuando encuentre
-    // `XX` en una linea `send`.
+    task_args->runtime_profile = active_profile;
+    task_args->runtime_action = runtime_action;
+    task_args->profile_generation = active_generation;
+    task_args->start_us = action_start_us;
     (void)app_head_parse_dynamic_j_action(clean_action, &task_args->dynamic_ctx);
     task_args->reply = reply;
-    task_args->start_ms = s_action_start_ms;
+    task_args->start_ms = action_start_ms_snapshot;
     task_args->env = *env;
 
     if (app_head_parse_j_action_details(clean_action,
@@ -3529,16 +4099,11 @@ static esp_err_t app_head_run_action(const char *action,
                                         sizeof(action_type))) {
         bool running = false;
 
-        // [ACURATEX] Esta comprobacion conserva literalmente la condicion del
-        // firmware: compara `CH` exacto, ademas de ON_ALL/OFF_ALL. Las acciones
-        // Jx.CHn dinamicas se detectan antes con app_head_parse_dynamic_j_action().
         if ((strcasecmp(action_type, "CH") == 0
              || strcasecmp(action_type, "ON_ALL") == 0
              || strcasecmp(action_type, "OFF_ALL") == 0)
             && app_head_state_manager_get_j_status((uint8_t)instance_number, NULL, &running)
             && running) {
-            // [ACURATEX] Si esta condicion aplica, se detiene RUN antes de
-            // lanzar el bloque TXT para que la accion no compita con el barrido.
             (void)app_head_state_manager_stop_j_run((uint8_t)instance_number);
         }
     }
@@ -3551,9 +4116,6 @@ static esp_err_t app_head_run_action(const char *action,
                                   sizeof(action_type))
             && app_head_instance_starts_with(action_instance, "J")
             && strncasecmp(action_type, "CH", 2) == 0) {
-            // [ACURATEX] Una accion Jx.CHn sin contexto dinamico valido se
-            // rechaza. Esto evita ejecutar un bloque TXT que esperaba XX sin
-            // saber que byte fisico corresponde.
             app_head_release_task_args(task_args);
             free(task_args);
             app_head_state_lock();
@@ -3569,16 +4131,16 @@ static esp_err_t app_head_run_action(const char *action,
         }
     }
 
-    ESP_LOGI(TAG, "FW_RX|HEAD_ACTION|%s", clean_action);
+    ESP_LOGI(TAG, "FW_RX|HEAD_ACTION|%s|PROFILE=%s|GEN=%" PRIu32,
+             clean_action,
+             active_profile->filename,
+             active_generation);
     app_head_set_stage("TASK_CREATE_BEGIN");
     free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     (void)app_head_replyf(reply, ctx, "HEAD_TASK_CREATE_BEGIN|FREE_HEAP=%u|STACK=%u",
                           (unsigned)free_heap,
                           (unsigned)head_stack_size);
 
-    // [FREERTOS] xTaskCreatePinnedToCore lanza la ejecucion TXT fuera del
-    // contexto que recibio el comando y la fija en Core 1 para que no dependa
-    // de la recepcion USB/TCP.
     task_ok = xTaskCreatePinnedToCore(
         app_head_run_action_task,
         "head_action_task",
@@ -3613,13 +4175,12 @@ static esp_err_t app_head_run_action(const char *action,
 
     (void)app_head_replyf(reply, ctx, "HEAD_ACTION_START|%s", clean_action);
     if (strcasecmp(clean_action, "INIT") == 0) {
-        (void)app_head_replyf(reply, ctx, "HEAD_INIT_START|TIME=%lld", s_action_start_ms);
+        (void)app_head_replyf(reply, ctx, "HEAD_INIT_START|TIME=%lld", action_start_ms_snapshot);
     }
 
     (void)app_head_replyf(reply, ctx, "OK|HEAD_ACTION_STARTED|%s", clean_action);
     return ESP_OK;
 }
-
 /**
  * [POR QUE EXISTE]
  * Inicializa el runner de programas de Cabezal al arrancar el firmware.
@@ -3654,13 +4215,23 @@ static esp_err_t app_head_run_action(const char *action,
  */
 void app_head_program_runner_init()
 {
+    const HeadRuntimeProfile *profile = app_profile_get_active();
+
     if (s_state_mutex == NULL) {
         // [FREERTOS] Mutex que protege estado entre app_main/TCP y tarea de accion.
         s_state_mutex = xSemaphoreCreateMutex();
     }
 
     app_head_state_lock();
-    s_active_program[0] = '\0';
+    if (profile != NULL) {
+        strlcpy(s_active_program,
+                profile->filename[0] != '\0' ? profile->filename : profile->profile_name,
+                sizeof(s_active_program));
+        s_module_counts = app_head_counts_from_profile(profile);
+    } else {
+        s_active_program[0] = '\0';
+        s_module_counts = app_head_default_module_counts();
+    }
     s_current_action[0] = '\0';
     s_current_line = 0;
     s_action_start_ms = 0;
@@ -3669,12 +4240,16 @@ void app_head_program_runner_init()
     s_stop_requested = false;
     s_runner_state = APP_HEAD_RUNNER_IDLE;
     s_runner_task_handle = NULL;
-    s_module_counts = app_head_default_module_counts();
+    s_profile_switch_in_progress = false;
+    s_profile_info_in_progress = false;
     app_head_state_unlock();
 
+    ESP_LOGI(TAG,
+             "HEAD_RUNNER_INIT|PROFILE=%s|ORIGIN=%s",
+             profile != NULL && profile->filename[0] != '\0' ? profile->filename : "NONE",
+             profile != NULL ? app_head_profile_origin_text(profile->origin) : "NONE");
     (void)app_head_state_manager_init();
 }
-
 /**
  * [POR QUE EXISTE]
  * Permite a command_processor.cpp reconocer si una linea pertenece a HEAD_*.
@@ -3710,13 +4285,16 @@ void app_head_program_runner_init()
 bool app_head_program_is_command(const char *line)
 {
     return line != NULL
-        && (app_head_command_has_prefix(line, "HEAD_PROGRAM_SELECT")
+        && (app_head_command_has_prefix(line, "PROFILE_LIST")
+            || app_head_command_has_prefix(line, "PROFILE_SELECT")
+            || app_head_command_has_prefix(line, "PROFILE_INFO")
+            || app_head_command_has_prefix(line, "PROFILE_ACTIVE")
+            || app_head_command_has_prefix(line, "HEAD_PROGRAM_SELECT")
             || app_head_command_has_prefix(line, "HEAD_PROGRAM_INFO")
             || app_head_command_has_prefix(line, "HEAD_ACTION")
             || app_head_command_has_prefix(line, "HEAD_STOP")
             || app_head_command_has_prefix(line, "HEAD_STATUS"));
 }
-
 /**
  * [POR QUE EXISTE]
  * Es el dispatcher publico de todos los comandos HEAD_*.
@@ -3766,6 +4344,21 @@ esp_err_t app_head_program_process_line(const char *incoming_line,
     app_trim_line(line);
     ESP_LOGI(TAG, "HEAD RX: %s", line);
 
+    if (strcasecmp(line, "PROFILE_LIST") == 0) {
+        return app_head_profile_list(reply, ctx);
+    }
+
+    if (strncasecmp(line, "PROFILE_SELECT|", 15) == 0) {
+        return app_head_select_profile_file(line + 15, "PROFILE_SELECT", reply, ctx);
+    }
+
+    if (strncasecmp(line, "PROFILE_INFO|", 13) == 0) {
+        return app_head_profile_info_file(line + 13, reply, ctx);
+    }
+
+    if (strcasecmp(line, "PROFILE_ACTIVE") == 0) {
+        return app_head_profile_active(reply, ctx);
+    }
     if (strncasecmp(line, "HEAD_PROGRAM_SELECT|", 20) == 0) {
         // [ACURATEX] El nombre empieza justo despues del separador.
         return app_head_select_program(line + 20, reply, ctx);
