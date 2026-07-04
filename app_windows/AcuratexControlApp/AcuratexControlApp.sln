@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AcuratexControlApp.Core", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AcuratexControlApp.Transport", "..\AcuratexControlApp.Transport\AcuratexControlApp.Transport.csproj", "{B94DDDCB-1DEE-4B50-AC1D-9F8272CC5E9A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AcuratexControlApp.Tests", "..\AcuratexControlApp.Tests\AcuratexControlApp.Tests.csproj", "{BFFF8C4A-9798-42FB-B4A0-B5F382177686}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

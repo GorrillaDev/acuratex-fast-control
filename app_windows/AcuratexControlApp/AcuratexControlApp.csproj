@@ -11,11 +11,16 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.WindowsForms" Version="8.0.100" />
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AcuratexControlApp.Core\AcuratexControlApp.Core.csproj" />
     <ProjectReference Include="..\AcuratexControlApp.Transport\AcuratexControlApp.Transport.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Data\Sqlite\ESQUEMA_SQLITE_ACURATEX_V1.sql" />
   </ItemGroup>
 
 </Project>

@@ -8,5 +8,11 @@
 *.suo
 *.tmp
 *.log
+**/TestResults/
+*.db
+*.db-wal
+*.db-shm
+*.trx
+*.coverage
 
 UsbSmokeIdf/managed_components/

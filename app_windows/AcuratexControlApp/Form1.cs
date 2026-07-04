@@ -2,9 +2,11 @@
 // Coordina conexión, autenticación, estado visual y el puente con componentes Blazor.
 using System.Drawing;
 using System.IO.Ports;
+using AcuratexControlApp.Data.Sqlite;
 using AcuratexControlApp.Components;
 using AcuratexControlApp.Services;
 using AcuratexControlApp.Services.Auth;
+using AcuratexControlApp.Services.Profiles;
 using Microsoft.AspNetCore.Components.WebView.WindowsForms;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -928,12 +930,14 @@ public partial class Form1 : Form, IMainControlPanelHost
         services.AddSingleton<ICommandFileTransferService>(_ => new CommandFileTransferService(_connection));
         services.AddSingleton<ITesterWifiConfigService>(_ => new TesterWifiConfigService(_connection));
         services.AddSingleton<IHeadProfileService, HeadProfileService>();
+        services.AddAcuratexProfiles();
         services.AddSingleton<IAppScriptExecutionService, AppScriptExecutionService>();
         services.AddSingleton<IHeadStateEventParser, HeadStateEventParser>();
         services.AddSingleton<ILocalTempFileService, LocalTempFileService>();
 
         // [C#] `BuildServiceProvider()` materializa el contenedor de DI.
         _blazorServices = services.BuildServiceProvider();
+        _blazorServices.GetRequiredService<ProfileDatabaseInitializer>().EnsureInitialized();
         // [ACURATEX] La página host HTML contiene el ancla donde Blazor inserta la UI.
         blazorWebView.HostPage = "wwwroot\\index-main.html";
         blazorWebView.Services = _blazorServices;
