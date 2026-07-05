@@ -281,7 +281,7 @@ public static class InitialProfileSeeds
 
         return new InitialProfileSeed(
             new ProfileCreateRequest("programa-1", 1, "Programa 1", "Importado desde kProgram1Commands.", true),
-            new ProfileVersionWriteRequest(1, 1, "CPP_IMPORT inicial de kProgram1Commands.", ProfileSourceKind.CppImport, null, true, commands));
+            new ProfileVersionWriteRequest(1, 1, "CPP_IMPORT inicial de kProgram1Commands.", ProfileSourceKind.CppImport, null, true, commands, Array.Empty<ProfileActionModel>()));
     }
 
     private static InitialProfileSeed CreateProgram2()
@@ -381,7 +381,7 @@ public static class InitialProfileSeeds
 
         return new InitialProfileSeed(
             new ProfileCreateRequest("programa-2", 2, "Programa 2", "Importado desde kProgram2Commands.", true),
-            new ProfileVersionWriteRequest(1, 1, "CPP_IMPORT inicial de kProgram2Commands.", ProfileSourceKind.CppImport, null, true, commands));
+            new ProfileVersionWriteRequest(1, 1, "CPP_IMPORT inicial de kProgram2Commands.", ProfileSourceKind.CppImport, null, true, commands, Array.Empty<ProfileActionModel>()));
     }
 
     private static HeadMotionCommandProfileModel CreateMotionProfile(

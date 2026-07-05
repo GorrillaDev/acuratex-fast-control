@@ -224,6 +224,25 @@ public sealed record HeadCascadeCommandProfileModel(
 
 public sealed record HeadStopCommandProfileModel(bool SendsCanFrame, HeadCanCommandModel? Frame);
 
+public sealed record ProfileActionStepModel(
+    int StepOrder,
+    HeadInitStepKind StepKind,
+    int? Bus,
+    uint? CanId,
+    byte? Dlc,
+    byte[]? Data,
+    int? WaitMs);
+
+public sealed record ProfileActionModel(
+    long Id,
+    string ActionName,
+    string Category,
+    bool Enabled,
+    IReadOnlyList<ProfileActionStepModel> Steps)
+{
+    public int StepCount => Steps.Count;
+}
+
 public sealed record HeadCommandProfileModel(
     int ProgramNumber,
     string ProgramName,
@@ -251,7 +270,8 @@ public sealed record ProfileVersionWriteRequest(
     ProfileSourceKind SourceKind,
     uint? Crc32,
     bool IsPublished,
-    HeadCommandProfileModel Commands);
+    HeadCommandProfileModel Commands,
+    IReadOnlyList<ProfileActionModel> Actions);
 
 public sealed record ProfileVersionSummary(
     long Id,
@@ -290,7 +310,8 @@ public sealed record ProfileListItem(
 public sealed record ProfileVersionDocument(
     ProfileRecord Profile,
     ProfileVersionSummary Version,
-    HeadCommandProfileModel Commands);
+    HeadCommandProfileModel Commands,
+    IReadOnlyList<ProfileActionModel> Actions);
 
 internal static class ProfileSqliteMappings
 {

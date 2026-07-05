@@ -45,7 +45,7 @@ VALUES ($profile_id, $version_number, $schema_version, $notes, $source_kind, $cr
         return GetLastInsertRowId(connection);
     }
 
-    private void InsertProfileVersionContent(SqliteConnection connection, SqliteTransaction transaction, long profileVersionId, HeadCommandProfileModel commands)
+    private void InsertProfileVersionContent(SqliteConnection connection, SqliteTransaction transaction, long profileVersionId, HeadCommandProfileModel commands, IReadOnlyList<ProfileActionModel> actions)
     {
         InsertInitSequence(connection, transaction, profileVersionId, commands.InitSequence);
         InsertTesteo(connection, transaction, profileVersionId, commands.Testeo);
@@ -56,6 +56,7 @@ VALUES ($profile_id, $version_number, $schema_version, $notes, $source_kind, $cr
         InsertCascadeModule(connection, transaction, profileVersionId, commands.Yarn);
         InsertCascadeModule(connection, transaction, profileVersionId, commands.Stitch);
         InsertStop(connection, transaction, profileVersionId, commands.Stop);
+        InsertActions(connection, transaction, profileVersionId, actions);
     }
 
     private void InsertInitSequence(SqliteConnection connection, SqliteTransaction transaction, long profileVersionId, HeadInitCommandSequenceModel sequence)
@@ -372,4 +373,3 @@ LIMIT 1;";
         return value is not null && value is not DBNull;
     }
 }
-

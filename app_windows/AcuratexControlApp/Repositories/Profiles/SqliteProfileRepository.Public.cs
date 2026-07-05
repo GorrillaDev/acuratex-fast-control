@@ -135,7 +135,8 @@ ORDER BY p.profile_key;";
             SourceKind: ProfileSourceKind.Manual,
             Crc32: source.Version.Crc32,
             IsPublished: false,
-            Commands: copiedCommands));
+            Commands: copiedCommands,
+            Actions: source.Actions));
 
         return GetProfileById(created.Id) ?? throw new InvalidOperationException("Duplicated profile could not be reloaded.");
     }
@@ -177,7 +178,7 @@ WHERE id = $profile_id;";
         }
 
         long profileVersionId = InsertProfileVersion(connection, transaction, profileId, versionNumber, request);
-        InsertProfileVersionContent(connection, transaction, profileVersionId, request.Commands);
+        InsertProfileVersionContent(connection, transaction, profileVersionId, request.Commands, request.Actions);
 
         using (SqliteCommand updateProfile = connection.CreateCommand()) {
             updateProfile.Transaction = transaction;
@@ -270,5 +271,3 @@ WHERE id = $profile_id;";
         return DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
     }
 }
-
-

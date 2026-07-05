@@ -49,7 +49,8 @@ WHERE pv.id = $version_id;";
             ?? throw new InvalidOperationException($"Profile '{profileId}' was not found.");
 
         HeadCommandProfileModel commands = LoadCommands(connection, profile, version.Id);
-        return new ProfileVersionDocument(profile, version, commands);
+        IReadOnlyList<ProfileActionModel> actions = LoadActions(connection, version.Id);
+        return new ProfileVersionDocument(profile, version, commands, actions);
     }
 
     private ProfileRecord? LoadProfileRecordById(SqliteConnection connection, long profileId, bool loadVersions)

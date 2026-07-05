@@ -121,7 +121,8 @@ public sealed class ProfileSqliteInfrastructureTests
                 SourceKind: ProfileSourceKind.Manual,
                 Crc32: null,
                 IsPublished: false,
-                Commands: invalidCommands)));
+                Commands: invalidCommands,
+                Actions: Array.Empty<ProfileActionModel>())));
 
         ProfileRecord reloaded = harness.Repository.GetProfileById(profile.Id)
             ?? throw new InvalidOperationException("Program 1 was not reloaded.");
@@ -179,6 +180,7 @@ public sealed class ProfileSqliteInfrastructureTests
         AssertCascade(seed.VersionRequest.Commands.Yarn, actual.Commands.Yarn);
         AssertCascade(seed.VersionRequest.Commands.Stitch, actual.Commands.Stitch);
         AssertStop(seed.VersionRequest.Commands.Stop, actual.Commands.Stop);
+        Assert.Equal(seed.VersionRequest.Actions.Count, actual.Actions.Count);
     }
 
     private static void AssertInitSequence(HeadInitCommandSequenceModel expected, HeadInitCommandSequenceModel actual)
@@ -307,5 +309,3 @@ public sealed class ProfileSqliteInfrastructureTests
         }
     }
 }
-
-

@@ -6,6 +6,8 @@ public sealed record ProfileDatabaseOptions(string DatabaseDirectory, string Dat
 
     public string DatabasePath => Path.Combine(DatabaseDirectory, DatabaseFileName);
 
+    public string ExportDirectory => Path.Combine(DatabaseDirectory, "Exports");
+
     public static ProfileDatabaseOptions CreateDefault()
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
