@@ -149,10 +149,44 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
         // [ACURATEX] El semáforo impide que otra operación de archivo interrumpa esta carga.
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try {
-            return await UploadTextFileWithChunkSizeAsync(
+            return await UploadFileWithChunkSizeAsync(
                 cleanName,
                 fileBytes,
                 FileDataChunkSize,
+                true,
+                true,
+                "Archivo cargado y seleccionado en el tester (chunk=32).",
+                "Archivo cargado en el tester correctamente.",
+                progress,
+                cancellationToken).ConfigureAwait(false);
+        } finally {
+            _operationGate.Release();
+        }
+    }
+
+    public async Task<CommandFileUploadResult> UploadBinaryFileAsync(
+        string fileName,
+        byte[] fileBytes,
+        IProgress<CommandFileUploadProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        EnsureConnected();
+
+        string cleanName = ValidateFileNameOrThrow(fileName);
+        ValidateFileBytesOrThrow(fileBytes);
+
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try {
+            return await UploadFileWithChunkSizeAsync(
+                cleanName,
+                fileBytes,
+                FileDataChunkSize,
+                false,
+                false,
+                "Archivo binario cargado en el tester (chunk=32).",
+                "Archivo binario cargado correctamente.",
                 progress,
                 cancellationToken).ConfigureAwait(false);
         } finally {
@@ -1329,17 +1363,21 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
 
     // [ACURATEX] Ejecuta la subida en varias fases y reporta progreso.
     // [ACURATEX] Parte el archivo en chunks y aplica el protocolo FILE_BEGIN/DATA/END.
-    private async Task<CommandFileUploadResult> UploadTextFileWithChunkSizeAsync(
+    private async Task<CommandFileUploadResult> UploadFileWithChunkSizeAsync(
         string cleanName,
         byte[] fileBytes,
         int chunkSize,
+        bool sendSelectAfterUpload,
+        bool queryInfoAfterUpload,
+        string completedProgressMessage,
+        string successMessage,
         IProgress<CommandFileUploadProgress>? progress,
         CancellationToken cancellationToken)
     {
         // [FLUJO] `FILE_BEGIN` abre la transferencia; luego `FILE_DATA` recorre los chunks y `FILE_END` la cierra.
         // [C#] `Math.Max` evita un total de chunks cero incluso si el archivo es pequenio.
         int totalChunks = Math.Max(1, (fileBytes.Length + chunkSize - 1) / chunkSize);
-        progress?.Report(new CommandFileUploadProgress(0, totalChunks, 0, $"Iniciando transferencia (chunk={chunkSize})..."));
+        progress?.Report(new CommandFileUploadProgress(0, totalChunks, 0, $"Iniciando transferencia (chunk={chunkSize})...", 0, fileBytes.Length, 0, totalChunks));
 
         FileCommandResponse beginResponse = await SendFileCommandAsync(
             $"FILE_BEGIN|{cleanName}|{fileBytes.Length}",
@@ -1376,12 +1414,17 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
                 chunkSize);
 
             int sentChunks = index + 1;
-            int progressPercent = (int)Math.Round(sentChunks * 100d / totalChunks);
+            int sentBytes = offset + chunkLength;
+            int progressPercent = fileBytes.Length <= 0 ? 0 : (int)Math.Round(sentBytes * 100d / fileBytes.Length);
             progress?.Report(new CommandFileUploadProgress(
                 sentChunks,
                 totalChunks,
                 progressPercent,
-                $"Subiendo chunk {sentChunks}/{totalChunks} (chunk={chunkSize})"));
+                $"Subiendo chunk {sentChunks}/{totalChunks} (chunk={chunkSize})",
+                sentBytes,
+                fileBytes.Length,
+                sentChunks,
+                totalChunks));
         }
 
         FileCommandResponse endResponse = await SendFileCommandAsync(
@@ -1391,33 +1434,45 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
             cancellationToken).ConfigureAwait(false);
         ThrowIfFileError(endResponse, "FILE_END");
 
-        FileCommandResponse selectResponse = await SendFileCommandAsync(
-            $"FILE_SELECT|{cleanName}",
-            line => string.Equals(line, $"ACK FILE_SELECT {cleanName}", StringComparison.OrdinalIgnoreCase),
-            IsSelectErrorLine,
-            cancellationToken).ConfigureAwait(false);
-        ThrowIfFileError(selectResponse, "FILE_SELECT");
+        string infoLine = endResponse.Line;
 
-        FileCommandResponse infoResponse = await SendFileCommandAsync(
-            $"FILE_INFO|{cleanName}",
-            line => line.StartsWith($"FILE_INFO|{cleanName}|", StringComparison.OrdinalIgnoreCase),
-            IsInfoErrorLine,
-            cancellationToken).ConfigureAwait(false);
-        ThrowIfFileError(infoResponse, "FILE_INFO");
+        if (sendSelectAfterUpload) {
+            FileCommandResponse selectResponse = await SendFileCommandAsync(
+                $"FILE_SELECT|{cleanName}",
+                line => string.Equals(line, $"ACK FILE_SELECT {cleanName}", StringComparison.OrdinalIgnoreCase),
+                IsSelectErrorLine,
+                cancellationToken).ConfigureAwait(false);
+            ThrowIfFileError(selectResponse, "FILE_SELECT");
+            infoLine = selectResponse.Line;
+        }
+
+        if (queryInfoAfterUpload) {
+            FileCommandResponse infoResponse = await SendFileCommandAsync(
+                $"FILE_INFO|{cleanName}",
+                line => line.StartsWith($"FILE_INFO|{cleanName}|", StringComparison.OrdinalIgnoreCase),
+                IsInfoErrorLine,
+                cancellationToken).ConfigureAwait(false);
+            ThrowIfFileError(infoResponse, "FILE_INFO");
+            infoLine = infoResponse.Line;
+        }
 
         progress?.Report(new CommandFileUploadProgress(
             totalChunks,
             totalChunks,
             100,
-            $"Archivo cargado y seleccionado en el tester (chunk={chunkSize})."));
+            completedProgressMessage,
+            fileBytes.Length,
+            fileBytes.Length,
+            totalChunks,
+            totalChunks));
 
         return new CommandFileUploadResult(
             true,
-            "Archivo cargado en el tester correctamente.",
+            successMessage,
             cleanName,
             fileBytes.Length,
             totalChunks,
-            infoResponse.Line);
+            infoLine);
     }
 
     // [ACURATEX] Extrae y valida el tamaño anunciado por FILE_BEGIN.
@@ -1659,47 +1714,47 @@ public sealed class CommandFileTransferService : ICommandFileTransferService, ID
     /// </summary>
     private static bool IsBeginErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_BEGIN", "ERR FILE_SIZE", "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_BEGIN", "ERR FILE_SIZE", "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsDataErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_DATA", "ERR FILE_B64", "ERR FILE_SIZE", "ERR FILE_FS", "ERR FILE_STATE");
+        return StartsWithAny(line, "ERR FILE_DATA", "ERR FILE_B64", "ERR FILE_SIZE", "ERR FILE_FS", "ERR FILE_STATE", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsEndErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_END", "ERR FILE_SIZE", "ERR FILE_FS", "ERR FILE_STATE");
+        return StartsWithAny(line, "ERR FILE_END", "ERR FILE_SIZE", "ERR FILE_FS", "ERR FILE_STATE", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsSelectErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsInfoErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsListErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsDeleteErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsGetErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_NOT_FOUND", "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     private static bool IsGetNextErrorLine(string line)
     {
-        return StartsWithAny(line, "ERR FILE_GET_STATE", "ERR FILE_B64", "ERR FILE_FS");
+        return StartsWithAny(line, "ERR FILE_GET_STATE", "ERR FILE_B64", "ERR FILE_FS", "ERR FILE_BUSY", "ERR FILE_PROTECTED");
     }
 
     // [ACURATEX] Utilidad para comparar varios prefijos de error sin repetir código.

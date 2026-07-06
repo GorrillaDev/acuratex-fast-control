@@ -1,4 +1,4 @@
-﻿using AcuratexControlApp.Data.Sqlite;
+using AcuratexControlApp.Data.Sqlite;
 using AcuratexControlApp.Repositories.Profiles;
 using AcuratexControlApp.Services.Profiles.Acx;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,6 +19,7 @@ public static class ProfileServiceCollectionExtensions
         services.AddSingleton<IAcxProfileCompiler, AcxProfileCompiler>();
         services.AddSingleton<AcxProfilePackageReader>();
         services.AddSingleton<IAcxProfileExportService, AcxProfileExportService>();
+        services.AddSingleton<IAcxProfileTransferService, AcxProfileTransferService>();
         services.AddSingleton<ProfileDatabaseInitializer>();
         return services;
     }

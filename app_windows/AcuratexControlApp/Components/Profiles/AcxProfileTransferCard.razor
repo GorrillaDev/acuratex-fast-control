@@ -1,0 +1,410 @@
+﻿@namespace AcuratexControlApp.Components
+@using AcuratexControlApp.Models.Profiles
+@using AcuratexControlApp.Repositories.Profiles
+@using AcuratexControlApp.Services.Profiles.Acx
+@implements IDisposable
+
+@inject IMainControlPanelHost Host
+@inject IProfileRepository ProfileRepository
+@inject IAcxProfileTransferService AcxProfileTransferService
+
+<section class="bg-white rounded-lg border border-gray-200 p-5 card-shadow space-y-4" data-purpose="acx-profile-transfer-card">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+            <h3 class="text-base font-bold text-gray-800">Transferencia ACX</h3>
+            <p class="text-sm text-gray-600">
+                Exporta una versión publicada como archivo binario .acx y la almacena en LittleFS sin activarla como perfil.
+            </p>
+        </div>
+        <span class="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600">@StatusBadgeText</span>
+    </div>
+
+    @if (_profiles.Count == 0)
+    {
+        <div class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            No hay perfiles publicados disponibles para transferir.
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div class="space-y-1">
+                <label class="text-xs font-semibold uppercase tracking-wide text-gray-500" for="acx-profile-select">Perfil publicado</label>
+                <select id="acx-profile-select"
+                        class="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-500"
+                        value="@_selectedProfileId"
+                        @onchange="OnProfileChangedAsync"
+                        disabled="@(!CanInteractWithSelection)">
+                    @foreach (PublishedProfileEntry profile in _profiles)
+                    {
+                        <option value="@profile.Profile.Id">@BuildProfileLabel(profile.Profile)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="space-y-1">
+                <label class="text-xs font-semibold uppercase tracking-wide text-gray-500" for="acx-version-select">Versión publicada</label>
+                <select id="acx-version-select"
+                        class="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-500"
+                        value="@_selectedVersionId"
+                        @onchange="OnVersionChangedAsync"
+                        disabled="@(!CanInteractWithSelection || SelectedProfile is null)">
+                    @foreach (ProfileVersionSummary version in AvailableVersions)
+                    {
+                        <option value="@version.Id">@BuildVersionLabel(version)</option>
+                    }
+                </select>
+            </div>
+        </div>
+    }
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Nombre del archivo</div>
+            <div class="mt-1 truncate font-mono text-sm text-gray-800">@SelectedFileName</div>
+        </div>
+
+        <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Tamaño</div>
+            <div class="mt-1 font-mono text-sm text-gray-800">@FileSizeLabel</div>
+        </div>
+    </div>
+
+    <div class="space-y-2">
+        <div class="h-2 w-full overflow-hidden rounded bg-gray-200">
+            <div class="h-full bg-cyan-600 transition-all duration-200" style="@($"width: {Math.Clamp(_progress.ProgressPercent, 0, 100)}%;")"></div>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span class="text-gray-600">@_progress.Stage</span>
+            <span class="font-mono text-gray-700">@Math.Clamp(_progress.ProgressPercent, 0, 100)%</span>
+        </div>
+        <div class="grid grid-cols-1 gap-2 text-xs text-gray-600 sm:grid-cols-2">
+            <div>Bytes: <span class="font-mono">@_progress.SentBytes</span> / <span class="font-mono">@_progress.TotalBytes</span></div>
+            <div>Bloque: <span class="font-mono">@_progress.CurrentBlockIndex</span> / <span class="font-mono">@_progress.TotalBlocks</span></div>
+        </div>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+        <button type="button"
+                class="rounded bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50"
+                @onclick="TransferAsync"
+                disabled="@(!CanTransfer)">
+            @(_isTransferring ? "Transfiriendo..." : "Exportar y enviar ACX")
+        </button>
+
+        <button type="button"
+                class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                @onclick="CancelTransferAsync"
+                disabled="@(!_isTransferring)">
+            Cancelar
+        </button>
+
+        <button type="button"
+                class="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                @onclick="RefreshProfilesAsync"
+                disabled="@(_isTransferring)">
+            Actualizar perfiles
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_ackLine))
+    {
+        <div class="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+            Firmware: <span class="font-mono">@_ackLine</span>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="rounded border px-3 py-2 text-sm @MessageCssClass">
+            @_message
+        </div>
+    }
+</section>
+
+@code {
+    private sealed record PublishedProfileEntry(ProfileRecord Profile, IReadOnlyList<ProfileVersionSummary> Versions);
+
+    private IReadOnlyList<PublishedProfileEntry> _profiles = Array.Empty<PublishedProfileEntry>();
+    private long _selectedProfileId;
+    private long _selectedVersionId;
+    private bool _isTransferring;
+    private string _message = "";
+    private bool _isError;
+    private string _ackLine = string.Empty;
+    private int _fileSizeBytes;
+    private CommandFileUploadProgress _progress = new(0, 0, 0, "Sin transferencia", 0, 0, 0, 0);
+    private CancellationTokenSource? _transferCts;
+
+    private MainControlPanelState State => Host.State;
+
+    private bool CanInteractWithSelection => !_isTransferring && _profiles.Count > 0;
+
+    private bool CanTransfer => State.IsConnected && !_isTransferring && BuildSelection() is not null;
+
+    private string StatusBadgeText => _isTransferring
+        ? "Transfiriendo ACX"
+        : State.IsConnected
+            ? State.StatusText
+            : "Sin conexión";
+
+    private string MessageCssClass => _isError
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+    private string FileSizeLabel => _fileSizeBytes > 0
+        ? FormatFileSize(_fileSizeBytes)
+        : "Pendiente de exportación";
+
+    private string SelectedFileName => BuildSelection()?.FileName ?? "Sin archivo seleccionado";
+
+    private IReadOnlyList<ProfileVersionSummary> AvailableVersions => SelectedProfile?.Versions ?? Array.Empty<ProfileVersionSummary>();
+
+    private PublishedProfileEntry? SelectedProfile => _profiles.FirstOrDefault(profile => profile.Profile.Id == _selectedProfileId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Host.StateChanged += OnHostStateChanged;
+        await RefreshProfilesCoreAsync().ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        Host.StateChanged -= OnHostStateChanged;
+        _transferCts?.Cancel();
+        _transferCts?.Dispose();
+    }
+
+    private void OnHostStateChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshProfilesAsync()
+    {
+        if (_isTransferring) {
+            return;
+        }
+
+        await RefreshProfilesCoreAsync().ConfigureAwait(false);
+    }
+
+    private async Task RefreshProfilesCoreAsync()
+    {
+        IReadOnlyList<ProfileListItem> profileItems = ProfileRepository.ListProfiles();
+        List<PublishedProfileEntry> profiles = new();
+
+        foreach (ProfileListItem item in profileItems.OrderBy(static profile => profile.DisplayName, StringComparer.OrdinalIgnoreCase)) {
+            ProfileRecord? profile = ProfileRepository.GetProfileById(item.Id);
+            if (profile is null) {
+                continue;
+            }
+
+            IReadOnlyList<ProfileVersionSummary> publishedVersions = profile.Versions
+                .Where(static version => version.IsPublished)
+                .OrderByDescending(static version => version.VersionNumber)
+                .ToArray();
+
+            if (publishedVersions.Count == 0) {
+                continue;
+            }
+
+            profiles.Add(new PublishedProfileEntry(profile, publishedVersions));
+        }
+
+        _profiles = profiles;
+        NormalizeSelection();
+        UpdatePreviewFromSelection(clearFileSize: true);
+        if (_profiles.Count == 0) {
+            SetMessage("No hay perfiles publicados disponibles.", isError: false);
+        } else if (BuildSelection() is not null) {
+            SetMessage("Selecciona una versión publicada y exporta el ACX.", isError: false);
+        }
+
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private Task OnProfileChangedAsync(ChangeEventArgs args)
+    {
+        if (TryParseLong(args.Value, out long profileId)) {
+            _selectedProfileId = profileId;
+            _selectedVersionId = 0;
+            NormalizeSelection();
+            UpdatePreviewFromSelection(clearFileSize: true);
+            SetMessage("Perfil publicado actualizado.", isError: false);
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnVersionChangedAsync(ChangeEventArgs args)
+    {
+        if (TryParseLong(args.Value, out long versionId)) {
+            _selectedVersionId = versionId;
+            NormalizeSelection();
+            UpdatePreviewFromSelection(clearFileSize: true);
+            SetMessage("Versión publicada seleccionada.", isError: false);
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task TransferAsync()
+    {
+        if (!CanTransfer) {
+            SetMessage(State.IsConnected
+                ? "Selecciona un perfil publicado y una versión publicada válidos."
+                : "Conecta el tester antes de transferir un ACX.",
+                isError: true);
+            await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            return;
+        }
+
+        AcxPublishedProfileSelection selection = BuildSelection()!;
+        _transferCts?.Cancel();
+        _transferCts?.Dispose();
+        _transferCts = new CancellationTokenSource();
+
+        _isTransferring = true;
+        _isError = false;
+        _ackLine = string.Empty;
+        _message = "Preparando transferencia ACX...";
+        _progress = new CommandFileUploadProgress(0, 0, 0, "Preparando exportación ACX...", 0, 0, 0, 0);
+        _fileSizeBytes = 0;
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+
+        Progress<CommandFileUploadProgress> progress = new(report =>
+        {
+            _progress = report;
+            _ = InvokeAsync(StateHasChanged);
+        });
+
+        AcxProfileTransferResult result = await AcxProfileTransferService.TransferPublishedProfileAsync(selection, progress, _transferCts.Token).ConfigureAwait(false);
+        _isTransferring = false;
+        _isError = !result.Success;
+        _message = result.Message;
+        _ackLine = result.FirmwareAckLine ?? string.Empty;
+        _fileSizeBytes = result.FileSizeBytes;
+        if (result.Success) {
+            _progress = new CommandFileUploadProgress(
+                result.TotalBlocks,
+                result.TotalBlocks,
+                100,
+                result.Message,
+                result.FileSizeBytes,
+                result.FileSizeBytes,
+                result.TotalBlocks,
+                result.TotalBlocks);
+        }
+
+        _transferCts?.Dispose();
+        _transferCts = null;
+        await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+    }
+
+    private Task CancelTransferAsync()
+    {
+        if (_isTransferring) {
+            _message = "Cancelando transferencia ACX...";
+            _isError = false;
+            _transferCts?.Cancel();
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void NormalizeSelection()
+    {
+        if (_profiles.Count == 0) {
+            _selectedProfileId = 0;
+            _selectedVersionId = 0;
+            return;
+        }
+
+        PublishedProfileEntry selectedProfile = SelectedProfile ?? _profiles[0];
+        _selectedProfileId = selectedProfile.Profile.Id;
+
+        ProfileVersionSummary? selectedVersion = selectedProfile.Versions.FirstOrDefault(version => version.Id == _selectedVersionId);
+        if (selectedVersion is null) {
+            selectedVersion = selectedProfile.Versions[0];
+            _selectedVersionId = selectedVersion.Id;
+        }
+    }
+
+    private void UpdatePreviewFromSelection(bool clearFileSize)
+    {
+        if (clearFileSize) {
+            _fileSizeBytes = 0;
+        }
+
+        _ackLine = string.Empty;
+        _progress = new CommandFileUploadProgress(0, 0, 0, "Lista de perfiles actualizada.", 0, 0, 0, 0);
+        if (_profiles.Count == 0) {
+            return;
+        }
+
+        if (BuildSelection() is null) {
+            _message = "Selecciona un perfil publicado con una versión publicada.";
+            _isError = true;
+            return;
+        }
+
+        if (!_isTransferring) {
+            _message = "Listo para exportar ACX.";
+            _isError = false;
+        }
+    }
+
+    private AcxPublishedProfileSelection? BuildSelection()
+    {
+        PublishedProfileEntry? profile = SelectedProfile;
+        if (profile is null) {
+            return null;
+        }
+
+        ProfileVersionSummary? version = profile.Versions.FirstOrDefault(item => item.Id == _selectedVersionId)
+            ?? profile.Versions.FirstOrDefault();
+        if (version is null) {
+            return null;
+        }
+
+        return new AcxPublishedProfileSelection(profile.Profile, version);
+    }
+
+    private static bool TryParseLong(object? value, out long parsed)
+    {
+        return long.TryParse(value?.ToString(), out parsed);
+    }
+
+    private static string BuildProfileLabel(ProfileRecord profile)
+    {
+        return $"{profile.DisplayName} ({profile.ProfileKey})";
+    }
+
+    private static string BuildVersionLabel(ProfileVersionSummary version)
+    {
+        string publication = version.IsPublished ? "publicada" : "sin publicar";
+        return $"V{version.VersionNumber} - {publication}";
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) {
+            return $"{bytes} B";
+        }
+
+        double kib = bytes / 1024d;
+        if (kib < 1024d) {
+            return $"{kib:0.##} KiB";
+        }
+
+        double mib = kib / 1024d;
+        return $"{mib:0.##} MiB";
+    }
+
+    private void SetMessage(string message, bool isError)
+    {
+        _message = message;
+        _isError = isError;
+    }
+}

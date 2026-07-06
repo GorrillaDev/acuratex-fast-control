@@ -37,7 +37,11 @@ public sealed record CommandFileUploadProgress(
     int SentChunks,
     int TotalChunks,
     int ProgressPercent,
-    string Stage);
+    string Stage,
+    int SentBytes = 0,
+    int TotalBytes = 0,
+    int CurrentBlockIndex = 0,
+    int TotalBlocks = 0);
 
 /// <summary>
 /// [POR QUE EXISTE]
@@ -331,6 +335,42 @@ public interface ICommandFileTransferService
     /// No habría carga de archivos de texto al tester.
     /// </summary>
     Task<CommandFileUploadResult> UploadTextFileAsync(
+        string fileName,
+        byte[] fileBytes,
+        IProgress<CommandFileUploadProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// [POR QUÉ EXISTE]
+    /// Esta operación existe para subir archivos binarios opacos al tester sin aplicar lógica
+    /// de texto ni selección posterior.
+    ///
+    /// [QUIÉN LA LLAMA]
+    /// La llaman rutas de exportación y transferencia de perfiles binarios.
+    ///
+    /// [CUÁNDO SE EJECUTA]
+    /// Se ejecuta cuando la app necesita almacenar un binario remoto usando el protocolo
+    /// FILE_* existente.
+    ///
+    /// [ENTRADAS]
+    /// Recibe nombre, bytes, progreso opcional y cancelación.
+    ///
+    /// [SALIDAS]
+    /// Devuelve el resultado de la carga binaria.
+    ///
+    /// [EFECTOS SECUNDARIOS]
+    /// Manda `FILE_BEGIN`, `FILE_DATA` y `FILE_END`, sin `FILE_SELECT`.
+    ///
+    /// [FLUJO ACURATEX]
+    /// Exportación binaria -> UploadBinaryFileAsync -> FILE_* -> firmware.
+    ///
+    /// [EQUIVALENCIA MCU]
+    /// Se parece a escribir un archivo opaco en un filesystem remoto por bloques.
+    ///
+    /// [SI NO EXISTIERA]
+    /// No habría una ruta reusable para binarios distintos de los `.txt`.
+    /// </summary>
+    Task<CommandFileUploadResult> UploadBinaryFileAsync(
         string fileName,
         byte[] fileBytes,
         IProgress<CommandFileUploadProgress>? progress = null,

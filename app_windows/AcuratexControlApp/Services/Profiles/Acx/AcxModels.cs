@@ -1,4 +1,5 @@
-﻿using AcuratexControlApp.Models.Profiles;
+using AcuratexControlApp.Models.Profiles;
+using AcuratexControlApp.Services;
 
 namespace AcuratexControlApp.Services.Profiles.Acx;
 
@@ -63,6 +64,26 @@ public sealed record AcxCompilationResult(
     AcxPackageHeader Header,
     IReadOnlyList<AcxSectionDirectoryEntry> Sections,
     ProfileVersionDocument Document);
+public sealed record AcxPublishedProfileSelection(
+    ProfileRecord Profile,
+    ProfileVersionSummary Version)
+{
+    public string FileName => AcxFormatConstants.BuildFileName(Profile.ProfileKey, Version.VersionNumber);
+}
+
+public sealed record AcxProfileTransferResult(
+    bool Success,
+    string Message,
+    string? ErrorMessage,
+    long ProfileVersionId,
+    string ProfileKey,
+    int VersionNumber,
+    string FileName,
+    int FileSizeBytes,
+    int TotalBlocks,
+    uint PayloadCrc32,
+    string? FirmwareAckLine);
+
 
 public sealed class AcxCompilationException : InvalidOperationException
 {
@@ -80,4 +101,11 @@ public interface IAcxProfileExportService
     Task<AcxCompilationResult> ExportProfileVersionAsync(long profileVersionId, CancellationToken cancellationToken = default);
 
     Task<AcxCompilationResult> ExportLatestProfileAsync(string profileKey, CancellationToken cancellationToken = default);
+}
+public interface IAcxProfileTransferService
+{
+    Task<AcxProfileTransferResult> TransferPublishedProfileAsync(
+        AcxPublishedProfileSelection selection,
+        IProgress<CommandFileUploadProgress>? progress = null,
+        CancellationToken cancellationToken = default);
 }
