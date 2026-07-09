@@ -6,6 +6,7 @@ idf_component_register(
         "head_state_manager.cpp"
         "head_fast_diag.cpp"
         "profile_store.cpp"
+        "acx_profile_loader.cpp"
         "head_program_runtime.cpp"
         "head_program_1_commands.cpp"
         "head_program_2_commands.cpp"
