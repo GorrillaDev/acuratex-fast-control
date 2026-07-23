@@ -347,10 +347,11 @@ public sealed class UnifiedSystemForm : Form, IUnifiedSystemShellHost
         services.AddSingleton<IHeadProfileService, HeadProfileService>();
         services.AddSingleton<IAppScriptExecutionService, AppScriptExecutionService>();
         services.AddSingleton<IHeadStateEventParser, HeadStateEventParser>();
+        services.AddSingleton<CanAlarmDetector>();
         services.AddSingleton<IEmergencyStopService>(_emergencyStopService);
         services.AddSingleton<IUnifiedSystemShellHost>(this);
         services.AddScoped<IServoDashboardUnificadoCommandService, ServoDashboardUnificadoCommandService>();
-        services.AddScoped<ICabezalDashboardUnificadoCommandService, CabezalDashboardUnificadoCommandService>();
+        services.AddScoped<ICabezalDashboardUnificadoCommandService, FastUnifiedDashboardCommandService>();
 
         _blazorServices = services.BuildServiceProvider();
         _blazorWebView.HostPage = @"wwwroot\index-unified-system-shell.html";

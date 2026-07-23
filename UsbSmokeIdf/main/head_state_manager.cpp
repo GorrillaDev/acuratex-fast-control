@@ -62,6 +62,10 @@ static SemaphoreHandle_t s_head_state_mutex = NULL;
 // [C/C++] `static` limita esta fuente de verdad al archivo.
 static app_head_state_manager_state_t s_state;
 
+// Perfil de las secuencias RUN fisicas activas. Es independiente de los dos
+// runtimes de programa y solo arbitra el unico hardware CAN compartido.
+static const HeadCommandProfile *s_motion_profile = NULL;
+
 /**
  * [POR QUE EXISTE]
  * Centraliza la toma del mutex del estado J.
@@ -685,7 +689,11 @@ static bool app_head_state_parse_numbered_verb(const char *verb,
  */
 esp_err_t app_head_state_manager_init(void)
 {
-    const HeadCommandProfile *profile = app_head_program_get_active_profile();
+    return app_head_state_manager_init_with_profile(app_head_program_get_active_profile());
+}
+
+esp_err_t app_head_state_manager_init_with_profile(const HeadCommandProfile *profile)
+{
 
     if (profile == NULL) {
         return ESP_ERR_INVALID_STATE;
@@ -705,6 +713,7 @@ esp_err_t app_head_state_manager_init(void)
 
     // [C/C++] memset limpia toda la estructura antes de cargar defaults propios.
     memset(&s_state, 0, sizeof(s_state));
+    s_motion_profile = NULL;
     for (int i = 0; i < APP_HEAD_STATE_MAX_J; ++i) {
         // [ACURATEX] Fuente de verdad inicial: fisico FF = logico 00.
         app_head_state_set_j_physical_locked(i, profile->j.initial_register);
@@ -1061,6 +1070,10 @@ void app_head_state_manager_stop_all_j_runs(void)
 
 static const HeadCommandProfile *app_head_state_active_profile(void)
 {
+    if (s_motion_profile != NULL) {
+        return s_motion_profile;
+    }
+
     const HeadCommandProfile *profile = app_head_program_get_active_profile();
     if (profile == NULL) {
         return app_head_program_get_profile(APP_HEAD_PROGRAM_1);
@@ -1707,6 +1720,11 @@ void app_head_state_manager_stop_all_motion(void)
     app_head_state_manager_stop_all_den_runs();
     app_head_state_manager_stop_all_sic_runs();
     app_head_state_manager_stop_all_feet_runs();
+
+    if (app_head_state_take_mutex(portMAX_DELAY)) {
+        s_motion_profile = NULL;
+        app_head_state_give_mutex();
+    }
 }
 
 bool app_head_state_manager_has_active_motion(void)
@@ -1741,10 +1759,37 @@ bool app_head_state_manager_has_active_motion(void)
         active = active || s_state.feet[i].running;
     }
 
+    if (!active) {
+        s_motion_profile = NULL;
+    }
     app_head_state_give_mutex();
     return active;
 }
 
+bool app_head_state_manager_select_motion_profile(const HeadCommandProfile *profile)
+{
+    if (profile == NULL) {
+        return false;
+    }
+
+    if (app_head_state_manager_has_active_motion() && s_motion_profile != profile) {
+        return false;
+    }
+
+    if (!app_head_state_take_mutex(portMAX_DELAY)) {
+        return false;
+    }
+
+    s_motion_profile = profile;
+    app_head_state_give_mutex();
+    return true;
+}
+
+bool app_head_state_manager_can_use_motion_profile(const HeadCommandProfile *profile)
+{
+    return profile != NULL
+        && (!app_head_state_manager_has_active_motion() || s_motion_profile == profile);
+}
 // [ACURATEX] Snapshot pequeno de un paso RUN. Se copia bajo mutex y luego se
 // usa fuera del mutex para no bloquear a otras tareas durante el envio CAN.
 typedef struct {

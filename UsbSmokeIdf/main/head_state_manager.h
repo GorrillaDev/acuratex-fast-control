@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "head_command_profile.h"
 
 // [ACURATEX] El firmware maneja como maximo J1..J8. Este limite mantiene
 // arreglos fijos y evita reservar memoria dinamica para el estado del cabezal.
@@ -55,6 +56,9 @@ typedef esp_err_t (*app_head_state_manager_can_send_standard_fn_t)(int bus,
  * Las acciones J no tendrian un estado inicial confiable para calcular XX.
  */
 esp_err_t app_head_state_manager_init(void);
+
+// Inicializa el estado fisico usando el perfil compilado de la ruta que inicia.
+esp_err_t app_head_state_manager_init_with_profile(const HeadCommandProfile *profile);
 
 /**
  * [POR QUE EXISTE]
@@ -372,6 +376,15 @@ void app_head_state_manager_stop_all_motion(void);
  * Indica si hay alguna secuencia fisica o visual activa en el cabezal.
  */
 bool app_head_state_manager_has_active_motion(void);
+
+// Reserva el perfil compilado que debe usar el estado fisico compartido. Si
+// otra ruta ya tiene RUN activo con un perfil distinto, rechaza la reserva.
+// Esto evita mezclar en CAN las tablas Modular y Unificada.
+bool app_head_state_manager_select_motion_profile(const HeadCommandProfile *profile);
+
+// Permite a comandos de posicion/pines verificar que no invaden un RUN de la
+// otra ruta, sin cambiar el perfil que esta ejecutando la secuencia actual.
+bool app_head_state_manager_can_use_motion_profile(const HeadCommandProfile *profile);
 
 /**
  * [POR QUE EXISTE]

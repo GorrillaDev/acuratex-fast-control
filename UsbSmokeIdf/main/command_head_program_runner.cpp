@@ -19,6 +19,7 @@
 #include "command_head_program_runner.h"
 #include "head_state_manager.h"
 #include "head_fast_diag.h"
+#include "head_program_runtime.h"
 #include "profile_store.h"
 #include "app_rtos_types.h"
 #include "line_codec.h"
@@ -3810,6 +3811,12 @@ static esp_err_t app_head_handle_direct_j_action(const char *clean_action,
 
         // [CONCURRENCIA] Se conserva el mismo mutex externo del runner al
         // llamar al gestor, manteniendo serializada la decision de RUN.
+        const HeadCommandProfile *modular_profile = app_head_program_get_active_profile();
+        if (modular_profile == NULL
+            || !app_head_state_manager_select_motion_profile(modular_profile)) {
+            return app_head_replyf(reply, ctx, "ERR|HEAD_ACTION|RUN_BUSY|%s", clean_action);
+        }
+
         app_head_state_lock();
         bool started = app_head_state_manager_start_j_run((uint8_t)instance_number,
                                                           bus,

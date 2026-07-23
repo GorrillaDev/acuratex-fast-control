@@ -926,7 +926,8 @@ cleanup:
 
 static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
                                                const app_command_env_t *env,
-                                               void *reply_ctx)
+                                               void *reply_ctx,
+                                               const HeadCommandProfile *profile)
 {
     app_head_fast_diag_task_args_t *task_args = NULL;
     app_reply_route_t *route = NULL;
@@ -992,7 +993,7 @@ static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
     task_args->route = route;
     task_args->route_release = release_fn;
     task_args->can_bus = bus;
-    task_args->profile = app_head_program_get_active_profile();
+    task_args->profile = profile != NULL ? profile : app_head_program_get_active_profile();
     if (task_args->profile == NULL) {
         release_fn(route);
         free(task_args);
@@ -1065,10 +1066,27 @@ static esp_err_t app_head_fast_diag_start_task(app_head_fast_diag_kind_t kind,
     return ESP_OK;
 }
 
+esp_err_t app_head_fast_diag_start_testeo_profile(const app_command_env_t *env,
+                                                  void *reply_ctx,
+                                                  const HeadCommandProfile *profile)
+{
+    if (profile == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = app_head_fast_diag_start_task(APP_HEAD_FAST_DIAG_TESTEO, env, reply_ctx, profile);
+    if (err == ESP_OK && app_head_fast_diag_take_mutex(portMAX_DELAY)) {
+        s_state.testeo.armed = true;
+        s_state.testeo.latched = false;
+        s_state.testeo.cancel_requested = false;
+        app_head_fast_diag_give_mutex();
+    }
+    return err;
+}
 esp_err_t app_head_fast_diag_start_testeo(const app_command_env_t *env,
                                           void *reply_ctx)
 {
-    esp_err_t err = app_head_fast_diag_start_task(APP_HEAD_FAST_DIAG_TESTEO, env, reply_ctx);
+    esp_err_t err = app_head_fast_diag_start_task(APP_HEAD_FAST_DIAG_TESTEO, env, reply_ctx, NULL);
     if (err == ESP_OK) {
         if (app_head_fast_diag_take_mutex(portMAX_DELAY)) {
             s_state.testeo.armed = true;
@@ -1080,6 +1098,16 @@ esp_err_t app_head_fast_diag_start_testeo(const app_command_env_t *env,
     return err;
 }
 
+esp_err_t app_head_fast_diag_start_init_profile(const app_command_env_t *env,
+                                                void *reply_ctx,
+                                                const HeadCommandProfile *profile)
+{
+    if (env == NULL || profile == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return app_head_fast_diag_start_task(APP_HEAD_FAST_DIAG_INIT, env, reply_ctx, profile);
+}
 esp_err_t app_head_fast_diag_start_init(const app_command_env_t *env,
                                         void *reply_ctx)
 {
@@ -1087,7 +1115,7 @@ esp_err_t app_head_fast_diag_start_init(const app_command_env_t *env,
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = app_head_fast_diag_start_task(APP_HEAD_FAST_DIAG_INIT, env, reply_ctx);
+    esp_err_t err = app_head_fast_diag_start_task(APP_HEAD_FAST_DIAG_INIT, env, reply_ctx, NULL);
     return err;
 }
 

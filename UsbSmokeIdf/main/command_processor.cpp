@@ -8,6 +8,7 @@
 
 #include "command_head_program_runner.h"
 #include "command_processor.h"
+#include "command_unified_head_processor.h"
 #include "file_transfer.h"
 #include "line_codec.h"
 #include "head_state_manager.h"
@@ -21,6 +22,20 @@
 
 // [ESP-IDF] TAG identifica los logs emitidos por este modulo.
 static const char *TAG = "command_processor";
+
+static bool app_modular_command_starts_motion(const char *line)
+{
+    return line != NULL
+        && (strncasecmp(line, "j_run_", 6) == 0
+            || strcasecmp(line, "y_run_all") == 0
+            || strcasecmp(line, "y1_run") == 0
+            || strcasecmp(line, "y2_run") == 0
+            || strncasecmp(line, "s_run_", 6) == 0
+            || strncasecmp(line, "den_run1_", 9) == 0
+            || strncasecmp(line, "den_run_", 8) == 0
+            || strncasecmp(line, "sic_run_", 8) == 0
+            || strncasecmp(line, "feet_run_", 9) == 0);
+}
 static bool app_command_is_wifi_config_set(const char *line)
 {
     return line != NULL && strncasecmp(line, "WIFI_CONFIG_SET", 15) == 0;
@@ -1231,6 +1246,10 @@ bool app_command_line_is_physical(const char *incoming_line,
         return false;
     }
 
+    if (strncasecmp(line, "uni_", 4) == 0) {
+        return true;
+    }
+
     if (strcasecmp(line, "can1") == 0 || strcasecmp(line, "can2") == 0) {
         return true;
     }
@@ -1340,6 +1359,29 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     char log_line[96];
     ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), app_command_log_line(line, log_line, sizeof(log_line)));
+    if (strncasecmp(line, "uni_", 4) == 0) {
+        ESP_LOGI(TAG, "CMD CLASS [%s]: unified_head", app_transport_name(env));
+        return app_unified_head_process_line(line, reply, ctx, env);
+    }
+
+    if (app_command_line_is_physical(line, env)
+        && strcasecmp(line, "stop") != 0
+        && strcasecmp(line, "emergency_stop") != 0
+        && strcasecmp(line, "program_select_1") != 0
+        && strcasecmp(line, "program_select_2") != 0
+        && strcasecmp(line, "program_select_3") != 0
+        && strcasecmp(line, "program_status") != 0) {
+        const HeadCommandProfile *modular_profile = app_head_program_get_active_profile();
+        if (modular_profile != NULL
+            && !app_head_state_manager_can_use_motion_profile(modular_profile)) {
+            return reply("ERR|HEAD_BUSY", ctx);
+        }
+        if (modular_profile != NULL
+            && app_modular_command_starts_motion(line)
+            && !app_head_state_manager_select_motion_profile(modular_profile)) {
+            return reply("ERR|HEAD_BUSY", ctx);
+        }
+    }
 
     if (app_file_transfer_is_command(line)) {
         char response[256];
