@@ -1,0 +1,3868 @@
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Acuratex | Cabezal 1</title>
+<!-- ✅ anti-cache (para que Chrome NO te sirva el HTML viejo) -->
+<meta content="no-store, no-cache, must-revalidate, max-age=0" http-equiv="Cache-Control"/>
+<meta content="no-cache" http-equiv="Pragma"/>
+<meta content="0" http-equiv="Expires"/>
+<style>
+    :root{
+      --bg:#0b0f17; --panel:#121a2a; --text:#e7ecff; --muted:#94a3b8;
+      --border:#22314b; --on:#22c55e; --off:#334155;
+      --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 700px at 50% -10%, #16213a 0%, var(--bg) 60%);
+      color:var(--text);
+      min-height:100vh;
+      display:flex; align-items:center; justify-content:center;
+      padding:14px; overflow-x:hidden;
+    }
+    .wrap{
+      width:min(1280px, 100%);
+      background: rgba(18,26,42,.72);
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:14px;
+      box-shadow: 0 20px 70px rgba(0,0,0,.35);
+      backdrop-filter: blur(6px);
+    }
+    .top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;}
+    h1{ font-size:16px; margin:0; letter-spacing:.4px; }
+    .sub{ font-size:12px; color:var(--muted); margin-top:4px; line-height:1.3; }
+    .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+    input{
+      background: rgba(15,22,36,.9);
+      border:1px solid var(--border);
+      color:var(--text);
+      padding:9px 10px;
+      border-radius:12px;
+      outline:none;
+      width: 200px;
+      font-size:13px;
+    }
+    button{
+      background: rgba(15,22,36,.9);
+      border:1px solid var(--border);
+      color:var(--text);
+      padding:9px 10px;
+      border-radius:12px;
+      cursor:pointer;
+      font-size:13px;
+      transition:.15s transform, .15s background;
+      white-space:nowrap;
+    }
+    button:hover{ transform: translateY(-1px); background: rgba(22,32,54,.95); }
+
+    .sectionTitle{
+      margin: 10px 0 8px;
+      font-weight:800;
+      font-size:13px;
+      letter-spacing:.6px;
+      color:#dbe6ff;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .badge{
+      font-size:11px;
+      color:var(--muted);
+      border:1px solid rgba(148,163,184,.25);
+      padding:4px 8px;
+      border-radius:999px;
+      background: rgba(15,22,36,.35);
+    }
+
+    .rxBox{
+      margin-top:10px;
+      background: rgba(15,22,36,.65);
+      border:1px solid rgba(148,163,184,.22);
+      border-radius:14px;
+      padding:10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .rxTitle{ color:#dbe6ff; font-weight:900; margin-bottom:4px; }
+    .rxSmall{ color:var(--muted); font-size:11px; margin-top:6px; }
+
+    .testBox{
+      margin-top:10px;
+      background: rgba(15,22,36,.70);
+      border:1px solid rgba(148,163,184,.22);
+      border-radius:14px;
+      padding:10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .testBox.ok{
+      border-color: rgba(34,197,94,.55);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.12) inset;
+    }
+    .testBox.bad{
+      border-color: rgba(239,68,68,.55);
+      box-shadow: 0 0 0 3px rgba(239,68,68,.12) inset;
+    }
+
+    .cmdRow{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .cmdRow input{ width:min(520px, 100%); }
+
+    .traceBox{
+      margin-top:10px;
+      background: rgba(15,22,36,.65);
+      border:1px solid rgba(148,163,184,.22);
+      border-radius:14px;
+      padding:10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#cbd5e1;
+    }
+    .traceTitle{
+      color:#dbe6ff;
+      font-weight:900;
+      margin-bottom:6px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .traceList{ display:flex; flex-direction:column; gap:6px; }
+    .traceItem{
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      line-height:1.25;
+      border-bottom:1px dashed rgba(148,163,184,.18);
+      padding-bottom:6px;
+    }
+    .traceItem:last-child{ border-bottom:none; padding-bottom:0; }
+    .traceTime{ color:var(--muted); min-width:78px; }
+    .traceDir{ font-weight:900; min-width:34px; }
+    .traceDir.tx{ color:#93c5fd; }
+    .traceDir.rx{ color:#86efac; }
+    .traceDir.sys{ color:#fbbf24; }
+    .traceMsg{ white-space:pre-wrap; word-break:break-word; flex:1; }
+
+    .rowMotors{
+      display:grid;
+      gap:10px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      align-items:start;
+      width:100%;
+      margin-top:8px;
+    }
+    .mcard{
+      background: rgba(15,22,36,.55);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      min-width: 260px;
+    }
+    .mhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+    .mtitle{font-weight:900;font-size:12px;letter-spacing:.6px;color:#dbe6ff;}
+    .msub{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:11px;color:var(--muted); line-height:1.25;}
+    .posBtns{display:flex;gap:8px;flex-wrap:wrap;}
+    .posBtn{
+      padding:7px 10px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: rgba(51,65,85,.45);
+      color:var(--text);
+      cursor:pointer;
+      font-weight:900;
+      font-size:12px;
+      transition:.12s transform, .12s box-shadow, .12s background;
+      user-select:none;
+    }
+    .posBtn:hover{ transform: translateY(-1px); }
+    .posBtn.on{
+      background: var(--on);
+      border-color: rgba(34,197,94,.9);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.25) inset, 0 8px 22px rgba(34,197,94,.18);
+      color:#05210f;
+    }
+    .sliderWrap{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid rgba(148,163,184,.18);
+      background: rgba(15,22,36,.35);
+    }
+    .sliderWrap input[type="range"]{
+      width:100%;
+      padding:0;
+      border:none;
+      background: transparent;
+      height: 22px;
+    }
+    .sval{
+      min-width: 140px;
+      text-align:right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .runRow{display:flex;gap:8px;flex-wrap:wrap;}
+
+    .rowJ{
+      display:grid;
+      gap:10px;
+      justify-content:center;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      align-items:start;
+      width:100%;
+    }
+    .J{
+      background: rgba(15,22,36,.55);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:10px 8px 10px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:8px;
+      min-width: 120px;
+    }
+    .Jhead{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+    .Jtitle{font-weight:800;font-size:12px;letter-spacing:.6px;color:#dbe6ff;}
+    .Jhex{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:11px;color:var(--muted);}
+    .Jbtns{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;}
+    .miniBtn{padding:6px 8px;border-radius:10px;font-size:11px;}
+    .miniBtn.run{ border-color: rgba(34,197,94,.35); }
+    .miniBtn.stop{ border-color: rgba(239,68,68,.35); }
+
+    .col{display:flex;flex-direction:column;gap:7px;align-items:center;}
+    .cell{
+      width:44px;height:34px;border-radius:12px;border:1px solid var(--border);
+      background: rgba(51,65,85,.45);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;user-select:none;
+      transition: .12s transform, .12s box-shadow, .12s background;
+    }
+    .cell:hover{ transform: translateY(-1px); }
+    .cell.on{
+      background: var(--on);
+      border-color: rgba(34,197,94,.9);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.25) inset, 0 8px 22px rgba(34,197,94,.18);
+    }
+    .cell.on .n{ color:#05210f; }
+    .n{ font-weight:900; font-size:12px; letter-spacing:.4px; color:#dbe6ff; }
+
+    .rowBlocks{
+      display:grid;
+      gap:10px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      align-items:start;
+      width:100%;
+      margin-top:8px;
+    }
+    .blk{
+      background: rgba(15,22,36,.55);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      min-width: 240px;
+    }
+    .blkHead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+    .blkTitle{font-weight:900;font-size:12px;letter-spacing:.6px;color:#dbe6ff;}
+    .blkSub{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:11px;color:var(--muted);}
+    .gridPins{display:grid;grid-template-columns: repeat(4, 1fr);gap:8px;}
+    .gridPins.five{grid-template-columns: repeat(5, minmax(42px, 1fr));}
+    .pinBtn{
+      height:40px;border-radius:12px;border:1px solid var(--border);
+      background: rgba(51,65,85,.45);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;user-select:none;font-weight:900;font-size:12px;
+      transition:.12s transform, .12s box-shadow, .12s background;
+    }
+    .pinBtn:hover{ transform: translateY(-1px); }
+    .pinBtn.on{
+      background: var(--on);
+      border-color: rgba(34,197,94,.9);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.25) inset, 0 8px 22px rgba(34,197,94,.18);
+      color:#05210f;
+    }
+    .blkActions{display:flex;gap:8px;flex-wrap:wrap;}
+    .blkActions button{padding:8px 10px;font-size:12px;border-radius:12px;}
+
+    .log{
+      margin-top:10px;
+      background: rgba(15,22,36,.65);
+      border:1px dashed rgba(148,163,184,.25);
+      border-radius:14px;
+      padding:10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#cbd5e1;
+      min-height: 44px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .hint{margin-top:6px;font-size:12px;color:var(--muted);text-align:center;}
+    code{ color:#cbd5e1; }
+
+    /* ===== TOAST POPUP ===== */
+    .toastWrap{
+      position:fixed;
+      top:14px;
+      right:14px;
+      z-index:9999;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      pointer-events:none;
+    }
+    .toast{
+      pointer-events:auto;
+      min-width: 280px;
+      max-width: min(520px, calc(100vw - 28px));
+      background: rgba(15,22,36,.92);
+      border:1px solid rgba(148,163,184,.28);
+      border-radius:14px;
+      padding:10px 12px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.45);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color:#e5e7eb;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .toast.ok{ border-color: rgba(34,197,94,.55); }
+    .toast.bad{ border-color: rgba(239,68,68,.55); }
+    .toastHead{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:6px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-weight:900;
+      font-size:12px;
+      color:#dbe6ff;
+    }
+    .toastClose{
+      border:1px solid rgba(148,163,184,.25);
+      background: rgba(15,22,36,.35);
+      color:#cbd5e1;
+      border-radius:10px;
+      padding:4px 8px;
+      cursor:pointer;
+      font-weight:900;
+    }
+
+    /* ===== OVERLAY PROGRESS ===== */
+    .overlay{
+      position:fixed;
+      inset:0;
+      background: rgba(5, 10, 20, .70);
+      backdrop-filter: blur(6px);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:9998;
+      padding:14px;
+    }
+    .overlay.show{ display:flex; }
+    .ovCard{
+      width:min(520px, 100%);
+      background: rgba(15,22,36,.95);
+      border:1px solid rgba(148,163,184,.25);
+      border-radius:16px;
+      padding:14px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.5);
+    }
+    .ovTitle{
+      font-weight:900;
+      color:#dbe6ff;
+      margin-bottom:6px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:center;
+    }
+    .ovMsg{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom:10px;
+    }
+    .ovBar{
+      height:10px;
+      border-radius:999px;
+      background: rgba(148,163,184,.18);
+      overflow:hidden;
+      border:1px solid rgba(148,163,184,.20);
+    }
+    .ovFill{
+      height:100%;
+      width:0%;
+      background: rgba(34,197,94,.9);
+      border-radius:999px;
+      transition: width .15s linear;
+    }
+    .ovMeta{
+      margin-top:8px;
+      color: var(--muted);
+      font-size:11px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    /* ===== ERROR MODAL (POPUP GRANDE) ===== */
+    .errOverlay{
+      position:fixed;
+      inset:0;
+      background: rgba(5,10,20,.78);
+      backdrop-filter: blur(6px);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:10000;
+      padding:14px;
+    }
+    .errOverlay.show{ display:flex; }
+    .errCard{
+      width:min(640px, 100%);
+      background: rgba(15,22,36,.96);
+      border:1px solid rgba(239,68,68,.55);
+      border-radius:16px;
+      padding:14px;
+      box-shadow: 0 18px 70px rgba(0,0,0,.55);
+    }
+    .errHead{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:8px;
+      font-weight:900;
+      color:#ffd4d4;
+      letter-spacing:.4px;
+    }
+    .errHead .tag{
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(239,68,68,.45);
+      background: rgba(239,68,68,.10);
+      font-size:12px;
+      color:#ffe5e5;
+    }
+    .errClose{
+      border:1px solid rgba(148,163,184,.25);
+      background: rgba(15,22,36,.45);
+      color:#e5e7eb;
+      border-radius:12px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-weight:900;
+    }
+    .errMsg{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#e5e7eb;
+      white-space:pre-wrap;
+      word-break:break-word;
+      margin-top:6px;
+    }
+    .errNote{
+      margin-top:10px;
+      color: var(--muted);
+      font-size:12px;
+      line-height:1.35;
+    }
+
+    /* ===== TEST FAIL CONFIRM (FORCE INIT) ===== */
+    .confirmOverlay{
+      position:fixed;
+      inset:0;
+      background: rgba(5,10,20,.78);
+      backdrop-filter: blur(6px);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:10002;
+      padding:14px;
+    }
+    .confirmOverlay.show{ display:flex; }
+
+    .confirmCard{
+      width:min(640px, 100%);
+      background: rgba(15,22,36,.96);
+      border:1px solid rgba(251,191,36,.55);
+      border-radius:16px;
+      padding:14px;
+      box-shadow: 0 18px 70px rgba(0,0,0,.55);
+    }
+    .confirmHead{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:8px;
+      font-weight:900;
+      color:#fff7d6;
+      letter-spacing:.4px;
+    }
+    .confirmHead .tag{
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(251,191,36,.45);
+      background: rgba(251,191,36,.10);
+      font-size:12px;
+      color:#fff7d6;
+    }
+    .confirmClose{
+      border:1px solid rgba(148,163,184,.25);
+      background: rgba(15,22,36,.45);
+      color:#e5e7eb;
+      border-radius:12px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-weight:900;
+    }
+    .confirmMsg{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+      color:#e5e7eb;
+      white-space:pre-wrap;
+      word-break:break-word;
+      margin-top:6px;
+    }
+    .confirmBtns{
+      margin-top:12px;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .confirmBtn{
+      border:1px solid rgba(148,163,184,.25);
+      background: rgba(15,22,36,.45);
+      color:#e5e7eb;
+      border-radius:12px;
+      padding:8px 12px;
+      cursor:pointer;
+      font-weight:900;
+    }
+    .confirmBtn.primary{
+      border-color: rgba(34,197,94,.55);
+      background: rgba(34,197,94,.18);
+    }
+    .confirmNote{
+      margin-top:10px;
+      color: var(--muted);
+      font-size:12px;
+      line-height:1.35;
+    }
+
+    /* ✅ Visual extra (opcional) para indicar "RUNNING" */
+    .J.running{
+      border-color: rgba(34,197,94,.45);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.10) inset, 0 10px 28px rgba(34,197,94,.10);
+    }
+    .blk.running{
+      border-color: rgba(34,197,94,.35);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.08) inset, 0 10px 28px rgba(34,197,94,.08);
+    }
+    .mcard.running{
+      border-color: rgba(34,197,94,.45);
+      box-shadow: 0 0 0 3px rgba(34,197,94,.10) inset, 0 10px 28px rgba(34,197,94,.10);
+    }
+  </style>
+<style id="acuratex-visual-merge">
+  :root{
+    --acx-shell:#0b1326;
+    --acx-shell-deep:#091427;
+    --acx-shell-text:#e7ecff;
+    --acx-shell-muted:#94a3b8;
+    --acx-canvas:#f3f4f6;
+    --acx-surface:#ffffff;
+    --acx-surface-soft:#f8fafc;
+    --acx-border:#dbe1ea;
+    --acx-text:#0f172a;
+    --acx-muted:#64748b;
+    --acx-blue:#1d4ed8;
+    --acx-green:#16a34a;
+    --acx-red:#dc2626;
+  }
+
+  html, body{
+    width:100%;
+    min-height:100%;
+  }
+
+  body{
+    margin:0 !important;
+    padding:0 !important;
+    display:block !important;
+    min-height:100vh !important;
+    overflow:hidden !important;
+    color:var(--acx-text) !important;
+    background:var(--acx-shell) !important;
+    font-family:"Segoe UI", Roboto, Arial, sans-serif !important;
+  }
+
+  .acuratex-static-shell,
+  .acuratex-static-shell *,
+  .acuratex-static-shell *::before,
+  .acuratex-static-shell *::after{
+    box-sizing:border-box;
+  }
+
+  .acuratex-static-shell{
+    display:flex;
+    min-height:100vh;
+    overflow:hidden;
+    color:var(--acx-text);
+    background:
+      linear-gradient(rgba(5,11,20,.84), rgba(8,17,31,.9)),
+      radial-gradient(900px 520px at 50% -20%, rgba(56,189,248,.16), transparent 62%),
+      var(--acx-shell);
+  }
+
+  .acuratex-static-sidebar{
+    width:240px;
+    min-width:240px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    color:#fff;
+    background:var(--acx-shell);
+    border-right:1px solid rgba(255,255,255,.08);
+  }
+
+  .acuratex-static-brand{
+    min-height:96px;
+    display:flex;
+    align-items:center;
+    gap:11px;
+    padding:22px 18px;
+    background:var(--acx-shell-deep);
+    border-bottom:1px solid rgba(255,255,255,.08);
+  }
+
+  .acuratex-static-brand-mark{
+    width:38px;
+    height:38px;
+    flex:0 0 38px;
+    display:grid;
+    place-items:center;
+    border:1px solid rgba(125,211,252,.56);
+    border-radius:11px;
+    color:#e0f2fe;
+    background:linear-gradient(145deg, rgba(56,189,248,.24), rgba(37,99,235,.08));
+  }
+
+  .acuratex-static-brand-mark svg{width:24px;height:24px}
+  .acuratex-static-brand-copy{display:grid;gap:3px;min-width:0}
+  .acuratex-static-brand-name{font-size:15px;font-weight:900;letter-spacing:.12em}
+  .acuratex-static-brand-subtitle{color:#93c5fd;font-size:10px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+
+  .head-navigation{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    padding:14px 0 4px;
+  }
+
+  .head-navigation-label{
+    margin:0 18px 8px;
+    color:#94a3b8;
+    font-size:10px;
+    font-weight:800;
+    letter-spacing:.09em;
+    text-transform:uppercase;
+  }
+
+  .head-navigation-button{
+    width:100%;
+    min-height:46px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:0 18px;
+    border:0;
+    color:#e5e7eb;
+    background:transparent;
+    font-size:14px;
+    font-weight:700;
+    text-align:left;
+    text-decoration:none;
+    white-space:nowrap;
+  }
+
+  .head-navigation-button:hover{color:#fff;background:rgba(255,255,255,.06)}
+  .head-navigation-button.is-active{color:#fff;background:#31394d}
+  .head-navigation-icon{width:20px;flex:0 0 20px;color:#cbd5e1;text-align:center}
+  .head-navigation-button.is-active .head-navigation-icon{color:#7dd3fc}
+
+  .head-navigation-index{
+    min-width:24px;
+    height:24px;
+    display:inline-grid;
+    place-items:center;
+    margin-left:auto;
+    border:1px solid rgba(148,163,184,.24);
+    border-radius:999px;
+    color:#cbd5e1;
+    font-size:11px;
+    font-weight:850;
+  }
+
+  .head-navigation-button.is-active .head-navigation-index{
+    border-color:rgba(125,211,252,.48);
+    color:#e0f2fe;
+    background:rgba(56,189,248,.16);
+  }
+
+  .acuratex-static-user-box{
+    margin-top:auto;
+    display:grid;
+    gap:4px;
+    padding:18px 20px;
+    color:#cbd5e1;
+    background:var(--acx-shell-deep);
+    border-top:1px solid rgba(255,255,255,.08);
+    font-size:12px;
+    font-weight:700;
+  }
+
+  .acuratex-static-user-box small{
+    color:#64748b;
+    font-size:10px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+
+  .acuratex-static-workspace{
+    min-width:0;
+    flex:1 1 auto;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    background:
+      linear-gradient(rgba(243,244,246,.92),rgba(243,244,246,.95)),
+      radial-gradient(820px 400px at 100% 0%,rgba(56,189,248,.10),transparent 65%),
+      var(--acx-canvas);
+  }
+
+  .acuratex-static-window-chrome{
+    min-height:48px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    padding:7px 8px 7px 14px;
+    color:var(--acx-shell-text);
+    background:linear-gradient(180deg,rgba(18,31,52,.88),rgba(8,17,31,.92));
+    border-bottom:1px solid rgba(96,165,250,.18);
+    user-select:none;
+  }
+
+  .acuratex-static-window-brand,
+  .acuratex-static-window-actions{
+    display:flex;
+    align-items:center;
+  }
+
+  .acuratex-static-window-brand{gap:10px;min-width:0}
+  .window-logo{color:#7dd3fc;font-size:22px}
+  .acuratex-static-window-title{font-size:13px;font-weight:600;color:#fff}
+  .acuratex-static-window-actions{gap:6px}
+
+  .acuratex-static-window-control{
+    width:34px;
+    height:32px;
+    display:inline-grid;
+    place-items:center;
+    border:1px solid rgba(148,163,184,.18);
+    border-radius:10px;
+    color:#cbd5e1;
+    background:rgba(15,23,42,.58);
+    font-size:17px;
+  }
+
+  .acuratex-static-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:14px;
+    border-bottom:1px solid #d9e0eb;
+    background:rgba(255,255,255,.96);
+    box-shadow:0 4px 12px rgba(15,23,42,.06);
+  }
+
+  .acuratex-static-title-group{display:grid;gap:5px;min-width:0}
+  .acuratex-static-eyebrow{color:var(--acx-muted);font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+  .acuratex-static-title{margin:0;color:var(--acx-text);font-size:19px;font-weight:900;letter-spacing:-.02em}
+  .acuratex-static-active-head{
+    width:fit-content;
+    border:1px solid #bae6fd;
+    border-radius:999px;
+    color:#0369a1;
+    background:#f0f9ff;
+    padding:4px 8px;
+    font-size:11px;
+    font-weight:800;
+  }
+
+  .acuratex-static-head-meta{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    gap:7px;
+  }
+
+  .meta-pill{
+    border:1px solid #dbeafe;
+    border-radius:999px;
+    color:#1d4ed8;
+    background:#eff6ff;
+    padding:5px 9px;
+    font-size:11px;
+    font-weight:800;
+  }
+
+  #cabezal-content{
+    min-height:0;
+    flex:1 1 auto;
+    overflow:auto;
+  }
+
+  /* Dashboard funcional original adaptado a la gráfica Acuratex */
+  #cabezal-content .wrap{
+    width:100% !important;
+    max-width:none !important;
+    min-height:100%;
+    margin:0 !important;
+    padding:14px !important;
+    border:0 !important;
+    border-radius:0 !important;
+    color:var(--acx-text) !important;
+    background:transparent !important;
+    box-shadow:none !important;
+    backdrop-filter:none !important;
+  }
+
+  #cabezal-content .top{
+    display:grid !important;
+    grid-template-columns:minmax(360px,1fr);
+    gap:12px !important;
+    margin:0 0 12px !important;
+    padding:12px !important;
+    border:1px solid var(--acx-border);
+    border-radius:10px;
+    background:rgba(255,255,255,.97);
+    box-shadow:0 4px 12px rgba(15,23,42,.05);
+  }
+
+  #cabezal-content .top > div:first-child{
+    min-width:0 !important;
+  }
+
+  #cabezal-content h1{
+    color:#111827 !important;
+    font-size:16px !important;
+    font-weight:900 !important;
+  }
+
+  #cabezal-content .sub,
+  #cabezal-content .rxSmall,
+  #cabezal-content .hint{
+    color:var(--acx-muted) !important;
+  }
+
+  #cabezal-content .right{
+    display:flex !important;
+    align-items:center !important;
+    justify-content:flex-start !important;
+    gap:8px !important;
+    padding-top:10px;
+    border-top:1px solid #edf1f6;
+  }
+
+  #cabezal-content input{
+    color:var(--acx-text) !important;
+    background:#fff !important;
+    border:1px solid #d5dce6 !important;
+    border-radius:8px !important;
+  }
+
+  #cabezal-content button{
+    min-height:34px;
+    color:#1e293b !important;
+    background:#fff !important;
+    border:1px solid var(--acx-border) !important;
+    border-radius:8px !important;
+    font-weight:700 !important;
+    text-transform:uppercase;
+    box-shadow:none !important;
+  }
+
+  #cabezal-content button:hover{
+    transform:translateY(-1px);
+    background:#f8fafc !important;
+  }
+
+  #cabezal-content #btnInit,
+  #cabezal-content #btnAllOn{
+    color:var(--acx-green) !important;
+    border-color:#bbf7d0 !important;
+  }
+
+  #cabezal-content #btnAllOff,
+  #cabezal-content [id^="btnStop"]{
+    color:var(--acx-red) !important;
+    border-color:#fecaca !important;
+  }
+
+  #cabezal-content #btnStatus,
+  #cabezal-content #btnSendRaw,
+  #cabezal-content #btnDoRaw{
+    color:var(--acx-blue) !important;
+    border-color:#bfdbfe !important;
+  }
+
+  #cabezal-content .rxBox,
+  #cabezal-content .testBox,
+  #cabezal-content .traceBox,
+  #cabezal-content .log{
+    color:#334155 !important;
+    background:var(--acx-surface-soft) !important;
+    border:1px solid #e4e8f0 !important;
+    border-radius:10px !important;
+    box-shadow:none !important;
+  }
+
+  #cabezal-content .rxTitle,
+  #cabezal-content .traceTitle{
+    color:#1f2937 !important;
+  }
+
+  #cabezal-content .traceItem{
+    border-bottom:1px dashed #d7dee9 !important;
+  }
+
+  #cabezal-content .traceDir.tx{color:var(--acx-blue) !important}
+  #cabezal-content .traceDir.rx{color:#ca8a04 !important}
+  #cabezal-content .traceDir.sys{color:var(--acx-green) !important}
+
+  #cabezal-content .sectionTitle{
+    margin:16px 0 8px !important;
+    color:#1f2937 !important;
+    font-size:13px !important;
+    font-weight:900 !important;
+  }
+
+  #cabezal-content .sectionTitle::before{
+    width:8px;
+    height:18px;
+    display:inline-block;
+    border-radius:999px;
+    background:#ef4444;
+    content:"";
+  }
+
+  #cabezal-content .badge{
+    color:var(--acx-muted) !important;
+    background:#fff !important;
+    border:1px solid #e2e8f0 !important;
+  }
+
+  #cabezal-content .mcard,
+  #cabezal-content .J,
+  #cabezal-content .blk{
+    min-width:0 !important;
+    color:var(--acx-text) !important;
+    background:#fff !important;
+    border:1px solid #dce3ee !important;
+    border-radius:10px !important;
+    box-shadow:0 3px 10px rgba(15,23,42,.04) !important;
+  }
+
+  #cabezal-content .mtitle,
+  #cabezal-content .Jtitle,
+  #cabezal-content .blkTitle{
+    color:#111827 !important;
+  }
+
+  #cabezal-content .msub,
+  #cabezal-content .Jhex,
+  #cabezal-content .blkSub,
+  #cabezal-content .sval{
+    color:var(--acx-muted) !important;
+  }
+
+  #cabezal-content .posBtn,
+  #cabezal-content .cell,
+  #cabezal-content .pinBtn{
+    color:#1e293b !important;
+    background:#fff !important;
+    border:1px solid var(--acx-border) !important;
+    border-radius:8px !important;
+    box-shadow:none !important;
+  }
+
+  #cabezal-content .posBtn.on,
+  #cabezal-content .cell.on,
+  #cabezal-content .pinBtn.on{
+    color:#f0fdf4 !important;
+    background:var(--acx-green) !important;
+    border-color:#86efac !important;
+  }
+
+  #cabezal-content .cell.on .n{color:#f0fdf4 !important}
+  #cabezal-content .n{color:#334155 !important}
+
+  #cabezal-content .sliderWrap{
+    background:var(--acx-surface-soft) !important;
+    border:1px solid #e2e8f0 !important;
+    border-radius:8px !important;
+  }
+
+  #cabezal-content .mcard.running,
+  #cabezal-content .J.running,
+  #cabezal-content .blk.running{
+    border-color:#86efac !important;
+    box-shadow:0 0 0 3px rgba(34,197,94,.10) inset, 0 6px 18px rgba(15,23,42,.06) !important;
+  }
+
+  #cabezal-content .miniBtn.run{
+    color:var(--acx-green) !important;
+    border-color:#bbf7d0 !important;
+  }
+
+  #cabezal-content .miniBtn.stop{
+    color:var(--acx-red) !important;
+    border-color:#fecaca !important;
+  }
+
+  /* Popups y overlays siguen funcionales, adaptados al shell */
+  .toast,
+  .ovCard,
+  .errCard,
+  .confirmCard{
+    font-family:"Segoe UI", Roboto, Arial, sans-serif !important;
+  }
+
+  @media (max-width:900px){
+    .acuratex-static-sidebar{width:216px;min-width:216px}
+    .acuratex-static-header{align-items:flex-start;flex-direction:column}
+    .acuratex-static-head-meta{justify-content:flex-start}
+  }
+
+  @media (max-width:700px){
+    body{overflow:auto !important}
+    .acuratex-static-shell{min-height:100vh;flex-direction:column;overflow:visible}
+    .acuratex-static-sidebar{
+      width:100%;
+      min-width:0;
+      overflow:visible;
+      border-right:0;
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .acuratex-static-brand{min-height:66px;padding:12px 16px}
+    .head-navigation{flex-direction:row;gap:6px;overflow-x:auto;padding:8px 10px 10px}
+    .head-navigation-label,.acuratex-static-user-box{display:none}
+    .head-navigation-button{
+      width:auto;
+      min-width:157px;
+      min-height:42px;
+      padding:0 12px;
+      border:1px solid rgba(148,163,184,.16);
+      border-radius:10px;
+      background:rgba(15,23,42,.42);
+    }
+    .acuratex-static-workspace{overflow:visible}
+    #cabezal-content{overflow:visible}
+  }
+
+  @media (max-width:480px){
+    .acuratex-static-window-actions{display:none}
+    .acuratex-static-header{padding:12px}
+    .acuratex-static-title{font-size:17px}
+    #cabezal-content .wrap{padding:12px !important}
+    #cabezal-content .right{overflow-x:auto;flex-wrap:nowrap !important;padding-bottom:4px}
+    #cabezal-content .right button{flex:0 0 auto}
+  }
+</style>
+
+<style id="app-screenshot-theme">
+  :root{
+    --app-navy:#071326;
+    --app-navy-2:#0b1830;
+    --app-sidebar:#071326;
+    --app-sidebar-active:#313b52;
+    --app-canvas:#f3f4f6;
+    --app-card:#ffffff;
+    --app-border:#d9e1ec;
+    --app-text:#071326;
+    --app-muted:#64748b;
+    --app-green:#00a63e;
+    --app-red:#ff1717;
+    --app-blue:#0047d6;
+  }
+
+  html,body{
+    width:100%;
+    min-height:100%;
+  }
+
+  body{
+    overflow:hidden !important;
+    background:var(--app-navy) !important;
+    font-family:"Segoe UI", Arial, sans-serif !important;
+  }
+
+  .acuratex-static-shell{
+    min-height:100vh !important;
+    background:var(--app-navy) !important;
+  }
+
+  .acuratex-static-sidebar{
+    width:206px !important;
+    min-width:206px !important;
+    background:var(--app-sidebar) !important;
+    border-right:1px solid rgba(255,255,255,.08) !important;
+  }
+
+  .app-sidebar-brand{
+    height:122px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:0 17px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+  }
+
+  .app-logo-mark{
+    width:22px;
+    height:22px;
+    display:grid;
+    place-items:center;
+    color:#fff;
+    font-size:0;
+    position:relative;
+  }
+
+  .app-logo-mark::before{
+    content:"";
+    width:18px;
+    height:10px;
+    border-left:4px solid #ff1e2d;
+    border-top:4px solid #ff1e2d;
+    transform:skewX(-25deg) rotate(45deg);
+    border-radius:2px;
+  }
+
+  .app-logo-word{
+    color:#fff;
+    font-size:17px;
+    font-weight:900;
+    letter-spacing:-.04em;
+  }
+
+  .app-sidebar-nav{
+    display:grid;
+    padding-top:15px;
+  }
+
+  .app-nav-item{
+    min-height:52px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:0 18px;
+    color:#fff;
+    text-decoration:none;
+    font-size:13px;
+    font-weight:800;
+  }
+
+  .app-nav-item:hover{
+    background:rgba(255,255,255,.05);
+  }
+
+  .app-nav-item.is-active{
+    background:var(--app-sidebar-active);
+  }
+
+  .app-nav-icon{
+    width:18px;
+    text-align:center;
+    color:#e2e8f0;
+    font-size:17px;
+  }
+
+  .app-sidebar-user{
+    margin-top:auto;
+    display:flex;
+    gap:3px;
+    padding:0 17px 18px;
+    color:#fff;
+    font-size:10px;
+  }
+
+  .app-sidebar-user strong{
+    color:#fff;
+    font-weight:900;
+  }
+
+  .acuratex-static-workspace{
+    background:var(--app-canvas) !important;
+  }
+
+  .acuratex-static-window-chrome{
+    min-height:54px !important;
+    height:54px;
+    padding:0 12px !important;
+    background:linear-gradient(180deg,#0c192e,#071326) !important;
+    border-bottom:1px solid #21324c !important;
+  }
+
+  .app-top-title{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    color:#fff;
+    font-size:11px;
+    font-family:Georgia,serif;
+    font-weight:700;
+  }
+
+  .app-top-symbol{
+    color:#ff1e2d;
+    font-size:24px;
+    font-family:Arial,sans-serif;
+  }
+
+  .app-window-buttons{
+    display:flex;
+    gap:6px;
+  }
+
+  .app-window-buttons span{
+    width:31px;
+    height:29px;
+    display:grid;
+    place-items:center;
+    border:1px solid #263650;
+    border-radius:9px;
+    color:#cbd5e1;
+    font-size:15px;
+  }
+
+  .app-program-panel{
+    display:grid;
+    grid-template-columns:minmax(330px,1.15fr) minmax(360px,1fr) minmax(600px,1.35fr);
+    gap:10px;
+    margin:12px 12px 0;
+    padding:10px;
+    border:1px solid var(--app-border);
+    border-radius:8px;
+    background:#fff;
+    box-shadow:0 2px 7px rgba(15,23,42,.08);
+  }
+
+  .app-panel-label{
+    margin-bottom:18px;
+    color:#0f172a;
+    font-size:10px;
+    font-weight:900;
+  }
+
+  .app-program-tabs{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+  }
+
+  .app-program-tab{
+    min-height:31px !important;
+    padding:6px 15px !important;
+    border:1px solid #d7e0eb !important;
+    border-radius:999px !important;
+    color:#071326 !important;
+    background:#fff !important;
+    font-size:11px !important;
+    font-weight:900 !important;
+    text-transform:none !important;
+  }
+
+  .app-program-tab.is-selected{
+    border-color:#4386ff !important;
+    color:#064cd6 !important;
+    background:#eff6ff !important;
+    box-shadow:0 0 0 1px #4386ff inset !important;
+  }
+
+  .app-program-status{
+    margin-top:10px;
+    color:#64748b;
+    font-size:10px;
+  }
+
+  .app-program-center{
+    display:grid;
+    grid-template-columns:1fr 148px;
+    gap:8px;
+    align-items:stretch;
+  }
+
+  .app-quick-row{
+    display:grid;
+    grid-template-columns:auto minmax(155px,1fr) minmax(155px,1fr);
+    gap:7px;
+    align-content:center;
+  }
+
+  .app-quick-row #btnTesteo{
+    grid-row:1 / span 2;
+    grid-column:4;
+    min-width:60px;
+  }
+
+  .app-quick-row #btnShowAdvanced{
+    grid-column:1;
+  }
+
+  .app-test-slot{
+    min-width:0;
+  }
+
+  .app-test-slot #testBox{
+    height:100%;
+    min-height:82px;
+    margin:0 !important;
+    padding:9px !important;
+    border-radius:7px !important;
+    background:#f8fafc !important;
+  }
+
+  .app-test-slot .rxTitle{
+    font-size:10px;
+  }
+
+  .app-test-slot .rxSmall{
+    display:none;
+  }
+
+  .app-program-actions{
+    display:grid;
+    gap:7px;
+    align-content:start;
+  }
+
+  .app-main-actions{
+    display:grid;
+    grid-template-columns:repeat(6,minmax(62px,1fr));
+    gap:7px;
+  }
+
+  .app-secondary-actions{
+    display:flex;
+    justify-content:flex-end;
+    flex-wrap:wrap;
+    gap:7px;
+  }
+
+  .app-program-panel button{
+    min-height:42px;
+    border:1px solid #d7e0eb;
+    border-radius:7px;
+    color:#071326;
+    background:#fff;
+    padding:7px 10px;
+    font-size:10px;
+    font-weight:900;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+
+  .app-program-panel #btnCheck,
+  .app-program-panel #btnShowAdvanced{
+    min-height:30px;
+  }
+
+  .app-program-panel #btnShowCan,
+  .app-program-panel #btnShowTrace{
+    min-height:30px;
+    color:#0047d6;
+    border-color:#b8d3ff;
+  }
+
+  .app-program-panel #btnTesteo,
+  .app-program-panel #btnInit,
+  .app-program-panel #btnAllOn{
+    color:var(--app-green);
+    border-color:#a7efbf;
+  }
+
+  .app-program-panel #btnAllOff,
+  .app-program-panel #btnStopAllJ,
+  .app-program-panel #btnStopAllY,
+  .app-program-panel #btnStopAllS{
+    color:var(--app-red);
+    border-color:#ffc0c0;
+  }
+
+  .app-program-panel #btnStatus{
+    color:var(--app-blue);
+    border-color:#b8d3ff;
+  }
+
+  .app-diagnostics-panel{
+    display:none;
+    margin:8px 12px 0;
+    padding:10px;
+    border:1px solid var(--app-border);
+    border-radius:8px;
+    background:#fff;
+    box-shadow:0 2px 7px rgba(15,23,42,.06);
+  }
+
+  .app-diagnostics-panel.is-open{
+    display:block;
+  }
+
+  .app-diagnostics-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:9px;
+    color:#071326;
+    font-size:11px;
+  }
+
+  .app-diagnostics-header button{
+    min-height:28px;
+    border:1px solid #d7e0eb;
+    border-radius:6px;
+    background:#fff;
+    padding:5px 9px;
+    font-size:10px;
+    font-weight:900;
+  }
+
+  .app-diagnostics-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+  }
+
+  .app-diagnostics-panel .rxBox,
+  .app-diagnostics-panel .traceBox{
+    margin:0 !important;
+    max-height:220px;
+    overflow:auto;
+  }
+
+  .app-manual-command-row{
+    display:grid;
+    grid-template-columns:180px minmax(240px,1fr) auto minmax(220px,.7fr) auto auto;
+    gap:7px;
+    margin-top:8px;
+  }
+
+  .app-ip-wrap{
+    display:grid;
+    gap:3px;
+  }
+
+  .app-ip-wrap label{
+    color:#64748b;
+    font-size:9px;
+    font-weight:900;
+  }
+
+  .app-manual-command-row input{
+    width:100% !important;
+    min-width:0;
+  }
+
+  #cabezal-content{
+    min-height:0;
+    overflow:auto !important;
+    background:var(--app-canvas);
+  }
+
+  #cabezal-content .wrap{
+    padding:0 12px 18px !important;
+  }
+
+  #cabezal-content .sectionTitle{
+    margin:13px 0 7px !important;
+    gap:8px !important;
+    color:#071326 !important;
+    font-size:12px !important;
+  }
+
+  #cabezal-content .sectionTitle::before{
+    width:7px !important;
+    height:18px !important;
+    background:#ef4444 !important;
+  }
+
+  #cabezal-content .badge{
+    display:none;
+  }
+
+  #cabezal-content .rowMotors{
+    grid-template-columns:repeat(4,minmax(210px,1fr)) !important;
+    gap:9px !important;
+  }
+
+  #cabezal-content .rowJ{
+    grid-template-columns:repeat(4,minmax(150px,1fr)) !important;
+    gap:9px !important;
+    justify-content:stretch !important;
+  }
+
+  #cabezal-content .rowBlocks{
+    grid-template-columns:repeat(auto-fit,minmax(260px,1fr)) !important;
+    gap:9px !important;
+  }
+
+  #cabezal-content .mcard,
+  #cabezal-content .J,
+  #cabezal-content .blk{
+    padding:9px !important;
+    border-radius:8px !important;
+    border:1px solid #d7e0eb !important;
+    box-shadow:0 1px 5px rgba(15,23,42,.04) !important;
+  }
+
+  #cabezal-content .mtitle,
+  #cabezal-content .Jtitle,
+  #cabezal-content .blkTitle{
+    font-size:11px !important;
+  }
+
+  #cabezal-content .msub,
+  #cabezal-content .Jhex,
+  #cabezal-content .blkSub{
+    font-size:9px !important;
+  }
+
+  #cabezal-content button,
+  #cabezal-content .posBtn,
+  #cabezal-content .cell,
+  #cabezal-content .pinBtn{
+    min-height:30px !important;
+    border-radius:7px !important;
+    font-size:10px !important;
+    font-weight:900 !important;
+  }
+
+  #cabezal-content .miniBtn.run{
+    color:var(--app-green) !important;
+    border-color:#a7efbf !important;
+  }
+
+  #cabezal-content .miniBtn.stop{
+    color:var(--app-red) !important;
+    border-color:#ffc0c0 !important;
+  }
+
+  #cabezal-content .posBtns,
+  #cabezal-content .runRow,
+  #cabezal-content .Jbtns,
+  #cabezal-content .blkActions{
+    gap:6px !important;
+  }
+
+  #cabezal-content .sliderWrap{
+    padding:7px 9px !important;
+    border-radius:7px !important;
+  }
+
+  #cabezal-content .sval{
+    min-width:84px !important;
+    font-size:9px !important;
+  }
+
+  #cabezal-content .cell{
+    width:100% !important;
+    height:29px !important;
+  }
+
+  #cabezal-content .col{
+    width:100%;
+    display:grid !important;
+    grid-template-columns:repeat(4,1fr);
+    gap:6px !important;
+  }
+
+  #cabezal-content .gridPins{
+    grid-template-columns:repeat(4,1fr) !important;
+  }
+
+  #cabezal-content .gridPins.five{
+    grid-template-columns:repeat(5,1fr) !important;
+  }
+
+  #cabezal-content .log,
+  #cabezal-content .hint{
+    font-size:10px !important;
+  }
+
+  .toastWrap{
+    top:62px !important;
+  }
+
+  @media(max-width:1350px){
+    .app-program-panel{
+      grid-template-columns:1fr 1fr;
+    }
+    .app-program-actions{
+      grid-column:1 / -1;
+    }
+  }
+
+  @media(max-width:1050px){
+    .app-program-panel{
+      grid-template-columns:1fr;
+    }
+    .app-program-actions{
+      grid-column:auto;
+    }
+    .app-main-actions{
+      grid-template-columns:repeat(3,1fr);
+    }
+    #cabezal-content .rowMotors,
+    #cabezal-content .rowJ{
+      grid-template-columns:repeat(2,minmax(220px,1fr)) !important;
+    }
+    .app-manual-command-row{
+      grid-template-columns:1fr;
+    }
+  }
+
+  @media(max-width:760px){
+    body{
+      overflow:auto !important;
+    }
+    .acuratex-static-shell{
+      flex-direction:column;
+      overflow:visible !important;
+    }
+    .acuratex-static-sidebar{
+      width:100% !important;
+      min-width:0 !important;
+    }
+    .app-sidebar-brand{
+      height:64px;
+    }
+    .app-sidebar-nav{
+      grid-template-columns:1fr 1fr;
+      padding:0;
+    }
+    .app-sidebar-user{
+      display:none;
+    }
+    .acuratex-static-workspace{
+      overflow:visible !important;
+    }
+    .app-program-panel{
+      margin:8px;
+    }
+    .app-program-center{
+      grid-template-columns:1fr;
+    }
+    .app-quick-row{
+      grid-template-columns:1fr 1fr;
+    }
+    .app-quick-row #btnTesteo{
+      grid-row:auto;
+      grid-column:auto;
+    }
+    .app-main-actions{
+      grid-template-columns:repeat(2,1fr);
+    }
+    .app-secondary-actions{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+    }
+    .app-diagnostics-grid{
+      grid-template-columns:1fr;
+    }
+    #cabezal-content .rowMotors,
+    #cabezal-content .rowJ,
+    #cabezal-content .rowBlocks{
+      grid-template-columns:1fr !important;
+    }
+  }
+</style>
+</head>
+<body data-active-head="1" style="margin:0;">
+<div class="toastWrap" id="toastWrap"></div>
+<!-- Overlay barra -->
+<div class="overlay" id="overlay">
+<div class="ovCard">
+<div class="ovTitle">
+<div id="ovTitle">Procesando...</div>
+<div id="ovPct" style="color:#93c5fd;font-weight:900;font-size:12px;">0%</div>
+</div>
+<div class="ovMsg" id="ovMsg">...</div>
+<div class="ovBar"><div class="ovFill" id="ovFill"></div></div>
+<div class="ovMeta">
+<div id="ovMetaL">—</div>
+<div id="ovMetaR">—</div>
+</div>
+</div>
+</div>
+<!-- ✅ POPUP GRANDE de error (ENGLISH) -->
+<div class="errOverlay" id="errOverlay">
+<div class="errCard">
+<div class="errHead">
+<div class="tag">DIAGNÓSTICO DETECTADO</div>
+<button class="errClose" id="errClose">CERRAR</button>
+</div>
+<div class="errMsg" id="errMsg">—</div>
+<div class="errNote">
+<b>STOP ALL</b> fue ejecutado y la transmisión está bloqueada hasta cerrar este aviso.
+      </div>
+</div>
+</div>
+<!-- ✅ POPUP: TEST FAILED -> permite FORCE INIT -->
+<div class="confirmOverlay" id="testFailOverlay">
+<div class="confirmCard">
+<div class="confirmHead">
+<div class="tag">TEST FAILED</div>
+<button class="confirmClose" id="testFailX">X</button>
+</div>
+<div class="confirmMsg" id="testFailMsg">—</div>
+<div class="confirmBtns">
+<button class="confirmBtn" id="testFailCancel">CANCEL</button>
+<button class="confirmBtn primary" id="testFailForce">FORCE INIT</button>
+</div>
+<div class="confirmNote">
+        Customer acknowledges the issue and continues with initialization.
+      </div>
+</div>
+</div>
+<div class="acuratex-static-shell">
+<aside aria-label="Navegación de cabezales" class="acuratex-static-sidebar">
+<div class="app-sidebar-brand">
+<div class="app-logo-mark">A</div>
+<div class="app-logo-word">ACURATEX</div>
+</div>
+<nav aria-label="Navegación principal" class="app-sidebar-nav">
+<a class="app-nav-item" href="/b">
+<span aria-hidden="true" class="app-nav-icon">⌘</span>
+<span>Dashboard Servo</span>
+</a>
+<a class="app-nav-item is-active" href="/">
+<span aria-hidden="true" class="app-nav-icon">▣</span>
+<span>Cabezal</span>
+</a>
+</nav>
+<div class="app-sidebar-user">
+<strong>SUPER ROOT</strong>
+<span>| root</span>
+</div>
+</aside>
+<div class="acuratex-static-workspace">
+<div aria-label="Encabezado de Acuratex" class="acuratex-static-window-chrome">
+<div class="app-top-title">
+<span aria-hidden="true" class="app-top-symbol">⌁</span>
+<span>Sistema Modular</span>
+</div>
+<div aria-hidden="true" class="app-window-buttons">
+<span>−</span><span>□</span><span>×</span>
+</div>
+</div><section aria-label="Programa y acciones generales" class="app-program-panel">
+<div class="app-program-left">
+<div class="app-panel-label">PROGRAMA</div>
+<div aria-label="Programa visual" class="app-program-tabs" role="group">
+<button class="app-program-tab is-selected" data-program="1" type="button">Programa 1</button>
+<button class="app-program-tab" data-program="2" type="button">Programa 2</button>
+<button class="app-program-tab" data-program="3" type="button">Programa 3</button>
+</div>
+<div class="app-program-status" id="visualProgramStatus">OK program_select_1</div>
+</div>
+<div class="app-program-center">
+<div class="app-quick-row" id="appQuickRow"><button id="btnCheck">CHECK</button><button class="app-wide-tool" id="btnShowCan" type="button">VER CAN RECIBIDO</button><button class="app-wide-tool" id="btnShowTrace" type="button">HISTORIAL DE ALERTAS</button><button id="btnTesteo">TESTEO</button><button class="app-tool" id="btnShowAdvanced" type="button">COMANDOS</button></div>
+<div class="app-test-slot" id="appTestSlot"><div class="testBox" id="testBox">
+<div class="rxTitle">TESTEO (resultado)</div>
+<div id="testLine">Esperando /status...</div>
+<div class="rxSmall">Endpoint: <code>/status</code> (muestra interpretación: OK / FALTA / ERROR)</div>
+</div></div>
+</div>
+<div class="app-program-actions">
+<div class="app-main-actions" id="appMainActions"><button id="btnInit">INIT</button><button id="btnAllOff">OFF ALL</button><button id="btnAllOn">ON ALL</button><button id="btnStatus">STATUS</button><button id="btnRunAllJ">RUN ALL (J)</button><button id="btnStopAllJ">STOP ALL (J)</button></div>
+<div class="app-secondary-actions" id="appSecondaryActions"><button id="btnRunAllY">RUN ALL (YARN)</button><button id="btnStopAllY">STOP ALL (YARN)</button><button id="btnRunAllS">RUN ALL (STITCH)</button><button id="btnStopAllS">STOP ALL (STITCH)</button></div>
+</div>
+</section><section class="app-diagnostics-panel" id="appDiagnosticsPanel">
+<div class="app-diagnostics-header">
+<strong>Diagnóstico y comandos manuales</strong>
+<button id="btnCloseDiagnostics" type="button">CERRAR</button>
+</div>
+<div class="app-diagnostics-grid" id="appDiagnosticsGrid"><div class="rxBox" id="rxBox">
+<div class="rxTitle">RX (placa responde)</div>
+<div id="rxLine">Esperando...</div>
+<div class="rxSmall">Endpoint: <code>/rx</code> (solo actualiza si llega algo nuevo)</div>
+</div><div class="traceBox" id="traceBox">
+<div class="traceTitle">
+<span>TRACE (últimos 10) — TX/RX + hora</span>
+<button class="miniBtn" id="btnTraceClear">Clear</button>
+</div>
+<div class="traceList" id="traceList"></div>
+</div></div>
+<div class="app-manual-command-row" id="appManualCommandRow"><div class="app-ip-wrap"><label>HOST ESP32</label><input id="ip" placeholder="(vacío = usar el host actual)" value=""/></div><input id="rawLine" placeholder="Enviar línea CAN (ej: 320 07   |   370 FD 06 11 00)"/><button id="btnSendRaw">SEND</button><input id="rawDo" placeholder="Enviar DO (ej: init, start, j_run_1)" style="width:260px;"/><button id="btnDoRaw">DO</button><button id="btnGoB">SERVOS / STEPPER</button></div>
+</section>
+
+<main id="cabezal-content"><div class="wrap">
+
+<div class="sectionTitle">
+      DEN <span class="badge">DEN1..DEN4 visibles: posiciones 0 · 162 · 325 · 487 · 650 + slider · RUN en firmware</span>
+</div>
+<div class="rowMotors" id="rowDEN"></div>
+<div class="sectionTitle" style="margin-top:14px;">
+      Feet <span class="badge">Feet 1 y Feet 2 · un comando directo por botón</span>
+</div>
+<div class="rowBlocks" id="rowFeet">
+<div class="blk">
+<div class="blkHead">
+<div class="blkTitle">Feet 1</div>
+<div class="blkSub">363 · 04 01 02 00 00 80</div>
+</div>
+<div class="gridPins">
+<button class="pinBtn" id="btnFeet1" type="button">FEET 1</button>
+</div>
+</div>
+<div class="blk">
+<div class="blkHead">
+<div class="blkTitle">Feet 2</div>
+<div class="blkSub">363 · 04 01 02 01 00 80</div>
+</div>
+<div class="gridPins">
+<button class="pinBtn" id="btnFeet2" type="button">FEET 2</button>
+</div>
+</div>
+</div>
+<div class="sectionTitle" style="margin-top:14px;">
+      J1..J4 <span class="badge">Visual J1→físico J1 · J2→J2 · J3→J5 · J4→J6 · 8 salidas</span>
+</div>
+<div class="rowJ" id="rowJ"></div>
+<div class="sectionTitle" style="margin-top:14px;">
+      Yarn <span class="badge">Solo Yarn 1 · ID 363 · 05 01 00 canal 00 estado</span>
+</div>
+<div class="rowBlocks" id="rowYarn"></div>
+<div class="sectionTitle" style="margin-top:14px;">
+      Stitch <span class="badge">Solo Stitch 1 y Stitch 2 · RESET + posiciones 0 · 320 · 480 · 160 · 640</span>
+</div>
+<div class="rowBlocks" id="rowStitch"></div>
+<div class="log" id="log">Listo.</div>
+<div class="hint">Último: <code id="dst">/send?line=...</code></div>
+</div></main>
+</div>
+</div>
+<script>
+  // ==========================
+  // BASE URL
+  // ==========================
+  function normalizeBase(v){
+    v = (v || "").trim();
+    if (!v) return location.origin;
+    if (!/^https?:\/\//i.test(v)) v = "http://" + v;
+    return v.replace(/\/+$/,'');
+  }
+  function baseUrl(){ return normalizeBase(document.getElementById('ip').value); }
+  function log(msg){ document.getElementById('log').textContent = msg; }
+  function sleep(ms){ return new Promise(res=>setTimeout(res, ms)); }
+
+  // ==========================
+  // HALT GLOBAL (bloquea TX)
+  // ==========================
+  let HALT = false;
+  function setHalt(on){ HALT = !!on; }
+
+  // ==========================
+  // ERROR MODAL
+  // ==========================
+  function errShow(msg){
+    const ov = document.getElementById("errOverlay");
+    const m  = document.getElementById("errMsg");
+    if(m) m.textContent = String(msg || "");
+    if(ov) ov.classList.add("show");
+  }
+  function errHide(){
+    const ov = document.getElementById("errOverlay");
+    if(ov) ov.classList.remove("show");
+  }
+  document.getElementById("errClose").addEventListener("click", ()=>{
+    errHide();
+    setHalt(false);
+    toast("Desbloqueado. Ya puedes volver a intentar.", "sys", 3000);
+    traceAdd("SYS", "HALT DESACTIVADO (usuario cerró el aviso)");
+  });
+
+  // ==========================
+  // TEST FAIL POPUP (FORCE INIT)
+  // ==========================
+  let pendingForceInitFn = null;
+
+  function testFailShow(msg, onForce){
+    const ov = document.getElementById("testFailOverlay");
+    const m  = document.getElementById("testFailMsg");
+    if (m) m.textContent = String(msg || "");
+    pendingForceInitFn = (typeof onForce === "function") ? onForce : null;
+    if (ov) ov.classList.add("show");
+  }
+  function testFailHide(){
+    const ov = document.getElementById("testFailOverlay");
+    if (ov) ov.classList.remove("show");
+    pendingForceInitFn = null;
+  }
+
+  document.getElementById("testFailX").addEventListener("click", testFailHide);
+  document.getElementById("testFailCancel").addEventListener("click", testFailHide);
+
+  document.getElementById("testFailForce").addEventListener("click", async ()=>{
+    const btn = document.getElementById("testFailForce");
+    btn.disabled = true;
+    try{
+      const fn = pendingForceInitFn;
+      testFailHide();
+      if (fn) await fn();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ===== Overlay progress =====
+  function overlayShow(title, msg="", pct=null, metaL="", metaR=""){
+    const ov = document.getElementById("overlay");
+    if(!ov) return;
+    ov.classList.add("show");
+    document.getElementById("ovTitle").textContent = title || "Procesando...";
+    document.getElementById("ovMsg").textContent = msg || "";
+    document.getElementById("ovMetaL").textContent = metaL || "";
+    document.getElementById("ovMetaR").textContent = metaR || "";
+    overlaySetPct(pct);
+  }
+  function overlaySetPct(pct){
+    const fill = document.getElementById("ovFill");
+    const ptxt = document.getElementById("ovPct");
+    if(pct === null || pct === undefined || isNaN(pct)){
+      if(fill) fill.style.width = "30%";
+      if(ptxt) ptxt.textContent = "…";
+      return;
+    }
+    const cl = Math.max(0, Math.min(100, Math.floor(pct)));
+    if(fill) fill.style.width = cl + "%";
+    if(ptxt) ptxt.textContent = cl + "%";
+  }
+  function overlayHide(){
+    const ov = document.getElementById("overlay");
+    if(!ov) return;
+    ov.classList.remove("show");
+  }
+
+  // ===== TOAST =====
+  function toast(msg, kind="sys", ms=4500){
+    const wrap = document.getElementById("toastWrap");
+    if (!wrap) return;
+
+    const el = document.createElement("div");
+    el.className = "toast " + (kind === "ok" ? "ok" : kind === "bad" ? "bad" : "");
+    el.innerHTML = `
+      <div class="toastHead">
+        <div>${kind === "bad" ? "ALERT" : kind === "ok" ? "OK" : "INFO"}</div>
+        <button class="toastClose">X</button>
+      </div>
+      <div>${String(msg || "")}</div>
+    `;
+    el.querySelector(".toastClose").onclick = ()=> el.remove();
+    wrap.appendChild(el);
+
+    setTimeout(()=>{ try{ el.remove(); }catch(e){} }, ms);
+  }
+
+  // ===== TRACE =====
+  const TRACE_MAX = 10;
+  let trace = [];
+  function nowTimeStr(){
+    return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, m => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[m]));
+  }
+  function traceAdd(dir, msg){
+    trace.push({ t: nowTimeStr(), dir, msg: String(msg || '') });
+    if (trace.length > TRACE_MAX) trace = trace.slice(trace.length - TRACE_MAX);
+    traceRender();
+  }
+  function traceRender(){
+    const list = document.getElementById('traceList');
+    if (!list) return;
+    list.innerHTML = trace.map(e => `
+      <div class="traceItem">
+        <div class="traceTime">${e.t}</div>
+        <div class="traceDir ${e.dir.toLowerCase()}">${e.dir}</div>
+        <div class="traceMsg">${escapeHtml(e.msg)}</div>
+      </div>
+    `).join('');
+  }
+
+  // ==========================
+  // Helpers ID/data
+  // ==========================
+  function normId(x){
+    if (x === null || x === undefined) return "";
+    if (typeof x === "number") return x.toString(16).toUpperCase();
+    let s = String(x).trim().toUpperCase();
+    s = s.replace(/^0X/,'');
+    s = s.replace(/[^0-9A-F]/g,'');
+    s = s.replace(/^0+/, '');
+    return s;
+  }
+  function parseHexTokens(s){
+    const m = String(s || "").toUpperCase().match(/[0-9A-F]{2}/g);
+    if (!m) return [];
+    return m.map(t => parseInt(t, 16));
+  }
+
+  // ==========================
+  // API (bloquea si HALT)
+  // ==========================
+  async function apiSendLine(line, opts={}){
+    if (HALT && !opts.force){
+      toast("BLOCKED BY ERROR (HALT). Close the popup to continue.", "bad", 3500);
+      traceAdd("SYS", `TX blocked (HALT): ${line}`);
+      return false;
+    }
+
+    traceAdd('TX', line);
+    document.getElementById('dst').textContent = `/send?line=${line}`;
+    const url = `${baseUrl()}/send?line=${encodeURIComponent(line)}`;
+    try{
+      const r = await fetch(url, { cache:"no-store" });
+      const t = await r.text();
+      log(`${r.ok ? 'OK' : 'ERR'} -> ${line}\nESP: ${t}`);
+      return r.ok;
+    }catch(e){
+      log(`FALLO fetch: ${e}`);
+      return false;
+    }
+  }
+
+  async function apiCmdDo(cmd, opts={}){
+    if (HALT && !opts.force){
+      toast("BLOCKED BY ERROR (HALT). Close the popup to continue.", "bad", 3500);
+      traceAdd("SYS", `DO blocked (HALT): ${cmd}`);
+      return false;
+    }
+
+    traceAdd('TX', `DO ${cmd}`);
+    const url = `${baseUrl()}/cmd?do=${encodeURIComponent(cmd)}`;
+    try{
+      const r = await fetch(url, { cache:"no-store" });
+      const t = await r.text();
+      log(`${r.ok ? 'OK' : 'ERR'} -> /cmd?do=${cmd}\nESP: ${t}`);
+      return r.ok;
+    }catch(e){
+      log(`FALLO /cmd: ${e}`);
+      return false;
+    }
+  }
+
+  // ==========================================================
+  // ✅ ERROR INFO
+  // ==========================================================
+  const ERR_INFO = {
+    0x10: { en: "Feedback / Encoder Error" },
+    0x20: { en: "Zero-Point Error" }
+  };
+
+  // Diagnósticos DEN con significado físico aún no confirmado.
+  const DEN_DIAGNOSTIC_INFO = {
+    0x00: "Diagnóstico DEN tipo 00",
+    0x01: "Diagnóstico DEN tipo 01"
+  };
+
+  const DEN_DIAGNOSTIC_MOTOR_MAP = {
+    "733-B0": 1,
+    "733-B1": 2,
+    "734-B0": 3,
+    "734-B1": 4,
+    "733-B3": 5,
+    "733-B2": 6,
+    "734-B3": 7,
+    "734-B2": 8
+  };
+
+  // ==========================================================
+  // ✅ DETECTOR: (A) 0x710..0x719 + Bx 00 00 (10|20)
+  //              (B) 0x700..0x70F + C1 00 00 00
+  // ==========================================================
+  const MOTOR_ERR_ID_TO_MOTOR = {
+    "710": 1, "711": 2, "712": 3, "713": 4, "714": 5,
+    "715": 6, "716": 7, "717": 8, "718": 9, "719": 10
+  };
+
+  const MOTOR_ERR_ID_FIRSTBYTE = {
+    "710": 0xB0, "711": 0xB1, "712": 0xB2, "713": 0xB3, "714": 0xB4,
+    "715": 0xB5, "716": 0xB6, "717": 0xB7,
+    "718": [0xC1, 0xC3],
+    "719": [0xC1, 0xC4],
+  };
+
+  function detectCanAlert(j){
+    const id = normId(j && j.id);
+    const bytes = parseHexTokens(j && j.data);
+
+    // Diagnóstico DEN:
+    // 733/734 F0 TIPO Bx 00 CODIGO 00 00 00
+    // CODIGO adicional admitido: 01 o 02
+    if ((id === "733" || id === "734") && bytes.length >= 8){
+      const headerOk = bytes[0] === 0xF0;
+      const typeOk = bytes[1] === 0x00 || bytes[1] === 0x01;
+      const additionalCodeOk =
+        bytes[4] === 0x01 ||
+        bytes[4] === 0x02;
+
+      const tailOk =
+        bytes[3] === 0x00 &&
+        additionalCodeOk &&
+        bytes[5] === 0x00 &&
+        bytes[6] === 0x00 &&
+        bytes[7] === 0x00;
+
+      if (headerOk && typeOk && tailOk){
+        const channelHex = hex2(bytes[2]);
+        const motor = DEN_DIAGNOSTIC_MOTOR_MAP[`${id}-${channelHex}`] || 0;
+
+        if (motor){
+          return {
+            kind: "DEN",
+            motor,
+            diagnosticType: bytes[1],
+            channel: bytes[2],
+            additionalCode: bytes[4]
+          };
+        }
+      }
+    }
+
+    if (/^70[0-9A-F]$/.test(id) && bytes.length >= 1){
+      if (bytes[0] === 0xC1){
+        const b1 = (bytes.length > 1) ? bytes[1] : 0x00;
+        const b2 = (bytes.length > 2) ? bytes[2] : 0x00;
+        const b3 = (bytes.length > 3) ? bytes[3] : 0x00;
+
+        const ok = (b1 === 0x00) && (b3 === 0x00) && (b2 === 0x00 || b2 === 0x01);
+        if (ok){
+          const node = parseInt(id, 16) - 0x700;
+          return { kind:"HB_C1", node, sub:b2, code:0xC1 };
+        }
+      }
+    }
+
+    const motor = MOTOR_ERR_ID_TO_MOTOR[id] || 0;
+    if (!motor) return null;
+    if (bytes.length < 4) return null;
+
+    const exp0 = MOTOR_ERR_ID_FIRSTBYTE[id];
+    if (exp0 === undefined) return null;
+
+    const allowed0 = Array.isArray(exp0) ? exp0 : [exp0];
+    if (!allowed0.includes(bytes[0])) return null;
+
+    if (bytes[1] !== 0x00) return null;
+    if (bytes[2] !== 0x00) return null;
+
+    const code = bytes[3] & 0xFF;
+    if (!(code === 0x10 || code === 0x20)) return null;
+
+    return { kind:"MOTOR", motor, code };
+  }
+
+  let lastMotorErrAt = {};
+  let lastEmergencyStopAt = 0;
+
+  // ✅✅✅ CAMBIO: STOP ALL = SOLO detener secuencias (NO OFF físico masivo)
+  async function emergencyStopAll(){
+    try{ for (let m=0; m<8; m++) denVisStop(m, true); }catch(e){}
+
+    // Parar visual sin mandar estados físicos.
+    try{ jVisStopAll(true); }catch(e){}
+    try{ blkVisStopAll(true); }catch(e){}
+
+    // Detener únicamente los equipos presentes en este cabezal.
+    const stopTasks = [
+      ...VISIBLE_J.map(item => apiCmdDo(`j_stop_${item.physical}`, {force:true})),
+      apiCmdDo('y1_stop', {force:true}),
+      apiCmdDo('den_stop_all', {force:true}),
+      apiCmdDo('s_stop_1', {force:true}),
+      apiCmdDo('s_stop_2', {force:true}),
+    ];
+
+    await Promise.allSettled(stopTasks);
+  }
+
+  async function onMotorDockError(errInfo, rxObj){
+    const now = Date.now();
+
+    const key =
+      (errInfo && errInfo.kind === "HB_C1")
+        ? `N${errInfo.node}`
+        : (errInfo && errInfo.kind === "DEN")
+          ? `DEN${errInfo.motor}-T${hex2(errInfo.diagnosticType)}-C${hex2(errInfo.additionalCode)}`
+          : `M${errInfo.motor}`;
+
+    if (lastMotorErrAt[key] && (now - lastMotorErrAt[key]) < 1200) return;
+    lastMotorErrAt[key] = now;
+
+    setHalt(true);
+
+    const idShow = normId(rxObj && rxObj.id);
+    const dataShow = String(rxObj && rxObj.data ? rxObj.data : "");
+    const dlcShow = (rxObj && rxObj.dlc != null) ? rxObj.dlc : "?";
+
+    let title = "MOTOR ERROR";
+    let who   = "";
+    let code  = 0x00;
+    let msg   = "";
+
+    if (errInfo.kind === "DEN"){
+      const diagnosticType = errInfo.diagnosticType & 0xFF;
+      const additionalCode = errInfo.additionalCode & 0xFF;
+      const channel = errInfo.channel & 0xFF;
+
+      const typeHex = hex2(diagnosticType);
+      const additionalHex = hex2(additionalCode);
+      const channelHex = hex2(channel);
+
+      title =
+        DEN_DIAGNOSTIC_INFO[diagnosticType] ||
+        `Diagnóstico DEN tipo ${typeHex}`;
+
+      who = `MOTOR DEN ${errInfo.motor}`;
+
+      msg =
+        `${title} — ${who}\n` +
+        `TIPO DE DIAGNÓSTICO=0x${typeHex}\n` +
+        `CÓDIGO ADICIONAL=0x${additionalHex}\n` +
+        `CANAL=${channelHex}\n` +
+        `ID=0x${idShow}  DLC=${dlcShow}\n` +
+        `TRAMA=${dataShow}\n\n` +
+        `Acción: se detuvieron las secuencias DEN, J, Yarn y Stitch.\n` +
+        `La transmisión quedó bloqueada hasta cerrar este aviso.`;
+
+      errShow(msg);
+      toast(`${title} — ${who}`, "bad", 10000);
+      traceAdd(
+        "SYS",
+        `${title} — ${who} canal=${channelHex} código=0x${additionalHex} (HALT ACTIVO)`
+      );
+    } else {
+      if (errInfo.kind === "HB_C1"){
+        title = "ERROR STATE (C1)";
+        who   = `NODE ${errInfo.node} (sub=${errInfo.sub})`;
+        code  = 0xC1;
+      } else {
+        code  = errInfo.code;
+        who   = `MOTOR ${errInfo.motor}`;
+        title = (ERR_INFO[code] && ERR_INFO[code].en)
+          ? ERR_INFO[code].en
+          : "MOTOR ERROR";
+      }
+
+      const codeHex =
+        (code & 0xFF).toString(16).toUpperCase().padStart(2,'0');
+
+      msg =
+        `${title} — ${who}\n` +
+        `CODE=0x${codeHex} (${code})\n` +
+        `ID=0x${idShow}  DLC=${dlcShow}  DATA=${dataShow}\n\n` +
+        `Action: STOP ALL (J/Yarn/Stitch) + DEN sequences aborted.\n` +
+        `TX locked (HALT) until you close this popup.`;
+
+      errShow(msg);
+      toast(`${title} — ${who} (0x${codeHex})`, "bad", 10000);
+      traceAdd("SYS", `${title} — ${who} code=0x${codeHex} (HALT ON)`);
+    }
+
+    if ((now - lastEmergencyStopAt) < 1200) return;
+    lastEmergencyStopAt = now;
+
+    await emergencyStopAll();
+  }
+
+  // ==========================
+  // TESTEO STATUS
+  // ==========================
+  let lastTestSig = "";
+  let testForceLog = false;
+  let testPending  = false;
+
+  function classifyTest(msg){
+    msg = String(msg || "");
+    if (/ok|pass|todo\s*bien/i.test(msg)) return "ok";
+    if (/error|falta|timeout|sin\s*respuesta/i.test(msg)) return "bad";
+    return "";
+  }
+
+  function updateTestBox(j){
+    const box = document.getElementById("testBox");
+    const line = document.getElementById("testLine");
+    if (!box || !line || !j) return;
+
+    const pretty =
+      `state=${j.test_state}  armed=${j.test_armed}  tries=${j.test_tries}  last=${j.test_last}  age=${j.test_age_ms}ms\n` +
+      `${j.test_result || ""}`;
+
+    line.textContent = pretty;
+
+    box.classList.remove("ok","bad");
+    if (Number(j.test_state) === 2) box.classList.add("ok");
+    else if (Number(j.test_state) === 3) box.classList.add("bad");
+
+    const sig = `${j.test_state}|${j.test_armed}|${j.test_tries}|${j.test_last}|${j.test_result}`;
+    const doneOrErr = (Number(j.test_state) === 2) || (Number(j.test_state) === 3);
+
+    if (testForceLog && doneOrErr) {
+      testForceLog = false;
+      testPending = false;
+      traceAdd("SYS", `TESTEO => ${j.test_result || "(no text)"}`);
+      toast(`TESTEO => ${j.test_result || "(no text)"}`, classifyTest(j.test_result) || "sys", 6500);
+      lastTestSig = sig;
+      return;
+    }
+
+    if (sig !== lastTestSig) {
+      lastTestSig = sig;
+      if (j.test_result && j.test_result !== "IDLE" && j.test_result !== "RUNNING") {
+        traceAdd("SYS", `TESTEO => ${j.test_result}`);
+      }
+      if (testPending && doneOrErr) testPending = false;
+    }
+  }
+
+  // ==========================
+  // STATUS polling
+  // ==========================
+  let lastStatusJ = null;
+
+  async function pollStatus(){
+    try{
+      const r = await fetch(`${baseUrl()}/status`, { cache:"no-store" });
+      const txt = await r.text();
+      let j = null;
+      try{ j = JSON.parse(txt); }
+      catch(e){
+        document.getElementById("testLine").textContent =
+          "ERROR: /status no devolvió JSON válido.\n\n" + txt;
+        traceAdd("SYS", "ERROR parse JSON in /status");
+        return null;
+      }
+      lastStatusJ = j;
+      updateTestBox(j);
+      return j;
+    }catch(e){
+      const line = document.getElementById("testLine");
+      if (line) line.textContent = `ERROR: no responde /status\n${e}`;
+      return null;
+    }
+  }
+  setInterval(pollStatus, 350);
+  pollStatus();
+
+  // ==========================
+  // RX polling (aquí detectamos el error)
+  // ==========================
+  let lastRxCount = -1;
+  async function pollRx(){
+    try{
+      const r = await fetch(`${baseUrl()}/rx`, { cache:"no-store" });
+      if(!r.ok) return;
+      const j = await r.json();
+      if (typeof j.count === "number" && j.count !== lastRxCount){
+        lastRxCount = j.count;
+
+        const idN = normId(j.id);
+        const pretty =
+          `count=${j.count}  age=${j.age_ms}ms\n` +
+          `ID=0x${idN}  DLC=${j.dlc}  ${j.rtr ? "RTR" : "DAT"}\n` +
+          `DATA: ${j.data || ""}`;
+        document.getElementById("rxLine").textContent = pretty;
+
+        traceAdd('RX', `ID=0x${idN} DLC=${j.dlc} ${j.rtr ? "RTR" : "DAT"}  DATA: ${j.data || ""}`);
+
+        const errInfo = detectCanAlert(j);
+        if (errInfo){
+          traceAdd("SYS", `ALERT MATCH -> kind=${errInfo.kind} id=0x${idN} data=${j.data || ""}`);
+          onMotorDockError(errInfo, j);
+        }
+      }
+    }catch(e){}
+  }
+  setInterval(pollRx, 100);
+  pollRx();
+
+  // ==========================
+  // UI events
+  // ==========================
+  document.getElementById('btnSendRaw').addEventListener('click', async ()=>{
+    const v = document.getElementById('rawLine').value.trim();
+    if (!v) return;
+    await apiSendLine(v);
+  });
+  document.getElementById('btnDoRaw').addEventListener('click', async ()=>{
+    const v = document.getElementById('rawDo').value.trim();
+    if (!v) return;
+    await apiCmdDo(v);
+  });
+  document.getElementById('rawLine').addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter'){ e.preventDefault(); document.getElementById('btnSendRaw').click(); }
+  });
+  document.getElementById('rawDo').addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter'){ e.preventDefault(); document.getElementById('btnDoRaw').click(); }
+  });
+  document.getElementById('btnTraceClear').addEventListener('click', ()=>{
+    trace = [];
+    traceRender();
+  });
+
+  document.getElementById('btnTesteo').addEventListener('click', async ()=>{
+    const box = document.getElementById("testBox");
+    const line = document.getElementById("testLine");
+    if (box && line){
+      box.classList.remove("ok","bad");
+      line.textContent = "Ejecutando TESTEO... (esperando /status)";
+    }
+
+    testForceLog = true;
+    testPending  = true;
+    lastTestSig  = "";
+
+    await apiCmdDo('testeo');
+    toast("TESTEO sent. Waiting result...", "sys", 2500);
+    [120, 350, 800, 1500, 2500].forEach(ms => setTimeout(pollStatus, ms));
+  });
+
+  function isTestOkResult(txt){
+    txt = String(txt||"");
+    return /OK\b|todo\s*bien|pass/i.test(txt);
+  }
+
+  async function waitTestDoneOrErr(timeoutMs=15000){
+    const t0 = Date.now();
+    while ((Date.now() - t0) < timeoutMs){
+      const j = await pollStatus();
+      if (j){
+        const st = Number(j.test_state);
+        if (st === 2 || st === 3) return { ok:(st===2), j };
+      }
+      await sleep(250);
+    }
+    return { ok:false, timeout:true, j:lastStatusJ };
+  }
+
+  async function waitInitDoneOrErr(timeoutMs=180000){
+    const t0 = Date.now();
+    while ((Date.now() - t0) < timeoutMs){
+      const j = await pollStatus();
+      if (j){
+        const ist = Number(j.init_state);
+        const i = Number(j.init_i||0);
+        const n = Number(j.init_n||0);
+        let pct = null;
+        if (n > 0) pct = (i*100)/n;
+
+        if (ist === 1){
+          overlayShow(
+            "INIT: ejecutando...",
+            `${j.init_tag||"INIT"}: ${i}/${n}\n${j.init_msg||""}`,
+            pct,
+            `run_id=${j.init_run_id||0}`,
+            `age=${j.init_age_ms||0}ms`
+          );
+        }
+
+        if (ist === 2) return { ok:true, j };
+        if (ist === 3) return { ok:false, j };
+      }
+      await sleep(250);
+    }
+    return { ok:false, timeout:true, j:lastStatusJ };
+  }
+
+  // ==========================
+  // ✅ INIT SEQUENCE (normal / forced)
+  // ==========================
+  let INIT_RUNNING = false;
+
+  async function runInitSequence(forced=false){
+    if (INIT_RUNNING) return;
+    INIT_RUNNING = true;
+    try{
+      overlayShow(
+        "INIT: enviando...",
+        forced
+          ? "FORCED INIT (test failed). Customer accepted to continue...\nMandando do=init. Esperando FIN por /status..."
+          : "Mandando do=init. Esperando FIN por /status...",
+        null, "", ""
+      );
+
+      traceAdd("SYS", forced ? "FORCE INIT accepted by user" : "INIT start");
+
+      await apiCmdDo("init");
+      const rI = await waitInitDoneOrErr(180000);
+      overlayHide();
+
+      if (rI.timeout){
+        toast("INIT: timeout waiting FIN. (FW may still be running INIT)", "bad", 9000);
+        return;
+      }
+      if (!rI.ok){
+        toast(`INIT ERROR: ${(rI.j && rI.j.init_msg) ? rI.j.init_msg : "(no msg)"}`, "bad", 9000);
+        return;
+      }
+
+      toast(forced ? "INIT DONE ✅ (forced)" : "INIT DONE ✅", "ok", 3500);
+    } finally {
+      INIT_RUNNING = false;
+    }
+  }
+
+  async function initWithPreTest(){
+    overlayShow("TESTEO: ejecutando...", "Enviando do=testeo y esperando resultado...", null, "", "");
+    testForceLog = true;
+    testPending = true;
+    lastTestSig = "";
+    await apiCmdDo("testeo");
+
+    const rT = await waitTestDoneOrErr(20000);
+
+    if (rT.timeout){
+      overlayHide();
+
+      // evita toast tardío si termina después
+      testForceLog = false;
+      testPending  = false;
+
+      toast("TESTEO: timeout waiting DONE/ERROR.", "bad", 7000);
+      traceAdd("SYS", "TESTEO timeout -> waiting user (FORCE INIT?)");
+
+      const snap = lastStatusJ ? (
+        `\n\nLast /status snapshot:\n` +
+        `state=${lastStatusJ.test_state} armed=${lastStatusJ.test_armed} tries=${lastStatusJ.test_tries} last=${lastStatusJ.test_last} age=${lastStatusJ.test_age_ms}ms\n` +
+        `${lastStatusJ.test_result || ""}`
+      ) : "";
+
+      testFailShow(
+        `TESTEO TIMEOUT\n\nNo response from 0x700 (timeout).\nDo you want to FORCE INIT anyway?${snap}`,
+        async ()=>{ await runInitSequence(true); }
+      );
+      return;
+    }
+
+    const msgT = (rT.j && rT.j.test_result) ? rT.j.test_result : "";
+
+    if (!isTestOkResult(msgT)){
+      overlayHide();
+
+      // evita dobles mensajes
+      testForceLog = false;
+      testPending  = false;
+
+      toast(`TESTEO NOT OK: ${msgT || "(no text)"}\nINIT not executed.`, "bad", 9000);
+      traceAdd("SYS", "INIT paused: TESTEO NOT OK -> waiting user (FORCE INIT?)");
+
+      const snap =
+        `\n\nStatus:\n` +
+        `state=${(rT.j && rT.j.test_state)!=null ? rT.j.test_state : "?"} ` +
+        `armed=${(rT.j && rT.j.test_armed)!=null ? rT.j.test_armed : "?"} ` +
+        `tries=${(rT.j && rT.j.test_tries)!=null ? rT.j.test_tries : "?"} ` +
+        `last=${(rT.j && rT.j.test_last)!=null ? rT.j.test_last : "?"} ` +
+        `age=${(rT.j && rT.j.test_age_ms)!=null ? rT.j.test_age_ms : "?"}ms`;
+
+      testFailShow(
+        `TESTEO NOT OK\n\n${msgT || "(no text)"}${snap}\n\nCustomer can FORCE INIT acknowledging the failure.`,
+        async ()=>{ await runInitSequence(true); }
+      );
+      return;
+    }
+
+    toast(`TESTEO OK: ${msgT}`, "ok", 3500);
+    traceAdd("SYS", "TESTEO OK -> INIT");
+
+    await runInitSequence(false);
+  }
+
+  document.getElementById('btnInit').addEventListener('click', initWithPreTest);
+
+  // ✅✅✅ CHECK manda 361 01 01 FF FF FF FF por /send, aunque HALT esté activo
+  document.getElementById('btnCheck').addEventListener('click', async ()=>{
+    await apiSendLine('361 01 01 FF FF FF FF', { force:true });
+    toast('CHECK -> 361 01 01 FF FF FF FF sent', 'sys', 2500);
+  });
+
+  // FEET: cada botón envía una sola trama CAN directa.
+  document.getElementById('btnFeet1').addEventListener('click', async ()=>{
+    const ok = await apiSendLine('363 04 01 02 00 00 80');
+    if (ok) toast('FEET 1 enviado', 'ok', 2200);
+  });
+
+  document.getElementById('btnFeet2').addEventListener('click', async ()=>{
+    const ok = await apiSendLine('363 04 01 02 01 00 80');
+    if (ok) toast('FEET 2 enviado', 'ok', 2200);
+  });
+
+  // ✅ NUEVO: Botón para ir a /b (sección Servos/Stepper)
+  document.getElementById('btnGoB').addEventListener('click', ()=>{
+    window.location.href = `${baseUrl()}/b`;
+  });
+
+  document.getElementById('btnStatus').addEventListener('click', async ()=>{
+    try{
+      traceAdd('TX', 'GET /status');
+      const r = await fetch(`${baseUrl()}/status`, { cache:"no-store" });
+      const txt = await r.text();
+      log(`STATUS:\n${txt}`);
+      try{ updateTestBox(JSON.parse(txt)); }catch(e){}
+    }catch(e){
+      log(`No responde /status: ${e}`);
+    }
+  });
+
+  function hex2(v){ return (v & 0xFF).toString(16).toUpperCase().padStart(2,'0'); }
+  function hex4(v){ return (v & 0xFFFF).toString(16).toUpperCase().padStart(4,'0'); }
+
+  // =========================================
+  // ============== DEN 1..8 =================
+  // =========================================
+  // Formato real:
+  //   ID 03 03 SELECTOR 00 POS_L POS_H
+  //
+  // Mapa confirmado:
+  //   DEN1 -> 363 selector 00
+  //   DEN2 -> 363 selector 01
+  //   DEN3 -> 364 selector 00
+  //   DEN4 -> 364 selector 01
+  //   DEN5 -> 363 selector 03
+  //   DEN6 -> 363 selector 02
+  //   DEN7 -> 364 selector 03
+  //   DEN8 -> 364 selector 02
+  //
+  // Posiciones nuevas:
+  //   POS1 =   0 -> 00 00
+  //   POS2 = 162 -> A2 00
+  //   POS3 = 325 -> 45 01
+  //   POS4 = 487 -> E7 01
+  //   POS5 = 650 -> 8A 02
+  //
+  // Los botones y el slider mandan la trama CAN directamente.
+  // RUN y STOP se ejecutan dentro del firmware.
+  const DEN_MAP = [
+    { id:"363", selector:"00" }, // DEN 1
+    { id:"363", selector:"01" }, // DEN 2
+    { id:"364", selector:"00" }, // DEN 3
+    { id:"364", selector:"01" }, // DEN 4
+    { id:"363", selector:"03" }, // DEN 5
+    { id:"363", selector:"02" }, // DEN 6
+    { id:"364", selector:"03" }, // DEN 7
+    { id:"364", selector:"02" }, // DEN 8
+  ];
+
+  const DEN_POSITIONS = [
+    { value:   0, label:"POS 1 (0)"   },
+    { value: 162, label:"POS 2 (162)" },
+    { value: 325, label:"POS 3 (325)" },
+    { value: 487, label:"POS 4 (487)" },
+    { value: 650, label:"POS 5 (650)" },
+  ];
+
+  const DEN_MIN = 0;
+  const DEN_MAX = 650;
+
+  // Debe coincidir con DEN_RUN_DELAY_MS del firmware.
+  const DEN_RUN_MS = 300;
+
+  const denVisTimer = new Array(8).fill(null);
+  const denVisStep  = new Array(8).fill(0);
+
+  function denValueToBytes(value){
+    let v = Number(value);
+
+    if (!Number.isFinite(v)) v = 0;
+    v = Math.trunc(v);
+    v = Math.max(-32768, Math.min(32767, v));
+
+    const raw = v & 0xFFFF;
+
+    return {
+      lo: hex2(raw & 0xFF),
+      hi: hex2((raw >> 8) & 0xFF),
+      hex: hex4(raw)
+    };
+  }
+
+  function denPositionIndexFromValue(value){
+    const idx = DEN_POSITIONS.findIndex(p => p.value === Number(value));
+    return idx >= 0 ? idx + 1 : 0;
+  }
+
+  function buildDenValueLine(den1to8, value){
+    if (den1to8 < 1 || den1to8 > 8) return "";
+
+    const cfg = DEN_MAP[den1to8 - 1];
+    const bytes = denValueToBytes(value);
+
+    return `${cfg.id} 03 03 ${cfg.selector} 00 ${bytes.lo} ${bytes.hi}`;
+  }
+
+  function buildDenLine(den1to8, position1to5){
+    if (den1to8 < 1 || den1to8 > 8) return "";
+    if (position1to5 < 1 || position1to5 > 5) return "";
+
+    return buildDenValueLine(
+      den1to8,
+      DEN_POSITIONS[position1to5 - 1].value
+    );
+  }
+
+  function setDenUI(card, value, position1to5=0){
+    const slider = card.querySelector('[data-slider="1"]');
+    const sval = card.querySelector('[data-sval="1"]');
+    const buttons = Array.from(card.querySelectorAll('.posBtn'));
+
+    const safeValue = Math.max(
+      DEN_MIN,
+      Math.min(DEN_MAX, Math.trunc(Number(value) || 0))
+    );
+
+    const bytes = denValueToBytes(safeValue);
+
+    if (slider) slider.value = String(safeValue);
+    if (sval) sval.textContent = `${safeValue} (0x${bytes.hex})`;
+
+    const selectedIndex =
+      position1to5 || denPositionIndexFromValue(safeValue);
+
+    buttons.forEach(btn => {
+      const idx = parseInt(btn.dataset.pos, 10);
+      btn.classList.toggle('on', idx === selectedIndex);
+    });
+  }
+
+  function denVisStop(index0to7, preserve=true){
+    if (index0to7 < 0 || index0to7 > 7) return;
+
+    if (denVisTimer[index0to7]){
+      clearInterval(denVisTimer[index0to7]);
+      denVisTimer[index0to7] = null;
+    }
+
+    denVisStep[index0to7] = 0;
+
+    const card =
+      document.querySelector(`[data-den="${index0to7 + 1}"]`);
+
+    if (card){
+      card.classList.remove("running");
+
+      if (!preserve){
+        setDenUI(card, 0, 1);
+      }
+    }
+  }
+
+  function denVisStart(index0to7, card){
+    denVisStop(index0to7, true);
+
+    card.classList.add("running");
+    denVisStep[index0to7] = 0;
+
+    const tick = ()=>{
+      const position = (denVisStep[index0to7] % 5) + 1;
+      const value = DEN_POSITIONS[position - 1].value;
+
+      setDenUI(card, value, position);
+      denVisStep[index0to7]++;
+    };
+
+    // El firmware comienza inmediatamente en POS1.
+    tick();
+    denVisTimer[index0to7] = setInterval(tick, DEN_RUN_MS);
+  }
+
+  async function denStopBeforeManual(index0to7){
+    denVisStop(index0to7, true);
+
+    await apiCmdDo(
+      `den_stop_${index0to7 + 1}`,
+      { force:true }
+    );
+  }
+
+  async function denSendPosition(index0to7, card, position1to5){
+    if (index0to7 < 0 || index0to7 > 7) return;
+    if (position1to5 < 1 || position1to5 > 5) return;
+
+    await denStopBeforeManual(index0to7);
+
+    const value = DEN_POSITIONS[position1to5 - 1].value;
+
+    setDenUI(card, value, position1to5);
+
+    const line = buildDenLine(
+      index0to7 + 1,
+      position1to5
+    );
+
+    await apiSendLine(line);
+  }
+
+  async function denSendSliderValue(index0to7, card, value){
+    if (index0to7 < 0 || index0to7 > 7) return;
+
+    const safeValue = Math.max(
+      DEN_MIN,
+      Math.min(DEN_MAX, Math.trunc(Number(value) || 0))
+    );
+
+    await denStopBeforeManual(index0to7);
+
+    setDenUI(
+      card,
+      safeValue,
+      denPositionIndexFromValue(safeValue)
+    );
+
+    const line = buildDenValueLine(
+      index0to7 + 1,
+      safeValue
+    );
+
+    await apiSendLine(line);
+  }
+
+  function renderDEN(){
+    const row = document.getElementById('rowDEN');
+    row.innerHTML = '';
+
+    // Este cabezal usa físicamente DEN 1, DEN 2, DEN 5 y DEN 6,
+    // pero en la interfaz se muestran renumerados como DEN 1..DEN 4.
+    // Los comandos y tramas conservan el mapa físico original.
+    const visibleDen = [
+      { physicalIndex: 0, displayNumber: 1 }, // físico DEN 1 -> visual DEN 1
+      { physicalIndex: 1, displayNumber: 2 }, // físico DEN 2 -> visual DEN 2
+      { physicalIndex: 4, displayNumber: 3 }, // físico DEN 5 -> visual DEN 3
+      { physicalIndex: 5, displayNumber: 4 }, // físico DEN 6 -> visual DEN 4
+    ];
+
+    for (const denItem of visibleDen){
+      const index = denItem.physicalIndex;
+      const displayNumber = denItem.displayNumber;
+      const cfg = DEN_MAP[index];
+
+      const card = document.createElement('div');
+      card.className = 'mcard';
+      card.dataset.den = String(index + 1);
+
+      card.innerHTML = `
+        <div class="mhead">
+          <div class="mtitle">DEN ${displayNumber}</div>
+          <div class="msub">${cfg.id} · selector ${cfg.selector} · 0..650</div>
+        </div>
+
+        <div class="runRow">
+          <button class="miniBtn run" data-act="run">RUN</button>
+          <button class="miniBtn stop" data-act="stop">STOP</button>
+        </div>
+
+        <div class="posBtns">
+          ${DEN_POSITIONS.map((pos, k)=>`
+            <div class="posBtn" data-pos="${k + 1}">${pos.label}</div>
+          `).join('')}
+        </div>
+
+        <div class="sliderWrap">
+          <input
+            type="range"
+            min="${DEN_MIN}"
+            max="${DEN_MAX}"
+            value="0"
+            step="1"
+            data-slider="1"
+          />
+          <div class="sval" data-sval="1">0 (0x0000)</div>
+        </div>
+      `;
+
+      card
+        .querySelector('[data-act="run"]')
+        .addEventListener('click', async ()=>{
+          const ok = await apiCmdDo(`den_run_${index + 1}`);
+
+          if (ok){
+            denVisStart(index, card);
+          }
+        });
+
+      card
+        .querySelector('[data-act="stop"]')
+        .addEventListener('click', async ()=>{
+          await apiCmdDo(
+            `den_stop_${index + 1}`,
+            { force:true }
+          );
+
+          denVisStop(index, true);
+        });
+
+      const buttons =
+        Array.from(card.querySelectorAll('.posBtn'));
+
+      buttons.forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const position =
+            parseInt(btn.dataset.pos, 10);
+
+          await denSendPosition(
+            index,
+            card,
+            position
+          );
+        });
+      });
+
+      const slider =
+        card.querySelector('[data-slider="1"]');
+
+      slider.addEventListener('input', ()=>{
+        const value =
+          parseInt(slider.value, 10) || 0;
+
+        setDenUI(
+          card,
+          value,
+          denPositionIndexFromValue(value)
+        );
+      });
+
+      slider.addEventListener('change', async ()=>{
+        const value =
+          parseInt(slider.value, 10) || 0;
+
+        await denSendSliderValue(
+          index,
+          card,
+          value
+        );
+      });
+
+      setDenUI(card, 0, 1);
+      row.appendChild(card);
+    }
+  }
+
+  // =========================================
+  // ============== SIC 1..2 =================
+  // =========================================
+  // Los movimientos físicos y el RUN se ejecutan en el firmware.
+  //
+  // SIC 1 -> ID 363, selector 00
+  // SIC 2 -> ID 364, selector 01
+  //
+  // POS 1 = +180
+  // POS 2 = +360
+  // POS 3 = -180
+  // POS 4 = -360
+  //
+  // RUN físico:
+  // 1,2,3,4 x 3 vueltas -> SYNC -> repetir
+  const SIC_RUN_MS = 300;
+  const SIC_VIS_PATTERN = [
+    1,2,3,4,
+    1,2,3,4,
+    1,2,3,4,
+    0 // comando SYNC: ninguna posición encendida
+  ];
+
+  const sicVisTimer = new Array(2).fill(null);
+  const sicVisStep  = new Array(2).fill(0);
+
+  function setSicUI(card, posIdx1to4){
+    const btns = Array.from(card.querySelectorAll('.posBtn'));
+    btns.forEach(btn => {
+      const idx = parseInt(btn.dataset.pos, 10);
+      btn.classList.toggle('on', idx === posIdx1to4);
+    });
+  }
+
+  function sicVisStop(i, preserve=true){
+    if (sicVisTimer[i]){
+      clearInterval(sicVisTimer[i]);
+      sicVisTimer[i] = null;
+    }
+
+    sicVisStep[i] = 0;
+
+    const card = document.querySelector(`[data-sic="${i+1}"]`);
+    if (card) card.classList.remove("running");
+
+    if (!preserve && card){
+      setSicUI(card, 0);
+    }
+  }
+
+  function sicVisStart(i, card){
+    sicVisStop(i, true);
+    card.classList.add("running");
+    sicVisStep[i] = 0;
+
+    const tick = ()=>{
+      const pos = SIC_VIS_PATTERN[
+        sicVisStep[i] % SIC_VIS_PATTERN.length
+      ];
+
+      setSicUI(card, pos);
+      sicVisStep[i]++;
+    };
+
+    // El firmware empieza inmediatamente por POS 1.
+    tick();
+    sicVisTimer[i] = setInterval(tick, SIC_RUN_MS);
+  }
+
+  async function sicSendPosition(i, card, posIdx1to4){
+    if (posIdx1to4 < 1 || posIdx1to4 > 4) return;
+
+    sicVisStop(i, true);
+    setSicUI(card, posIdx1to4);
+
+    await apiCmdDo(`sic_pos_${i+1}_${posIdx1to4}`);
+  }
+
+  async function sicSendSync(i, card){
+    sicVisStop(i, false);
+    await apiCmdDo(`sic_sync_${i+1}`);
+  }
+
+  function renderSIC(){
+    const row = document.getElementById('rowSIC');
+    row.innerHTML = '';
+
+    const info = [
+      {
+        title: "SIC 1",
+        sub: "363 · selector 00 · ±180 / ±360"
+      },
+      {
+        title: "SIC 2",
+        sub: "364 · selector 01 · ±180 / ±360"
+      }
+    ];
+
+    const labels = [
+      "POS 1 (+180)",
+      "POS 2 (+360)",
+      "POS 3 (-180)",
+      "POS 4 (-360)"
+    ];
+
+    for(let i=0; i<2; i++){
+      const card = document.createElement('div');
+      card.className = 'mcard';
+      card.dataset.sic = String(i + 1);
+
+      card.innerHTML = `
+        <div class="mhead">
+          <div class="mtitle">${info[i].title}</div>
+          <div class="msub">${info[i].sub}</div>
+        </div>
+
+        <div class="runRow">
+          <button class="miniBtn run"  data-act="run">RUN</button>
+          <button class="miniBtn stop" data-act="stop">STOP</button>
+          <button class="miniBtn"      data-act="sync">SYNC</button>
+        </div>
+
+        <div class="posBtns">
+          ${labels.map((label, k)=>`
+            <div class="posBtn" data-pos="${k+1}">${label}</div>
+          `).join('')}
+        </div>
+      `;
+
+      card.querySelector('[data-act="run"]').addEventListener('click', async ()=>{
+        const ok = await apiCmdDo(`sic_run_${i+1}`);
+
+        if (ok){
+          sicVisStart(i, card);
+        }
+      });
+
+      card.querySelector('[data-act="stop"]').addEventListener('click', async ()=>{
+        await apiCmdDo(`sic_stop_${i+1}`, { force:true });
+        sicVisStop(i, true);
+      });
+
+      card.querySelector('[data-act="sync"]').addEventListener('click', async ()=>{
+        await sicSendSync(i, card);
+      });
+
+      const btns = Array.from(card.querySelectorAll('.posBtn'));
+
+      btns.forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const posIdx = parseInt(btn.dataset.pos, 10);
+          await sicSendPosition(i, card, posIdx);
+        });
+      });
+
+      setSicUI(card, 0);
+      row.appendChild(card);
+    }
+  }
+
+  // ====== J / Yarn / Stitch ======
+  const regs = new Array(8).fill(0xFF);
+  const subId = (jIndex) => jIndex - 1;
+  const bitOf = (pinIndex) => pinIndex - 1;
+
+  function isOnJ(jIndex, pinIndex){
+    const r = regs[subId(jIndex)];
+    const b = bitOf(pinIndex);
+    return (((r >> b) & 1) === 0);
+  }
+  function setOnJ(jIndex, pinIndex, on){
+    const idx = subId(jIndex);
+    const b = bitOf(pinIndex);
+    if (on) regs[idx] &= ~(1 << b);
+    else    regs[idx] |=  (1 << b);
+    regs[idx] &= 0xFF;
+  }
+  function toggleJ(jIndex, pinIndex){ setOnJ(jIndex, pinIndex, !isOnJ(jIndex, pinIndex)); }
+
+  // Mapa real confirmado para J1..J8
+  // Formato: ID 06 03 SELECTOR 00 MASCARA 00
+  const J_MAP = {
+    1: { id: "363", selector: "00" },
+    2: { id: "363", selector: "01" },
+    3: { id: "364", selector: "00" },
+    4: { id: "364", selector: "01" },
+    5: { id: "363", selector: "02" },
+    6: { id: "363", selector: "03" },
+    7: { id: "364", selector: "02" },
+    8: { id: "364", selector: "03" },
+  };
+
+  function buildLineJ(jIndex){
+    const cfg = J_MAP[jIndex];
+    if (!cfg) {
+      throw new Error(`J invalido: ${jIndex}`);
+    }
+
+    const xx = hex2(regs[subId(jIndex)]);
+    return `${cfg.id} 06 03 ${cfg.selector} 00 ${xx} 00`;
+  }
+
+  async function sendJ(jIndex){
+    return apiSendLine(buildLineJ(jIndex));
+  }
+
+  function updateJUI(jIndex){
+    const root = document.querySelector(`[data-j="${jIndex}"]`);
+    if(!root) return;
+    root.querySelector('.Jhex').textContent = `0x${hex2(regs[subId(jIndex)])}`;
+    for(let p=1;p<=8;p++){
+      const el = root.querySelector(`[data-pin="${p}"]`);
+      if (el) el.classList.toggle('on', isOnJ(jIndex, p));
+    }
+  }
+
+  // ==========================================================
+  // ✅ RUN VISUAL (J / Yarn / Stitch) - SOLO UI, NO CAN SEND
+  // ==========================================================
+  const UI_RUN = {
+    jTimer: Array(9).fill(null),   // 1..8
+    jStep:  Array(9).fill(0),
+    jPrev:  Array(9).fill(0xFF),
+
+    blkTimer: Object.create(null), // key -> timer
+    blkStep:  Object.create(null), // key -> step
+    blkPrev:  Object.create(null), // key -> prev array copy
+  };
+
+  // ✅✅✅ CAMBIO: restaurar SOLO si estaba corriendo
+  function jVisStop(jIndex, restore=true){
+    const wasRunning = !!UI_RUN.jTimer[jIndex];
+
+    if (wasRunning){
+      clearInterval(UI_RUN.jTimer[jIndex]);
+      UI_RUN.jTimer[jIndex] = null;
+    }
+    UI_RUN.jStep[jIndex] = 0;
+
+    const root = document.querySelector(`[data-j="${jIndex}"]`);
+    if (root) root.classList.remove("running");
+
+    if (restore && wasRunning){
+      regs[subId(jIndex)] = UI_RUN.jPrev[jIndex] & 0xFF;
+      updateJUI(jIndex);
+    }
+  }
+  function jVisStopAll(restore=true){
+    VISIBLE_J.forEach(item => jVisStop(item.physical, restore));
+  }
+
+  function jVisStart(jIndex, periodMs=120){
+    jVisStop(jIndex, false);
+    UI_RUN.jPrev[jIndex] = regs[subId(jIndex)] & 0xFF;
+
+    const root = document.querySelector(`[data-j="${jIndex}"]`);
+    if (root) root.classList.add("running");
+
+    UI_RUN.jStep[jIndex] = 0;
+    UI_RUN.jTimer[jIndex] = setInterval(()=>{
+      const pin = (UI_RUN.jStep[jIndex] % 8) + 1;
+
+      regs[subId(jIndex)] = 0xFF;       // todo OFF (invertido)
+      setOnJ(jIndex, pin, true);        // solo 1 ON (visual)
+      updateJUI(jIndex);
+
+      UI_RUN.jStep[jIndex]++;
+    }, periodMs);
+  }
+
+  // ✅✅✅ CAMBIO: restaurar SOLO si estaba corriendo
+  function blkVisStop(key, restore=true){
+    const t = UI_RUN.blkTimer[key];
+    const wasRunning = !!t;
+
+    if (t){
+      clearInterval(t);
+      UI_RUN.blkTimer[key] = null;
+    }
+    UI_RUN.blkStep[key] = 0;
+
+    const root = document.querySelector(`[data-blk="${key}"]`);
+    if (root) root.classList.remove("running");
+
+    if (restore && wasRunning && UI_RUN.blkPrev[key]){
+      states[key] = UI_RUN.blkPrev[key].slice();
+      updateBlockUI(key);
+    }
+  }
+  function blkVisStopAll(restore=true){
+    const keys = ['yarn1','stitch1','stitch2'];
+    keys.forEach(k => { try{ blkVisStop(k, restore); }catch(e){} });
+  }
+
+  function blkVisStart(key, periodMs=120){
+    blkVisStop(key, false);
+    UI_RUN.blkPrev[key] = (states[key] || []).slice();
+
+    const root = document.querySelector(`[data-blk="${key}"]`);
+    if (root) root.classList.add("running");
+
+    UI_RUN.blkStep[key] = 0;
+    UI_RUN.blkTimer[key] = setInterval(()=>{
+      const n = (states[key] || []).length || 0;
+      if (!n) return;
+
+      // Stitch 1..2: RESET, POS1, POS2, POS3, POS4, POS5 y repetir.
+      if (isStitchKey(key)) {
+        const step = UI_RUN.blkStep[key] % 6;
+
+        for (let i = 0; i < n; i++) states[key][i] = false;
+
+        // step=0 representa RESET: ningún botón de posición encendido.
+        if (step >= 1 && step <= 5) {
+          states[key][step - 1] = true;
+        }
+
+        updateBlockUI(key);
+        UI_RUN.blkStep[key]++;
+        return;
+      }
+
+      // Yarn mantiene el comportamiento binario anterior.
+      const idx = UI_RUN.blkStep[key] % n;
+      for(let i=0;i<n;i++) states[key][i] = false;
+      states[key][idx] = true;
+      updateBlockUI(key);
+
+      UI_RUN.blkStep[key]++;
+    }, periodMs);
+  }
+
+  // ==========================================================
+  // ✅ OFF FÍSICO (queda disponible, pero STOP ya NO lo usa)
+  // ==========================================================
+  async function hwOffJ(jIndex, opts={}) {
+    regs[subId(jIndex)] = 0xFF;    // J invertido: OFF real = 0xFF
+    updateJUI(jIndex);
+    await apiSendLine(buildLineJ(jIndex), opts);
+  }
+
+  async function hwOffAllJ(opts={}) {
+    jVisStopAll(false);
+    for (let j=1; j<=8; j++){
+      await hwOffJ(j, opts);
+    }
+  }
+
+  async function hwOffBlock(key, opts={}) {
+    blkVisStop(key, false);
+    await blockAll(key, false, opts);   // directo: OFF real = 00
+  }
+
+  async function hwOffAllBlocks(opts={}) {
+    await hwOffBlock('yarn1', opts);
+  }
+
+  // Mapa de Jotas visibles en este cabezal.
+  // El número mostrado no altera el J físico al que se envía la trama.
+  const VISIBLE_J = [
+    { display: 1, physical: 1 },
+    { display: 2, physical: 2 },
+    { display: 3, physical: 5 },
+    { display: 4, physical: 6 },
+  ];
+
+  function renderJ(){
+    const row = document.getElementById('rowJ');
+    row.innerHTML = '';
+
+    for (const item of VISIBLE_J){
+      const displayJ = item.display;
+      const physicalJ = item.physical;
+
+      const box = document.createElement('div');
+      box.className = 'J';
+      box.dataset.j = String(physicalJ);
+
+      box.innerHTML = `
+        <div class="Jhead">
+          <div class="Jtitle">J${displayJ}</div>
+          <div class="Jhex">0xFF</div>
+        </div>
+
+        <div class="msub">físico J${physicalJ}</div>
+
+        <div class="Jbtns">
+          <button class="miniBtn" data-act="offall">OFF ALL</button>
+          <button class="miniBtn" data-act="onall">ON ALL</button>
+        </div>
+
+        <div class="Jbtns">
+          <button class="miniBtn run" data-act="run">RUN</button>
+          <button class="miniBtn stop" data-act="stop">STOP</button>
+        </div>
+
+        <div class="col">
+          ${Array.from({length:8}, (_,i)=>`
+            <div class="cell" data-pin="${i+1}">
+              <div class="n">${i+1}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      box.querySelector('[data-act="offall"]').addEventListener('click', async ()=>{
+        jVisStop(physicalJ, false);
+        regs[subId(physicalJ)] = 0xFF;
+        updateJUI(physicalJ);
+        await sendJ(physicalJ);
+      });
+
+      box.querySelector('[data-act="onall"]').addEventListener('click', async ()=>{
+        jVisStop(physicalJ, false);
+        regs[subId(physicalJ)] = 0x00;
+        updateJUI(physicalJ);
+        await sendJ(physicalJ);
+      });
+
+      box.querySelector('[data-act="run"]').addEventListener('click', async ()=>{
+        const ok = await apiCmdDo(`j_run_${physicalJ}`);
+        if (ok) jVisStart(physicalJ, 120);
+      });
+
+      box.querySelector('[data-act="stop"]').addEventListener('click', async ()=>{
+        await apiCmdDo(`j_stop_${physicalJ}`, { force:true });
+        jVisStop(physicalJ, true);
+      });
+
+      for(let p=1; p<=8; p++){
+        const cell = box.querySelector(`[data-pin="${p}"]`);
+        cell.addEventListener('click', async ()=>{
+          jVisStop(physicalJ, false);
+          toggleJ(physicalJ, p);
+          updateJUI(physicalJ);
+          await sendJ(physicalJ);
+        });
+      }
+
+      row.appendChild(box);
+      updateJUI(physicalJ);
+    }
+  }
+
+  const states = {
+    yarn1: new Array(8).fill(false),
+    yarn2: new Array(8).fill(false),
+    stitch1: new Array(5).fill(false),
+    stitch2: new Array(5).fill(false),
+    stitch3: new Array(5).fill(false),
+    stitch4: new Array(5).fill(false),
+  };
+
+  // ==========================================================
+  // STITCH 1..2 visibles: motores rotatorios con RESET + cinco posiciones
+  // Cada motor permite una sola posición seleccionada a la vez.
+  // ==========================================================
+  const STITCH_CMD = {
+    stitch1: {
+      reset: "363 04 02 01 00 01 00",
+      positions: [
+        "363 04 01 01 00 00 00 04 00",
+        "363 04 01 01 00 40 01 04 00",
+        "363 04 01 01 00 E0 01 04 00",
+        "363 04 01 01 00 A0 00 04 00",
+        "363 04 01 01 00 80 02 05 00"
+      ]
+    },
+    stitch2: {
+      reset: "363 04 02 01 01 01 00",
+      positions: [
+        "363 04 01 01 01 00 00 04 00",
+        "363 04 01 01 01 40 01 04 00",
+        "363 04 01 01 01 E0 01 04 00",
+        "363 04 01 01 01 A0 00 04 00",
+        "363 04 01 01 01 80 02 05 00"
+      ]
+    },
+    stitch3: {
+      reset: "364 04 02 01 00 01 00",
+      positions: [
+        "364 04 01 01 00 00 00 04 00",
+        "364 04 01 01 00 40 01 04 00",
+        "364 04 01 01 00 E0 01 04 00",
+        "364 04 01 01 00 A0 00 04 00",
+        "364 04 01 01 00 80 02 05 00"
+      ]
+    },
+    stitch4: {
+      reset: "364 04 02 01 01 01 00",
+      positions: [
+        "364 04 01 01 01 00 00 04 00",
+        "364 04 01 01 01 40 01 04 00",
+        "364 04 01 01 01 E0 01 04 00",
+        "364 04 01 01 01 A0 00 04 00",
+        "364 04 01 01 01 80 02 05 00"
+      ]
+    }
+  };
+
+  function isStitchKey(key){
+    return /^stitch[1-4]$/.test(String(key || ""));
+  }
+
+  function stitchClearSelection(key){
+    if (!isStitchKey(key) || !states[key]) return;
+
+    for (let i = 0; i < states[key].length; i++) {
+      states[key][i] = false;
+    }
+
+    updateBlockUI(key);
+  }
+
+  async function stitchReset(key, opts={}){
+    if (!isStitchKey(key) || !STITCH_CMD[key]) return false;
+
+    blkVisStop(key, false);
+    stitchClearSelection(key);
+
+    return apiSendLine(STITCH_CMD[key].reset, opts);
+  }
+
+  async function stitchSetPosition(key, position1to5, opts={}){
+    if (!isStitchKey(key) || !STITCH_CMD[key]) return false;
+    if (position1to5 < 1 || position1to5 > 5) return false;
+
+    blkVisStop(key, false);
+
+    // Selección exclusiva: solo queda activa la posición elegida.
+    for (let i = 0; i < states[key].length; i++) {
+      states[key][i] = (i === position1to5 - 1);
+    }
+
+    updateBlockUI(key);
+
+    return apiSendLine(
+      STITCH_CMD[key].positions[position1to5 - 1],
+      opts
+    );
+  }
+
+  const CMD = {
+    yarn1: [
+      {off:"363 05 01 00 00 00 00", on:"363 05 01 00 00 00 01"},
+      {off:"363 05 01 00 01 00 00", on:"363 05 01 00 01 00 01"},
+      {off:"363 05 01 00 02 00 00", on:"363 05 01 00 02 00 01"},
+      {off:"363 05 01 00 03 00 00", on:"363 05 01 00 03 00 01"},
+      {off:"363 05 01 00 04 00 00", on:"363 05 01 00 04 00 01"},
+      {off:"363 05 01 00 05 00 00", on:"363 05 01 00 05 00 01"},
+      {off:"363 05 01 00 06 00 00", on:"363 05 01 00 06 00 01"},
+      {off:"363 05 01 00 07 00 00", on:"363 05 01 00 07 00 01"},
+    ],
+    yarn2: [
+      {off:"364 05 01 00 00 00 00", on:"364 05 01 00 00 00 01"},
+      {off:"364 05 01 00 01 00 00", on:"364 05 01 00 01 00 01"},
+      {off:"364 05 01 00 02 00 00", on:"364 05 01 00 02 00 01"},
+      {off:"364 05 01 00 03 00 00", on:"364 05 01 00 03 00 01"},
+      {off:"364 05 01 00 04 00 00", on:"364 05 01 00 04 00 01"},
+      {off:"364 05 01 00 05 00 00", on:"364 05 01 00 05 00 01"},
+      {off:"364 05 01 00 06 00 00", on:"364 05 01 00 06 00 01"},
+      {off:"364 05 01 00 07 00 00", on:"364 05 01 00 07 00 01"},
+    ],
+  };
+
+  function updateBlockUI(key){
+    const root = document.querySelector(`[data-blk="${key}"]`);
+    if(!root) return;
+    const arr = states[key];
+    for(let i=0;i<arr.length;i++){
+      const el = root.querySelector(`[data-pin="${i+1}"]`);
+      if(el) el.classList.toggle('on', !!arr[i]);
+    }
+  }
+
+  // ✅ ahora soporta opts (force) para apagado físico aunque HALT esté activo
+  async function setBlockPin(key, pin1based, on, opts={}){
+    const i = pin1based - 1;
+    states[key][i] = on;
+    updateBlockUI(key);
+    const line = on ? CMD[key][i].on : CMD[key][i].off;
+    await apiSendLine(line, opts);
+  }
+
+  async function blockAll(key, on, opts={}){
+    for(let i=1;i<=states[key].length;i++){
+      await setBlockPin(key, i, on, opts);
+    }
+  }
+
+  function renderBlocks(containerId, blocks){
+    const row = document.getElementById(containerId);
+    row.innerHTML = '';
+
+    for(const b of blocks){
+      const isStitch = isStitchKey(b.key);
+
+      const el = document.createElement('div');
+      el.className = 'blk';
+      el.dataset.blk = b.key;
+
+      const actionsHtml = isStitch
+        ? `
+          <button data-act="reset">RESET</button>
+          <button class="miniBtn run" data-act="run">RUN</button>
+          <button class="miniBtn stop" data-act="stop">STOP</button>
+        `
+        : `
+          <button data-act="offall">OFF ALL</button>
+          <button data-act="onall">ON ALL</button>
+          <button class="miniBtn run" data-act="run">RUN</button>
+          <button class="miniBtn stop" data-act="stop">STOP</button>
+        `;
+
+      el.innerHTML = `
+        <div class="blkHead">
+          <div class="blkTitle">${b.title}</div>
+          <div class="blkSub">${b.sub}</div>
+        </div>
+
+        <div class="blkActions">
+          ${actionsHtml}
+        </div>
+
+        <div class="gridPins ${isStitch ? 'five' : ''}">
+          ${Array.from({length:b.count}, (_,i)=>`
+            <div class="pinBtn" data-pin="${i+1}">${(b.labels && b.labels[i] != null) ? b.labels[i] : (i+1)}</div>
+          `).join('')}
+        </div>
+      `;
+
+      if (isStitch) {
+        el.querySelector('[data-act="reset"]').addEventListener('click', async ()=>{
+          await stitchReset(b.key);
+        });
+      } else {
+        el.querySelector('[data-act="offall"]').addEventListener('click', async ()=>{
+          blkVisStop(b.key, false);
+          await blockAll(b.key, false);
+        });
+
+        el.querySelector('[data-act="onall"]').addEventListener('click', async ()=>{
+          blkVisStop(b.key, false);
+          await blockAll(b.key, true);
+        });
+      }
+
+      el.querySelector('[data-act="run"]').addEventListener('click', async ()=>{
+        let ok = false;
+
+        if (b.key === 'yarn1') {
+          ok = await apiCmdDo('y1_run');
+        } else if (b.key === 'yarn2') {
+          ok = await apiCmdDo('y2_run');
+        } else if (b.key.startsWith('stitch')) {
+          const n = parseInt(b.key.replace('stitch',''),10);
+          ok = await apiCmdDo(`s_run_${n}`);
+        }
+
+        if (ok) {
+          // En Stitch 1..2 el visual representa:
+          // RESET -> 1 -> 2 -> 3 -> 4 -> 5 -> repetir.
+          blkVisStart(b.key, isStitch ? 120 : 80);
+        }
+      });
+
+      el.querySelector('[data-act="stop"]').addEventListener('click', async ()=>{
+        if (b.key === 'yarn1') {
+          await apiCmdDo('y1_stop', { force:true });
+          blkVisStop(b.key, true);
+        } else if (b.key === 'yarn2') {
+          await apiCmdDo('y2_stop', { force:true });
+          blkVisStop(b.key, true);
+        } else if (b.key.startsWith('stitch')) {
+          const n = parseInt(b.key.replace('stitch',''),10);
+          await apiCmdDo(`s_stop_${n}`, { force:true });
+
+          // Cada Stitch conserva visualmente la última posición alcanzada.
+          blkVisStop(b.key, false);
+        }
+      });
+
+      for(let i=1;i<=b.count;i++){
+        const btn = el.querySelector(`[data-pin="${i}"]`);
+
+        btn.addEventListener('click', async ()=>{
+          if (isStitch) {
+            await stitchSetPosition(b.key, i);
+            return;
+          }
+
+          blkVisStop(b.key, false);
+          const now = !!states[b.key][i-1];
+          await setBlockPin(b.key, i, !now);
+        });
+      }
+
+      row.appendChild(el);
+      updateBlockUI(b.key);
+    }
+  }
+
+  document.getElementById('btnAllOff').addEventListener('click', async ()=>{
+    jVisStopAll(false);
+    blkVisStopAll(false);
+
+    for (const item of VISIBLE_J){
+      regs[subId(item.physical)] = 0xFF;
+      updateJUI(item.physical);
+      await sendJ(item.physical);
+    }
+    // Stitch 1 y 2 son posicionales: no participan en OFF ALL global.
+    await blockAll('yarn1', false);
+  });
+
+  document.getElementById('btnAllOn').addEventListener('click', async ()=>{
+    jVisStopAll(false);
+    blkVisStopAll(false);
+
+    // Ocho salidas ON para los cuatro J visibles.
+    // 0x00 = 00000000: salidas 1..8 ON.
+    for (const item of VISIBLE_J){
+      regs[subId(item.physical)] = 0x00;
+      updateJUI(item.physical);
+      await sendJ(item.physical);
+    }
+    // Stitch 1 y 2 son posicionales: no participan en ON ALL global.
+    await blockAll('yarn1', true);
+  });
+
+  document.getElementById('btnRunAllJ').addEventListener('click', async ()=>{
+    let allOk = true;
+
+    for (const item of VISIBLE_J){
+      const ok = await apiCmdDo(`j_run_${item.physical}`);
+      allOk = allOk && ok;
+    }
+
+    if (allOk){
+      VISIBLE_J.forEach(item => jVisStart(item.physical, 120));
+    }
+  });
+
+  // ✅✅✅ CAMBIO: STOP ALL (J) SOLO corta firmware + visual (NO OFF físico masivo)
+  document.getElementById('btnStopAllJ').addEventListener('click', async ()=>{
+    for (const item of VISIBLE_J){
+      await apiCmdDo(`j_stop_${item.physical}`, { force:true });
+    }
+    jVisStopAll(true);
+  });
+
+  document.getElementById('btnRunAllY').addEventListener('click', async ()=>{
+    const ok = await apiCmdDo('y1_run');
+    if (ok){
+      blkVisStart('yarn1', 120);
+    }
+  });
+
+  // Solo existe Yarn 1 en este cabezal.
+  document.getElementById('btnStopAllY').addEventListener('click', async ()=>{
+    await apiCmdDo('y1_stop', { force:true });
+    blkVisStop('yarn1', true);
+  });
+
+  document.getElementById('btnRunAllS').addEventListener('click', async ()=>{
+    const results = await Promise.all([
+      apiCmdDo('s_run_1'),
+      apiCmdDo('s_run_2')
+    ]);
+
+    if (results.every(Boolean)){
+      blkVisStart('stitch1', 120);
+      blkVisStart('stitch2', 120);
+    }
+  });
+
+  // Solo existen Stitch 1 y Stitch 2 en este cabezal.
+  document.getElementById('btnStopAllS').addEventListener('click', async ()=>{
+    await Promise.all([
+      apiCmdDo('s_stop_1', { force:true }),
+      apiCmdDo('s_stop_2', { force:true })
+    ]);
+
+    blkVisStop('stitch1', false);
+    blkVisStop('stitch2', false);
+  });
+
+  // Init render
+  renderDEN();
+  renderJ();
+
+  renderBlocks('rowYarn', [
+    {key:'yarn1', title:'Yarn 1', sub:'363 · canales 00..07 · 00 OFF / 01 ON', count:8},
+  ]);
+
+  renderBlocks('rowStitch', [
+    {
+      key:'stitch1',
+      title:'Stitch 1',
+      sub:'363 · selector 00 · 0 / 320 / 480 / 160 / 640',
+      count:5,
+      labels:['0','320','480','160','640'],
+      mode:'position5'
+    },
+    {
+      key:'stitch2',
+      title:'Stitch 2',
+      sub:'363 · selector 01 · 0 / 320 / 480 / 160 / 640',
+      count:5,
+      labels:['0','320','480','160','640'],
+      mode:'position5'
+    },
+  ]);
+
+  window.addEventListener('beforeunload', ()=>{});
+</script>
+<script>
+(() => {
+  "use strict";
+  const activeHead = document.body.dataset.activeHead || "1";
+  document.querySelectorAll(".head-navigation-button[data-head]").forEach((item) => {
+    const active = item.dataset.head === activeHead;
+    item.classList.toggle("is-active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+})();
+</script><script>
+(() => {
+  "use strict";
+
+  const diagnostics = document.getElementById("appDiagnosticsPanel");
+  const showCan = document.getElementById("btnShowCan");
+  const showTrace = document.getElementById("btnShowTrace");
+  const showAdvanced = document.getElementById("btnShowAdvanced");
+  const closeDiagnostics = document.getElementById("btnCloseDiagnostics");
+
+  function openDiagnostics(targetId) {
+    if (!diagnostics) return;
+    diagnostics.classList.add("is-open");
+
+    if (targetId) {
+      requestAnimationFrame(() => {
+        const target = document.getElementById(targetId);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    }
+  }
+
+  if (showCan) showCan.addEventListener("click", () => openDiagnostics("rxBox"));
+  if (showTrace) showTrace.addEventListener("click", () => openDiagnostics("traceBox"));
+  if (showAdvanced) showAdvanced.addEventListener("click", () => openDiagnostics("appManualCommandRow"));
+  if (closeDiagnostics) {
+    closeDiagnostics.addEventListener("click", () => {
+      diagnostics.classList.remove("is-open");
+    });
+  }
+
+  const visualStatus = document.getElementById("visualProgramStatus");
+  document.querySelectorAll(".app-program-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".app-program-tab").forEach((item) => {
+        item.classList.toggle("is-selected", item === button);
+      });
+
+      if (visualStatus) {
+        visualStatus.textContent = `OK program_select_${button.dataset.program || "1"}`;
+      }
+    });
+  });
+})();
+</script></body>
+</html>

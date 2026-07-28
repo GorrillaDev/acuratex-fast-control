@@ -823,7 +823,10 @@ static void app_head_fast_diag_init_task(void *arg)
             }
         }
 
-        if (!app_head_fast_diag_delay_cancelable(commands->phase1_step_delay_ms, APP_HEAD_FAST_DIAG_INIT)) {
+        uint32_t explicit_wait_ms = 0;
+        bool was_wait = app_head_fast_diag_parse_wait_line(commands->phase1_steps[i], &explicit_wait_ms);
+        if (!(was_wait && commands->skip_step_delay_after_wait)
+            && !app_head_fast_diag_delay_cancelable(commands->phase1_step_delay_ms, APP_HEAD_FAST_DIAG_INIT)) {
             app_head_fast_diag_send_line(route, "INIT|CANCELLED");
             goto cleanup;
         }
@@ -888,7 +891,10 @@ static void app_head_fast_diag_init_task(void *arg)
             }
         }
 
-        if (!app_head_fast_diag_delay_cancelable(commands->phase2_step_delay_ms, APP_HEAD_FAST_DIAG_INIT)) {
+        uint32_t explicit_wait_ms = 0;
+        bool was_wait = app_head_fast_diag_parse_wait_line(commands->phase2_steps[i], &explicit_wait_ms);
+        if (!(was_wait && commands->skip_step_delay_after_wait)
+            && !app_head_fast_diag_delay_cancelable(commands->phase2_step_delay_ms, APP_HEAD_FAST_DIAG_INIT)) {
             app_head_fast_diag_send_line(route, "INIT|CANCELLED");
             goto cleanup;
         }

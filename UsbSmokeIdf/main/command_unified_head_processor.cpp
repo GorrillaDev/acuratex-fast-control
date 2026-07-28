@@ -9,6 +9,8 @@
 #include "esp_timer.h"
 
 #include "head_fast_diag.h"
+#include "head_command_frame_builder.h"
+#include "head_sequence_executor.h"
 #include "head_state_manager.h"
 #include "head_unified_program_runtime.h"
 
@@ -54,25 +56,6 @@ static esp_err_t app_unified_send(const HeadCanCommand *frame,
     return app_unified_reply_for_line(reply, ctx, line);
 }
 
-static esp_err_t app_unified_send_bytes(uint32_t can_id,
-                                        const uint8_t *data,
-                                        size_t len,
-                                        const char *line,
-                                        app_reply_fn_t reply,
-                                        void *ctx,
-                                        const app_command_env_t *env)
-{
-    HeadCanCommand frame = {};
-    if (data == NULL || len > APP_HEAD_PROFILE_MAX_DLC) {
-        return reply("ERR|UNI|CAN_TX", ctx);
-    }
-
-    frame.can_id = can_id;
-    frame.dlc = (uint8_t)len;
-    memcpy(frame.data, data, len);
-    return app_unified_send(&frame, line, reply, ctx, env);
-}
-
 static bool app_unified_parse_index_value(const char *line,
                                           const char *prefix,
                                           int *index,
@@ -101,7 +84,7 @@ static esp_err_t app_unified_position(const char *line,
 {
     int index = 0;
     int value = 0;
-    uint8_t data[4];
+    HeadCanCommand frame = {};
 
     if (commands == NULL || !app_unified_parse_index_value(line, prefix, &index, &value)
         || (size_t)index > commands->instance_count) {
@@ -115,11 +98,10 @@ static esp_err_t app_unified_position(const char *line,
         value = commands->positions[value - 1];
     }
 
-    data[0] = commands->opcode;
-    data[1] = (uint8_t)(commands->motor_index_base + index - 1);
-    data[2] = (uint8_t)(value & 0xFF);
-    data[3] = (uint8_t)((value >> 8) & 0xFF);
-    return app_unified_send_bytes(commands->can_id, data, sizeof(data), line, reply, ctx, env);
+    if (!app_head_build_motion_frame(commands, (size_t)index - 1U, (uint16_t)value, &frame)) {
+        return reply("ERR|UNI|POSITION", ctx);
+    }
+    return app_unified_send(&frame, line, reply, ctx, env);
 }
 
 static esp_err_t app_unified_cascade_pin(const char *line,
@@ -133,7 +115,7 @@ static esp_err_t app_unified_cascade_pin(const char *line,
     int pin = 0;
     int on = 0;
     char extra = '\0';
-    uint8_t data[3];
+    HeadCanCommand frame = {};
 
     if (commands == NULL || commands->addresses == NULL || commands->addresses_per_instance == 0
         || sscanf(line + strlen(prefix), "%d|%d|%d%c", &instance, &pin, &on, &extra) != 3
@@ -143,10 +125,14 @@ static esp_err_t app_unified_cascade_pin(const char *line,
         return reply("ERR|UNI|BLOCK_PIN", ctx);
     }
 
-    data[0] = commands->opcode;
-    data[1] = commands->addresses[(size_t)(instance - 1) * commands->addresses_per_instance + (size_t)(pin - 1)];
-    data[2] = on != 0 ? commands->on_value : commands->off_value;
-    return app_unified_send_bytes(commands->can_id, data, sizeof(data), line, reply, ctx, env);
+    if (!app_head_build_cascade_frame(commands,
+                                      (size_t)instance - 1U,
+                                      (size_t)pin - 1U,
+                                      on != 0,
+                                      &frame)) {
+        return reply("ERR|UNI|BLOCK_PIN", ctx);
+    }
+    return app_unified_send(&frame, line, reply, ctx, env);
 }
 
 static esp_err_t app_unified_j_output(const char *line,
@@ -159,7 +145,7 @@ static esp_err_t app_unified_j_output(const char *line,
     int value = 0;
     int channel = 0;
     char extra = '\0';
-    uint8_t data[3];
+    HeadCanCommand frame = {};
 
     if (profile == NULL) {
         return reply("ERR|UNI|J_PROFILE", ctx);
@@ -184,10 +170,10 @@ static esp_err_t app_unified_j_output(const char *line,
         return reply("ERR|UNI|J_CMD", ctx);
     }
 
-    data[0] = profile->j.opcode;
-    data[1] = (uint8_t)(profile->j.instance_index_base + instance - 1);
-    data[2] = (uint8_t)value;
-    esp_err_t err = app_unified_send_bytes(profile->j.can_id, data, sizeof(data), line, reply, ctx, env);
+    if (!app_head_build_j_frame(&profile->j, (size_t)instance - 1U, (uint8_t)value, &frame)) {
+        return reply("ERR|UNI|J_SET", ctx);
+    }
+    esp_err_t err = app_unified_send(&frame, line, reply, ctx, env);
     if (err == ESP_OK) {
         (void)app_head_state_manager_commit_j_physical_register((uint8_t)instance, (uint8_t)value);
     }
@@ -220,7 +206,17 @@ static esp_err_t app_unified_select_program(const char *line,
     return app_unified_reply_for_line(reply, ctx, line);
 }
 
+static bool app_unified_prepare_j_run(
+    const HeadUnifiedProgramDefinition *definition,
+    uint8_t instance,
+    const HeadUnifiedCommandContext *context)
+{
+    return definition->prepare_j_run == NULL
+        || definition->prepare_j_run(instance, context);
+}
+
 static esp_err_t app_unified_run_command(const char *line,
+                                         const HeadUnifiedProgramDefinition *definition,
                                          const HeadCommandProfile *profile,
                                          app_reply_fn_t reply,
                                          void *ctx,
@@ -228,6 +224,14 @@ static esp_err_t app_unified_run_command(const char *line,
 {
     const int bus = app_unified_active_bus(env);
     const uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000LL);
+    const HeadUnifiedCommandContext command_context = {
+        .profile = profile,
+        .reply = reply,
+        .reply_ctx = ctx,
+        .env = env,
+        .can_bus = bus,
+        .now_ms = now_ms,
+    };
     int instance = 0;
     char response[112];
 
@@ -235,20 +239,55 @@ static esp_err_t app_unified_run_command(const char *line,
         return reply("ERR|UNI|HEAD_BUSY", ctx);
     }
 
-    if (strcasecmp(line, "uni_j_run_all") == 0) {
-        for (uint8_t i = 1; i <= profile->j.instance_count; ++i) if (!app_head_state_manager_start_j_run(i, bus, now_ms)) return reply("ERR|UNI|J_RUN_ALL", ctx);
+    if (strcasecmp(line, "uni_den_run_all") == 0) {
+        for (uint8_t i = 1; i <= profile->den.instance_count; ++i) {
+            if (app_head_profile_instance_is_active(profile->den.active_instance_mask, i - 1U)
+                && !app_head_state_manager_start_den_run(i, bus, now_ms)) {
+                app_head_state_manager_stop_all_den_runs();
+                return reply("ERR|UNI|DEN_RUN_ALL", ctx);
+            }
+        }
+    } else if (strcasecmp(line, "uni_den_stop_all") == 0) {
+        app_head_state_manager_stop_all_den_runs();
+    } else if (strcasecmp(line, "uni_sic_run_all") == 0) {
+        for (uint8_t i = 1; i <= profile->sic.instance_count; ++i) {
+            if (app_head_profile_instance_is_active(profile->sic.active_instance_mask, i - 1U)
+                && !app_head_state_manager_start_sic_run(i, bus, now_ms)) {
+                app_head_state_manager_stop_all_sic_runs();
+                return reply("ERR|UNI|SIC_RUN_ALL", ctx);
+            }
+        }
+    } else if (strcasecmp(line, "uni_sic_stop_all") == 0) {
+        app_head_state_manager_stop_all_sic_runs();
+    } else if (strcasecmp(line, "uni_j_run_all") == 0) {
+        for (uint8_t i = 1; i <= profile->j.instance_count; ++i) {
+            if (app_head_profile_instance_is_active(profile->j.active_instance_mask, i - 1U)
+                && (!app_unified_prepare_j_run(definition, i, &command_context)
+                    || !app_head_state_manager_start_j_run(i, bus, now_ms))) return reply("ERR|UNI|J_RUN_ALL", ctx);
+        }
     } else if (strcasecmp(line, "uni_j_stop_all") == 0) {
         app_head_state_manager_stop_all_j_runs();
     } else if (strcasecmp(line, "uni_y_run_all") == 0) {
-        for (uint8_t i = 1; i <= profile->yarn.instance_count; ++i) if (!app_head_state_manager_start_yarn_run(i, bus, now_ms)) return reply("ERR|UNI|Y_RUN_ALL", ctx);
+        for (uint8_t i = 1; i <= profile->yarn.instance_count; ++i) {
+            if (app_head_profile_instance_is_active(profile->yarn.active_instance_mask, i - 1U)
+                && !app_head_state_manager_start_yarn_run(i, bus, now_ms)) return reply("ERR|UNI|Y_RUN_ALL", ctx);
+        }
     } else if (strcasecmp(line, "uni_y_stop_all") == 0) {
         app_head_state_manager_stop_all_yarn_runs();
     } else if (strcasecmp(line, "uni_s_run_all") == 0) {
-        for (uint8_t i = 1; i <= profile->stitch.instance_count; ++i) if (!app_head_state_manager_start_stitch_run(i, bus, now_ms)) return reply("ERR|UNI|S_RUN_ALL", ctx);
+        for (uint8_t i = 1; i <= profile->stitch.instance_count; ++i) {
+            if (app_head_profile_instance_is_active(profile->stitch.active_instance_mask, i - 1U)
+                && !app_head_state_manager_start_stitch_run(i, bus, now_ms)) return reply("ERR|UNI|S_RUN_ALL", ctx);
+        }
     } else if (strcasecmp(line, "uni_s_stop_all") == 0) {
         app_head_state_manager_stop_all_stitch_runs();
     } else if (sscanf(line, "uni_j_run_%d", &instance) == 1) {
-        if (instance < 1 || (size_t)instance > profile->j.instance_count || !app_head_state_manager_start_j_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|J_RUN", ctx);
+        if (instance < 1 || (size_t)instance > profile->j.instance_count
+            || !app_head_profile_instance_is_active(profile->j.active_instance_mask, (size_t)instance - 1U)
+            || !app_unified_prepare_j_run(definition,
+                                           (uint8_t)instance,
+                                           &command_context)
+            || !app_head_state_manager_start_j_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|J_RUN", ctx);
     } else if (sscanf(line, "uni_j_stop_%d", &instance) == 1) {
         if (instance < 1 || (size_t)instance > profile->j.instance_count || !app_head_state_manager_stop_j_run((uint8_t)instance)) return reply("ERR|UNI|J_STOP", ctx);
     } else if (strcasecmp(line, "uni_y1_run") == 0) {
@@ -260,7 +299,9 @@ static esp_err_t app_unified_run_command(const char *line,
     } else if (strcasecmp(line, "uni_y2_stop") == 0) {
         if (!app_head_state_manager_stop_yarn_run(2)) return reply("ERR|UNI|Y2_STOP", ctx);
     } else if (sscanf(line, "uni_s_run_%d", &instance) == 1) {
-        if (instance < 1 || (size_t)instance > profile->stitch.instance_count || !app_head_state_manager_start_stitch_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|S_RUN", ctx);
+        if (instance < 1 || (size_t)instance > profile->stitch.instance_count
+            || !app_head_profile_instance_is_active(profile->stitch.active_instance_mask, (size_t)instance - 1U)
+            || !app_head_state_manager_start_stitch_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|S_RUN", ctx);
     } else if (sscanf(line, "uni_s_stop_%d", &instance) == 1) {
         if (instance < 1 || (size_t)instance > profile->stitch.instance_count || !app_head_state_manager_stop_stitch_run((uint8_t)instance)) return reply("ERR|UNI|S_STOP", ctx);
     } else if (sscanf(line, "uni_den_run1_%d", &instance) == 1) {
@@ -268,11 +309,15 @@ static esp_err_t app_unified_run_command(const char *line,
     } else if (sscanf(line, "uni_den_stop1_%d", &instance) == 1) {
         if (instance < 1 || (size_t)instance > profile->den.instance_count || !app_head_state_manager_stop_den_run((uint8_t)instance)) return reply("ERR|UNI|DEN_STOP1", ctx);
     } else if (sscanf(line, "uni_den_run_%d", &instance) == 1) {
-        if (instance < 1 || (size_t)instance > profile->den.instance_count || !app_head_state_manager_start_den_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|DEN_RUN", ctx);
+        if (instance < 1 || (size_t)instance > profile->den.instance_count
+            || !app_head_profile_instance_is_active(profile->den.active_instance_mask, (size_t)instance - 1U)
+            || !app_head_state_manager_start_den_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|DEN_RUN", ctx);
     } else if (sscanf(line, "uni_den_stop_%d", &instance) == 1) {
         if (instance < 1 || (size_t)instance > profile->den.instance_count || !app_head_state_manager_stop_den_run((uint8_t)instance)) return reply("ERR|UNI|DEN_STOP", ctx);
     } else if (sscanf(line, "uni_sic_run_%d", &instance) == 1) {
-        if (instance < 1 || (size_t)instance > profile->sic.instance_count || !app_head_state_manager_start_sic_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|SIC_RUN", ctx);
+        if (instance < 1 || (size_t)instance > profile->sic.instance_count
+            || !app_head_profile_instance_is_active(profile->sic.active_instance_mask, (size_t)instance - 1U)
+            || !app_head_state_manager_start_sic_run((uint8_t)instance, bus, now_ms)) return reply("ERR|UNI|SIC_RUN", ctx);
     } else if (sscanf(line, "uni_sic_stop_%d", &instance) == 1) {
         if (instance < 1 || (size_t)instance > profile->sic.instance_count || !app_head_state_manager_stop_sic_run((uint8_t)instance)) return reply("ERR|UNI|SIC_STOP", ctx);
     } else if (sscanf(line, "uni_feet_run_%d", &instance) == 1) {
@@ -292,9 +337,13 @@ esp_err_t app_unified_head_process_line(const char *line,
                                         void *ctx,
                                         const app_command_env_t *env)
 {
-    const HeadCommandProfile *profile = app_unified_head_program_get_active_profile();
+    const HeadUnifiedProgramDefinition *definition =
+        app_unified_head_program_get_active_definition();
+    const HeadCommandProfile *profile =
+        definition != NULL ? definition->profile : NULL;
 
-    if (line == NULL || reply == NULL || env == NULL || profile == NULL) {
+    if (line == NULL || reply == NULL || env == NULL
+        || definition == NULL || profile == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -315,12 +364,46 @@ esp_err_t app_unified_head_process_line(const char *line,
         return app_head_fast_diag_start_testeo_profile(env, ctx, profile) == ESP_OK ? reply("OK uni_testeo", ctx) : reply("ERR|UNI|TESTEO", ctx);
     }
     if (strcasecmp(line, "uni_stop") == 0 || strcasecmp(line, "uni_emergency_stop") == 0) {
+        const bool emergency =
+            strcasecmp(line, "uni_emergency_stop") == 0;
+        if (emergency) {
+            app_head_sequence_executor_cancel(
+                APP_HEAD_SEQUENCE_CANCEL_EMERGENCY);
+        }
         app_head_state_manager_stop_all_motion();
         app_head_fast_diag_request_stop();
+        const HeadUnifiedCommandContext command_context = {
+            .profile = profile,
+            .reply = reply,
+            .reply_ctx = ctx,
+            .env = env,
+            .can_bus = app_unified_active_bus(env),
+            .now_ms = (uint32_t)(esp_timer_get_time() / 1000LL),
+        };
+        if (definition->physical_stop != NULL) {
+            return definition->physical_stop(
+                line, emergency, &command_context);
+        }
+        if (!profile->stop.sends_can_frame) return app_unified_reply_for_line(reply, ctx, line);
         return app_unified_send(&profile->stop.frame, line, reply, ctx, env);
     }
 
     if (!app_head_state_manager_can_use_motion_profile(profile)) return reply("ERR|UNI|HEAD_BUSY", ctx);
+
+    if (definition->handle_special_command != NULL) {
+        const HeadUnifiedCommandContext command_context = {
+            .profile = profile,
+            .reply = reply,
+            .reply_ctx = ctx,
+            .env = env,
+            .can_bus = app_unified_active_bus(env),
+            .now_ms = (uint32_t)(esp_timer_get_time() / 1000LL),
+        };
+        bool handled = false;
+        const esp_err_t direct_err = definition->handle_special_command(
+            line, &command_context, &handled);
+        if (handled) return direct_err;
+    }
 
     if (strncasecmp(line, "uni_den_select_", 15) == 0) return app_unified_position(line, "uni_den_select_", &profile->den, true, reply, ctx, env);
     if (strncasecmp(line, "uni_den_pos_", 12) == 0) return app_unified_position(line, "uni_den_pos_", &profile->den, false, reply, ctx, env);
@@ -332,5 +415,6 @@ esp_err_t app_unified_head_process_line(const char *line,
     if (strncasecmp(line, "uni_yarn_pin_", 13) == 0) return app_unified_cascade_pin(line, "uni_yarn_pin_", &profile->yarn, reply, ctx, env);
     if (strncasecmp(line, "uni_stitch_pin_", 15) == 0) return app_unified_cascade_pin(line, "uni_stitch_pin_", &profile->stitch, reply, ctx, env);
 
-    return app_unified_run_command(line, profile, reply, ctx, env);
+    return app_unified_run_command(
+        line, definition, profile, reply, ctx, env);
 }

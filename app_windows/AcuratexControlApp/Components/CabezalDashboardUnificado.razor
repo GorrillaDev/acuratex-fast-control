@@ -27,8 +27,8 @@
         <button class="danger" type="button" disabled="@IsHeadUiBlocked" @onclick="OffAllAsync">OFF ALL</button>
         <button class="success" type="button" disabled="@IsHeadUiBlocked" @onclick="OnAllAsync">ON ALL</button>
         <button class="primary" type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("status")'>STATUS</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_run_all")'>RUN ALL</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_stop_all")'>STOP ALL</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick="RunAllAsync">RUN ALL</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick="StopAllAsync">STOP ALL</button>
         <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_run_all")'>RUN ALL (J)</button>
         <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_stop_all")'>STOP ALL (J)</button>
         <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("y_run_all")'>RUN ALL (YARN)</button>
@@ -75,7 +75,7 @@
             <div class="unified-history-list">
                 @if (_canAlarmHistory.Count == 0) { <div>Sin alertas CAN detectadas.</div> }
                 @foreach (CanAlarmHistoryItem alarm in _canAlarmHistory.AsEnumerable().Reverse())
-                { <article><strong>@alarm.Title</strong><span>@alarm.DetectedAt.ToString("HH:mm:ss.fff") Ã‚Â· 0x@alarm.CanId.ToString("X3") Ã‚Â· @FormatData(alarm.Data)</span><p>@alarm.Description</p></article> }
+                { <article><strong>@alarm.Title</strong><span>@alarm.DetectedAt.ToString("HH:mm:ss.fff") · 0x@alarm.CanId.ToString("X3") · @FormatData(alarm.Data)</span><p>@alarm.Description</p></article> }
             </div>
         </section>
     }
@@ -86,13 +86,19 @@
             <div class="can-rx-header"><strong>@_headTestLastResult.Title</strong><button class="mini-btn" @onclick="ToggleHeadTestDetail">CERRAR</button></div>
             <div class="unified-history-list">
                 <p>@_headTestLastResult.Description</p>
-                <p>@($"Bus {_headTestLastResult.Bus} Ã‚Â· ID 0x{_headTestLastResult.CanId:X3} Ã‚Â· DATA {FormatData(_headTestLastResult.Data)}")</p>
+                <p>@($"Bus {_headTestLastResult.Bus} · ID 0x{_headTestLastResult.CanId:X3} · DATA {FormatData(_headTestLastResult.Data)}")</p>
                 @foreach (HeadTestFrameTrace frame in _headTestLastResult.FramesValue)
                 { <article><strong>@($"#{frame.Sequence} 0x{frame.CanId:X3} {FormatData(frame.Data)}")</strong><span>@frame.Interpretation</span></article> }
             </div>
         </section>
     }
 
+    @if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2)
+    {
+        <CabezalDashboardUnificadoPrograma2 @ref="_program2Component" />
+    }
+    else
+    {
     <section class="@LockScopeClass">
         <section class="section-title">DEN</section>
         <section class="motor-grid">
@@ -146,6 +152,7 @@
         <section class="block-grid">@foreach (CabezalOutputBlockUnificado block in _stitchBlocks) { <CabezalBlockUnificado Block="block" PinClicked="ToggleBlockPinAsync" AllClicked="SetBlockAllAsync" RunClicked="SendDirectAsync" StopClicked="SendDirectAsync" ActionsDisabled="@IsHeadUiBlocked" /> }</section>
         <section class="log-box">@_logLine</section>
     </section>
+    }
 </main>
 
 @code {
@@ -163,7 +170,11 @@
     private List<CabezalOutputBlockUnificado> _yarnBlocks = new();
     private List<CabezalOutputBlockUnificado> _stitchBlocks = new();
     private CabezalDashboardUnificadoProgramId _selectedProgram = CabezalDashboardUnificadoProgramId.Program1;
+    private CabezalDashboardUnificadoProgramId _activeProgram = CabezalDashboardUnificadoProgramId.Program1;
     private CabezalDashboardUnificadoProgramProfile _profile = CabezalDashboardUnificadoProgramCatalog.Get(CabezalDashboardUnificadoProgramId.Program1);
+    private CabezalDashboardUnificadoPrograma2? _program2Component;
+    private CancellationTokenSource? _programChangeTimeoutCts;
+    private bool _programChangePending;
     private CancellationTokenSource? _headTestTimeoutCts;
     private HeadTestResult? _headTestLastResult;
     private string _headProgramStatus = "Programa 1 listo. Actualiza para consultar el firmware.";
@@ -192,9 +203,44 @@
     {
         if (!int.TryParse(args.Value?.ToString(), out int value) || value is < 1 or > 3 || !CanChangeHeadProgram) return;
         CabezalDashboardUnificadoProgramId program = (CabezalDashboardUnificadoProgramId)value;
-        ApplyProgramProfile(program);
-        _headProgramStatus = $"Seleccionando Programa {value}...";
-        if (await SendDirectResultAsync($"program_select_{value}", false)) _headProgramStatus = $"Programa {value} seleccionado.";
+        _selectedProgram = program;
+        _programChangePending = true;
+        _headProgramStatus = $"Cambiando a Programa {value}...";
+        _programChangeTimeoutCts?.Cancel();
+        _programChangeTimeoutCts?.Dispose();
+        _programChangeTimeoutCts = new CancellationTokenSource();
+        if (!await SendDirectResultAsync($"program_select_{value}", false))
+        {
+            _programChangePending = false;
+            _programChangeTimeoutCts?.Cancel();
+            _programChangeTimeoutCts?.Dispose();
+            _programChangeTimeoutCts = null;
+            _selectedProgram = _activeProgram;
+            _headProgramStatus = $"No se pudo solicitar Programa {value}. Se conserva Programa {(int)_activeProgram}.";
+            return;
+        }
+        _ = MonitorProgramChangeTimeoutAsync(program, _programChangeTimeoutCts.Token);
+    }
+
+    private async Task MonitorProgramChangeTimeoutAsync(CabezalDashboardUnificadoProgramId requested, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), token);
+            await InvokeAsync(() =>
+            {
+                if (_programChangePending && _selectedProgram == requested)
+                {
+                    _programChangePending = false;
+                    _selectedProgram = _activeProgram;
+                    _headProgramStatus = $"Timeout al confirmar Programa {(int)requested}. Se conserva Programa {(int)_activeProgram}.";
+                    StateHasChanged();
+                }
+                _programChangeTimeoutCts?.Dispose();
+                _programChangeTimeoutCts = null;
+            });
+        }
+        catch (OperationCanceledException) { }
     }
 
     private Task RefreshProgramStateAsync() => SendDirectResultAsync("program_status", true);
@@ -291,8 +337,10 @@
     private async Task ToggleBlockPinAsync(CabezalBlockPinChangeUnificado change) { if (IsHeadUiBlocked) return; CabezalOutputBlockUnificado? block = FindBlock(change.BlockKey); if (block is null) return; if (await SendTrackedAsync("DO", $"{change.BlockKey}_pin_{change.PinIndex}|{(change.On ? 1 : 0)}", token => CommandService.SendBlockPinAsync(change.BlockKey, change.PinIndex, change.On, token))) block.States[change.PinIndex - 1] = change.On; }
     private async Task SetBlockAllAsync(CabezalBlockAllChangeUnificado change) { CabezalOutputBlockUnificado? block = FindBlock(change.BlockKey); if (block is null) return; for (int pin = 1; pin <= block.PinCount; pin++) await ToggleBlockPinAsync(new(change.BlockKey, pin, change.On)); }
 
-    private async Task OffAllAsync() { if (IsHeadUiBlocked) return; foreach (CabezalJGroupUnificado group in _jGroups) await SetJAllAsync(group, false); foreach (CabezalOutputBlockUnificado block in AllBlocks()) await SetBlockAllAsync(new(block.Key, false)); }
-    private async Task OnAllAsync() { if (IsHeadUiBlocked) return; foreach (CabezalJGroupUnificado group in _jGroups) await SetJAllAsync(group, true); foreach (CabezalOutputBlockUnificado block in AllBlocks()) await SetBlockAllAsync(new(block.Key, true)); }
+    private async Task OffAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.OffAllAsync(); return; } foreach (CabezalJGroupUnificado group in _jGroups) await SetJAllAsync(group, false); foreach (CabezalOutputBlockUnificado block in AllBlocks()) await SetBlockAllAsync(new(block.Key, false)); }
+    private async Task OnAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.OnAllAsync(); return; } foreach (CabezalJGroupUnificado group in _jGroups) await SetJAllAsync(group, true); foreach (CabezalOutputBlockUnificado block in AllBlocks()) await SetBlockAllAsync(new(block.Key, true)); }
+    private async Task RunAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.RunAllAsync(); return; } await SendDirectAsync("j_run_all"); }
+    private async Task StopAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.StopAllAsync(); return; } await SendDirectAsync("j_stop_all"); }
 
     private Task SendDirectAsync(string command) => SendDirectResultAsync(command, false);
     private async Task<bool> SendDirectResultAsync(string command, bool allowDuringEmergency)
@@ -311,7 +359,10 @@
     private void ProcessLine(string line)
     {
         string clean = (line ?? string.Empty).Trim();
+        if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2)
+            _program2Component?.ProcessConnectionLine(clean);
         if (TryApplyProgramState(clean)) { StateHasChanged(); return; }
+        if (TryApplyProgramSelectionResponse(clean)) { StateHasChanged(); return; }
         if (TryParseCanRxLine(clean, out CanRxFrame? frame)) { ProcessCanFrame(frame!); StateHasChanged(); return; }
         if (HeadStateEventParser.TryParse(clean, out HeadStateEvent? state) && state is not null) ApplyHeadStateEvent(state);
         StateHasChanged();
@@ -321,9 +372,37 @@
     {
         const string prefix = "UNI_PROGRAM_STATE|ACTIVE=";
         if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !int.TryParse(line[prefix.Length..], out int value) || value is < 1 or > 3) return false;
-        ApplyProgramProfile((CabezalDashboardUnificadoProgramId)value);
+        CabezalDashboardUnificadoProgramId confirmed = (CabezalDashboardUnificadoProgramId)value;
+        _programChangePending = false;
+        _selectedProgram = confirmed;
+        ApplyProgramProfile(confirmed);
+        _programChangeTimeoutCts?.Cancel();
+        _programChangeTimeoutCts?.Dispose();
+        _programChangeTimeoutCts = null;
         _headProgramStatus = $"Programa {value} activo en firmware.";
         return true;
+    }
+
+    private bool TryApplyProgramSelectionResponse(string line)
+    {
+        if (line.StartsWith("OK uni_program_select_", StringComparison.OrdinalIgnoreCase))
+        {
+            _headProgramStatus = $"Programa {(int)_selectedProgram} aceptado; confirmando estado físico...";
+            _ = SendDirectAsync("program_status");
+            return true;
+        }
+        if (_programChangePending && line.StartsWith("ERR UNI_PROGRAM_", StringComparison.OrdinalIgnoreCase))
+        {
+            _programChangePending = false;
+            _programChangeTimeoutCts?.Cancel();
+            _programChangeTimeoutCts?.Dispose();
+            _programChangeTimeoutCts = null;
+            CabezalDashboardUnificadoProgramId rejected = _selectedProgram;
+            _selectedProgram = _activeProgram;
+            _headProgramStatus = $"Programa {(int)rejected} rechazado: {line}. Se conserva Programa {(int)_activeProgram}.";
+            return true;
+        }
+        return false;
     }
 
     private void ProcessCanFrame(CanRxFrame frame)
@@ -353,7 +432,7 @@
     private static CabezalMotorUnificado? FindIndexedMotor(string name, string prefix, List<CabezalMotorUnificado> motors) => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && int.TryParse(name[prefix.Length..], out int index) && index > 0 && index <= motors.Count ? motors[index - 1] : null;
     private void ApplyProgramProfile(CabezalDashboardUnificadoProgramId program)
     {
-        StopAllLoops(); _selectedProgram = program; _profile = CabezalDashboardUnificadoProgramCatalog.Get(program);
+        StopAllLoops(); _activeProgram = program; _profile = CabezalDashboardUnificadoProgramCatalog.Get(program);
         _denMotors = _profile.CreateDenMotors().ToList(); _sicMotors = _profile.CreateSicMotors().ToList(); _feetMotors = _profile.CreateFeetMotors().ToList(); _jGroups = _profile.CreateJGroups().ToList(); _yarnBlocks = _profile.CreateYarnBlocks().ToList(); _stitchBlocks = _profile.CreateStitchBlocks().ToList();
     }
     private IEnumerable<CabezalOutputBlockUnificado> AllBlocks() => _yarnBlocks.Concat(_stitchBlocks);
@@ -364,7 +443,7 @@
     private void ToggleCanHistory() => _showCanHistory = !_showCanHistory;
     private void ToggleAlarmHistory() => _showAlarmHistory = !_showAlarmHistory;
     private void ToggleHeadTestDetail() => _showHeadTestDetail = !_showHeadTestDetail;
-    private async Task HandleEmergencyStopAsync() { StopAllLoops(); await SendDirectResultAsync("emergency_stop", true); await SendDirectResultAsync("j_stop_all", true); await SendDirectResultAsync("y_stop_all", true); await SendDirectResultAsync("s_stop_all", true); _logLine = "PARADA DE EMERGENCIA ACTIVADA"; await InvokeAsync(StateHasChanged); }
+    private async Task HandleEmergencyStopAsync() { StopAllLoops(); if (_activeProgram != CabezalDashboardUnificadoProgramId.Program2) { await SendDirectResultAsync("emergency_stop", true); await SendDirectResultAsync("j_stop_all", true); await SendDirectResultAsync("y_stop_all", true); await SendDirectResultAsync("s_stop_all", true); } _logLine = "PARADA DE EMERGENCIA ACTIVADA"; await InvokeAsync(StateHasChanged); }
     private void OnEmergencyStateChanged() => _ = InvokeAsync(StateHasChanged);
 
     private static bool TryParseCanRxLine(string line, out CanRxFrame? frame)
@@ -384,6 +463,6 @@
     public void Dispose()
     {
         Connection.LineReceived -= OnLineReceived; EmergencyStop.StateChanged -= OnEmergencyStateChanged; EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
-        _headTestTimeoutCts?.Cancel(); _headTestTimeoutCts?.Dispose(); StopAllLoops();
+        _headTestTimeoutCts?.Cancel(); _headTestTimeoutCts?.Dispose(); _programChangeTimeoutCts?.Cancel(); _programChangeTimeoutCts?.Dispose(); StopAllLoops();
     }
 }

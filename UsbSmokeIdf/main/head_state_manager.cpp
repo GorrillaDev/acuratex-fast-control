@@ -9,7 +9,9 @@
 #include "esp_log.h"
 
 #include "app_rtos_types.h"
+#include "head_command_frame_builder.h"
 #include "head_program_runtime.h"
+#include "head_sequence_executor.h"
 
 // [ESP-IDF] TAG se imprime en ESP_LOGW/ESP_LOGI para identificar que el mensaje
 // viene del gestor de estado del cabezal.
@@ -59,6 +61,9 @@ typedef struct {
 
 // [FREERTOS] Mutex que protege `s_state`.
 static SemaphoreHandle_t s_head_state_mutex = NULL;
+// Barrera de TX runtime: STOP espera una transmision ya iniciada y cancela
+// todos los snapshots antes de permitir otra.
+static SemaphoreHandle_t s_head_motion_tx_mutex = NULL;
 // [C/C++] `static` limita esta fuente de verdad al archivo.
 static app_head_state_manager_state_t s_state;
 
@@ -707,6 +712,13 @@ esp_err_t app_head_state_manager_init_with_profile(const HeadCommandProfile *pro
         }
     }
 
+    if (s_head_motion_tx_mutex == NULL) {
+        s_head_motion_tx_mutex = xSemaphoreCreateMutex();
+        if (s_head_motion_tx_mutex == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
         return ESP_ERR_TIMEOUT;
     }
@@ -742,6 +754,19 @@ esp_err_t app_head_state_manager_init_with_profile(const HeadCommandProfile *pro
 
     app_head_state_give_mutex();
     return ESP_OK;
+}
+
+static bool app_head_state_take_tx_mutex(TickType_t timeout)
+{
+    return s_head_motion_tx_mutex != NULL
+        && xSemaphoreTake(s_head_motion_tx_mutex, timeout) == pdTRUE;
+}
+
+static void app_head_state_give_tx_mutex(void)
+{
+    if (s_head_motion_tx_mutex != NULL) {
+        xSemaphoreGive(s_head_motion_tx_mutex);
+    }
 }
 
 /**
@@ -1099,7 +1124,6 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
                                              uint32_t now_ms)
 {
     app_head_cascade_state_t step = {};
-    uint8_t addr = 0;
     uint8_t value = 0;
     int bus = 1;
     esp_err_t tx_err = ESP_OK;
@@ -1147,13 +1171,41 @@ static esp_err_t app_head_state_tick_cascade(app_head_state_manager_can_send_sta
         return ESP_ERR_INVALID_STATE;
     }
 
-    addr = commands->addresses[(size_t)index * commands->addresses_per_instance + step.p - 1U];
     value = (step.phase == 0) ? commands->on_value : commands->off_value;
     bus = app_head_state_normalize_bus(step.can_bus);
 
     {
-        uint8_t data[3] = { commands->opcode, addr, value };
-        tx_err = can_send_standard(bus, commands->can_id, data, sizeof(data));
+        HeadCanCommand frame = {};
+        if (!app_head_build_cascade_frame(commands,
+                                          (size_t)index,
+                                          (size_t)step.p - 1U,
+                                          step.phase == 0,
+                                          &frame)) {
+            tx_err = ESP_ERR_INVALID_ARG;
+        } else {
+            if (!app_head_state_take_tx_mutex(portMAX_DELAY)) {
+                return ESP_ERR_TIMEOUT;
+            }
+
+            if (!app_head_state_take_mutex(portMAX_DELAY)) {
+                app_head_state_give_tx_mutex();
+                return ESP_ERR_TIMEOUT;
+            }
+
+            const bool snapshot_is_current = index >= 0
+                && index < (int)state_count
+                && states[index].running
+                && states[index].revision == step.revision;
+            app_head_state_give_mutex();
+
+            if (!snapshot_is_current) {
+                app_head_state_give_tx_mutex();
+                return ESP_OK;
+            }
+
+            tx_err = can_send_standard(bus, frame.can_id, frame.data, frame.dlc);
+            app_head_state_give_tx_mutex();
+        }
     }
 
     if (tx_err != ESP_OK) {
@@ -1440,13 +1492,33 @@ static esp_err_t app_head_state_tick_motion(app_head_state_manager_can_send_stan
     bus = app_head_state_normalize_bus(step.can_bus);
 
     {
-        uint8_t data[4] = {
-            commands->opcode,
-            (uint8_t)(commands->motor_index_base + index),
-            (uint8_t)(position_value & 0xFF),
-            (uint8_t)((position_value >> 8) & 0xFF),
-        };
-        tx_err = can_send_standard(bus, commands->can_id, data, sizeof(data));
+        HeadCanCommand frame = {};
+        if (!app_head_build_motion_frame(commands, (size_t)index, position_value, &frame)) {
+            tx_err = ESP_ERR_INVALID_ARG;
+        } else {
+            if (!app_head_state_take_tx_mutex(portMAX_DELAY)) {
+                return ESP_ERR_TIMEOUT;
+            }
+
+            if (!app_head_state_take_mutex(portMAX_DELAY)) {
+                app_head_state_give_tx_mutex();
+                return ESP_ERR_TIMEOUT;
+            }
+
+            const bool snapshot_is_current = index >= 0
+                && index < (int)state_count
+                && states[index].running
+                && states[index].revision == step.revision;
+            app_head_state_give_mutex();
+
+            if (!snapshot_is_current) {
+                app_head_state_give_tx_mutex();
+                return ESP_OK;
+            }
+
+            tx_err = can_send_standard(bus, frame.can_id, frame.data, frame.dlc);
+            app_head_state_give_tx_mutex();
+        }
     }
 
     if (tx_err != ESP_OK) {
@@ -1714,6 +1786,8 @@ void app_head_state_manager_stop_all_feet_runs(void)
 
 void app_head_state_manager_stop_all_motion(void)
 {
+    app_head_sequence_executor_cancel(APP_HEAD_SEQUENCE_CANCEL_STOP);
+    const bool tx_barrier = app_head_state_take_tx_mutex(portMAX_DELAY);
     app_head_state_manager_stop_all_j_runs();
     app_head_state_manager_stop_all_yarn_runs();
     app_head_state_manager_stop_all_stitch_runs();
@@ -1725,10 +1799,17 @@ void app_head_state_manager_stop_all_motion(void)
         s_motion_profile = NULL;
         app_head_state_give_mutex();
     }
+    if (tx_barrier) {
+        app_head_state_give_tx_mutex();
+    }
 }
 
 bool app_head_state_manager_has_active_motion(void)
 {
+    if (app_head_sequence_executor_is_active()) {
+        return true;
+    }
+
     bool active = false;
 
     if (!app_head_state_take_mutex(portMAX_DELAY)) {
@@ -1892,13 +1973,37 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
         uint8_t candidate = step->turning_on
             ? (uint8_t)(step->physical_register & (uint8_t)~mask)
             : (uint8_t)(step->physical_register | mask);
-        uint8_t frame[3] = {
-            profile->j.opcode,
-            (uint8_t)(profile->j.instance_index_base + step->index),
-            candidate,
-        };
         int bus = app_head_state_normalize_bus(step->can_bus);
-        esp_err_t tx_err = can_send_standard(bus, profile->j.can_id, frame, sizeof(frame));
+        HeadCanCommand frame = {};
+        esp_err_t tx_err = ESP_OK;
+        if (!app_head_build_j_frame(&profile->j,
+                                    (size_t)step->index,
+                                    candidate,
+                                    &frame)) {
+            tx_err = ESP_ERR_INVALID_ARG;
+        } else if (!app_head_state_take_tx_mutex(portMAX_DELAY)) {
+            tx_err = ESP_ERR_TIMEOUT;
+        } else {
+            if (!app_head_state_take_mutex(portMAX_DELAY)) {
+                app_head_state_give_tx_mutex();
+                result = ESP_ERR_TIMEOUT;
+                continue;
+            }
+
+            const bool snapshot_is_current = step->index >= 0
+                && step->index < APP_HEAD_STATE_MAX_J
+                && s_state.j_running[step->index]
+                && s_state.j_revision[step->index] == step->revision;
+            app_head_state_give_mutex();
+
+            if (!snapshot_is_current) {
+                app_head_state_give_tx_mutex();
+                continue;
+            }
+
+            tx_err = can_send_standard(bus, frame.can_id, frame.data, frame.dlc);
+            app_head_state_give_tx_mutex();
+        }
 
         if (tx_err != ESP_OK) {
             ESP_LOGW(TAG,
@@ -2041,6 +2146,14 @@ esp_err_t app_head_state_manager_tick(app_head_state_manager_can_send_standard_f
             if (motion_err != ESP_OK) {
                 result = motion_err;
             }
+        }
+    }
+
+    {
+        const esp_err_t sequence_err =
+            app_head_sequence_executor_tick(can_send_standard, now_ms);
+        if (sequence_err != ESP_OK) {
+            result = sequence_err;
         }
     }
 

@@ -1,0 +1,212 @@
+@implements IDisposable
+
+<section class="unified-head-program-2" aria-label="Programa 2 Unificado">
+    <section class="section-title">DEN</section>
+    <section class="motor-grid program2-den-grid">
+        @foreach (Program2DenMotor motor in DenMotors)
+        {
+            <section class="cabezal-mcard program2-state-card @(motor.Running ? "running" : null) @(motor.Pending ? "pending" : null)">
+                <div class="mhead">
+                    <div class="mtitle">@($"DEN {motor.DisplayNumber}")</div>
+                    @if (motor.Pending)
+                    {
+                        <span class="run-state pending-state">PENDIENTE</span>
+                    }
+                    else if (motor.Running)
+                    {
+                        <span class="run-state">RUN</span>
+                    }
+                </div>
+
+                <div class="run-row">
+                    <button class="mini-btn run @(motor.Running ? "active" : null)"
+                            type="button"
+                            disabled="@ActionsBlocked"
+                            @onclick="() => RunDenAsync(motor)">RUN</button>
+                    <button class="mini-btn stop"
+                            type="button"
+                            disabled="@(!Connection.IsConnected)"
+                            @onclick="() => StopDenAsync(motor)">STOP</button>
+                </div>
+
+                <div class="pos-buttons">
+                    @for (int index = 0; index < DenPositions.Length; index++)
+                    {
+                        int positionNumber = index + 1;
+                        <button class="pos-btn @(motor.SelectedPosition == positionNumber ? "on" : null)"
+                                type="button"
+                                disabled="@ActionsBlocked"
+                                @onclick="() => SelectDenPositionAsync(motor, positionNumber)">
+                            @($"POS {positionNumber}")
+                        </button>
+                    }
+                </div>
+
+                <div class="slider-wrap">
+                    <input type="range"
+                           min="0"
+                           max="650"
+                           step="1"
+                           value="@motor.PreviewValue"
+                           disabled="@ActionsBlocked"
+                           @oninput="args => PreviewDen(motor, args)"
+                           @onchange="args => CommitDenAsync(motor, args)" />
+                    <div class="sval">@($"Posición: {motor.PreviewValue}")</div>
+                </div>
+            </section>
+        }
+    </section>
+
+    <section class="section-title">Feet</section>
+    <section class="block-grid program2-feet-grid">
+        @for (int index = 1; index <= 2; index++)
+        {
+            int feet = index;
+            <section class="cabezal-block">
+                <div class="blk-head">
+                    <div class="blk-title">@($"Feet {feet}")</div>
+                </div>
+                <div class="blk-actions program2-feet-actions">
+                    <button class="mini-btn"
+                            type="button"
+                            disabled="@ActionsBlocked"
+                            @onclick="() => TriggerFeetAsync(feet)">
+                        @($"FEET {feet}")
+                    </button>
+                </div>
+            </section>
+        }
+    </section>
+
+    <section class="section-title">J1..J4</section>
+    <section class="j-grid">
+        @foreach (Program2JGroup group in JGroups)
+        {
+            <section class="j-card program2-state-card @(group.Running ? "running" : null) @(group.Pending ? "pending" : null)">
+                <div class="j-head">
+                    <div class="j-title">@($"J{group.DisplayNumber}")</div>
+                    @if (group.Pending)
+                    {
+                        <span class="run-state pending-state">PENDIENTE</span>
+                    }
+                    else if (group.Running)
+                    {
+                        <span class="run-state">RUN</span>
+                    }
+                </div>
+                <div class="j-actions">
+                    <button class="mini-btn" type="button" disabled="@ActionsBlocked" @onclick="() => SetJAsync(group, false)">OFF ALL</button>
+                    <button class="mini-btn" type="button" disabled="@ActionsBlocked" @onclick="() => SetJAsync(group, true)">ON ALL</button>
+                </div>
+                <div class="j-actions">
+                    <button class="mini-btn run @(group.Running ? "active" : null)"
+                            type="button"
+                            disabled="@ActionsBlocked"
+                            @onclick="() => RunJAsync(group)">RUN</button>
+                    <button class="mini-btn stop"
+                            type="button"
+                            disabled="@(!Connection.IsConnected)"
+                            @onclick="() => StopJAsync(group)">STOP</button>
+                </div>
+                <div class="j-pins">
+                    @for (int pin = 1; pin <= 8; pin++)
+                    {
+                        int currentPin = pin;
+                        <button class="j-pin @(group.IsOn(currentPin) ? "on" : null)"
+                                type="button"
+                                disabled="@ActionsBlocked"
+                                @onclick="() => ToggleJAsync(group, currentPin)">
+                            @currentPin
+                        </button>
+                    }
+                </div>
+            </section>
+        }
+    </section>
+
+    <section class="section-title">Yarn</section>
+    <section class="block-grid">
+        <section class="cabezal-block program2-state-card @(YarnRunning ? "running" : null) @(YarnPending ? "pending" : null)">
+            <div class="blk-head">
+                <div class="blk-title">Yarn 1</div>
+                @if (YarnPending)
+                {
+                    <span class="run-state pending-state">PENDIENTE</span>
+                }
+                else if (YarnRunning)
+                {
+                    <span class="run-state">RUN</span>
+                }
+            </div>
+            <div class="blk-actions">
+                <button type="button" disabled="@ActionsBlocked" @onclick="() => SetAllYarnAsync(false)">OFF ALL</button>
+                <button type="button" disabled="@ActionsBlocked" @onclick="() => SetAllYarnAsync(true)">ON ALL</button>
+                <button class="mini-btn run @(YarnRunning ? "active" : null)"
+                        type="button"
+                        disabled="@ActionsBlocked"
+                        @onclick="RunYarnAsync">RUN</button>
+                <button class="mini-btn stop"
+                        type="button"
+                        disabled="@(!Connection.IsConnected)"
+                        @onclick="StopYarnAsync">STOP</button>
+            </div>
+            <div class="pin-grid">
+                @for (int pin = 1; pin <= 8; pin++)
+                {
+                    int currentPin = pin;
+                    <button class="pin-btn @(YarnStates[currentPin - 1] ? "on" : null)"
+                            type="button"
+                            disabled="@ActionsBlocked"
+                            @onclick="() => ToggleYarnAsync(currentPin)">
+                        @currentPin
+                    </button>
+                }
+            </div>
+        </section>
+    </section>
+
+    <section class="section-title">Stitch</section>
+    <section class="block-grid">
+        @foreach (Program2StitchMotor stitch in StitchMotors)
+        {
+            <section class="cabezal-block program2-state-card @(stitch.Running ? "running" : null) @(stitch.Pending ? "pending" : null)">
+                <div class="blk-head">
+                    <div class="blk-title">@($"Stitch {stitch.Number}")</div>
+                    @if (stitch.Pending)
+                    {
+                        <span class="run-state pending-state">PENDIENTE</span>
+                    }
+                    else if (stitch.Running)
+                    {
+                        <span class="run-state">RUN</span>
+                    }
+                </div>
+                <div class="blk-actions">
+                    <button type="button" disabled="@ActionsBlocked" @onclick="() => ResetStitchAsync(stitch)">RESET</button>
+                    <button class="mini-btn run @(stitch.Running ? "active" : null)"
+                            type="button"
+                            disabled="@ActionsBlocked"
+                            @onclick="() => RunStitchAsync(stitch)">RUN</button>
+                    <button class="mini-btn stop"
+                            type="button"
+                            disabled="@(!Connection.IsConnected)"
+                            @onclick="() => StopStitchAsync(stitch)">STOP</button>
+                </div>
+                <div class="pin-grid program2-stitch-positions">
+                    @for (int index = 0; index < StitchPositions.Length; index++)
+                    {
+                        int positionNumber = index + 1;
+                        <button class="pin-btn @(stitch.SelectedPosition == positionNumber ? "on" : null)"
+                                type="button"
+                                disabled="@ActionsBlocked"
+                                @onclick="() => SelectStitchPositionAsync(stitch, positionNumber)">
+                            @StitchPositions[index]
+                        </button>
+                    }
+                </div>
+            </section>
+        }
+    </section>
+
+    <section class="log-box program2-status" aria-live="polite">@Status</section>
+</section>

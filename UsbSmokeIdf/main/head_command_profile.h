@@ -18,7 +18,28 @@ typedef struct {
     size_t dlc;
 } HeadCanCommand;
 
-typedef struct {
+struct HeadMotionCommandProfile;
+struct HeadJCommandProfile;
+struct HeadCascadeCommandProfile;
+
+typedef bool (*app_head_motion_frame_builder_fn_t)(
+    const struct HeadMotionCommandProfile *commands,
+    size_t instance_index,
+    uint16_t position,
+    HeadCanCommand *frame);
+typedef bool (*app_head_j_frame_builder_fn_t)(
+    const struct HeadJCommandProfile *commands,
+    size_t instance_index,
+    uint8_t physical_register,
+    HeadCanCommand *frame);
+typedef bool (*app_head_cascade_frame_builder_fn_t)(
+    const struct HeadCascadeCommandProfile *commands,
+    size_t instance_index,
+    size_t channel_index,
+    bool on,
+    HeadCanCommand *frame);
+
+typedef struct HeadInitCommandSequence {
     const char *const *phase1_steps;
     size_t phase1_step_count;
     uint32_t phase1_step_delay_ms;
@@ -26,6 +47,7 @@ typedef struct {
     const char *const *phase2_steps;
     size_t phase2_step_count;
     uint32_t phase2_step_delay_ms;
+    bool skip_step_delay_after_wait = false;
 } HeadInitCommandSequence;
 
 typedef struct {
@@ -45,7 +67,7 @@ typedef struct {
     uint32_t reset_debounce_ms;
 } HeadTesteoCommandProfile;
 
-typedef struct {
+typedef struct HeadMotionCommandProfile {
     uint32_t can_id;
     uint8_t opcode;
     uint8_t motor_index_base;
@@ -58,9 +80,13 @@ typedef struct {
     size_t position_count;
     uint32_t run_period_ms;
     uint32_t alternate_run_period_ms;
+    const uint32_t *instance_can_ids = nullptr;
+    const uint8_t *instance_selectors = nullptr;
+    uint32_t active_instance_mask = 0U;
+    app_head_motion_frame_builder_fn_t build_frame = nullptr;
 } HeadMotionCommandProfile;
 
-typedef struct {
+typedef struct HeadJCommandProfile {
     uint32_t can_id;
     uint8_t opcode;
     uint8_t instance_index_base;
@@ -70,9 +96,13 @@ typedef struct {
     uint8_t on_all_register;
     uint8_t off_all_register;
     uint32_t run_period_ms;
+    const uint32_t *instance_can_ids = nullptr;
+    const uint8_t *instance_selectors = nullptr;
+    uint32_t active_instance_mask = 0U;
+    app_head_j_frame_builder_fn_t build_frame = nullptr;
 } HeadJCommandProfile;
 
-typedef struct {
+typedef struct HeadCascadeCommandProfile {
     uint32_t can_id;
     uint8_t opcode;
     const uint8_t *addresses;
@@ -81,6 +111,10 @@ typedef struct {
     uint8_t on_value;
     uint8_t off_value;
     uint32_t run_period_ms;
+    const uint32_t *instance_can_ids = nullptr;
+    const uint8_t *instance_selectors = nullptr;
+    uint32_t active_instance_mask = 0U;
+    app_head_cascade_frame_builder_fn_t build_frame = nullptr;
 } HeadCascadeCommandProfile;
 
 typedef struct {

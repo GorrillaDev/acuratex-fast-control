@@ -1,6 +1,8 @@
 # Default target for this firmware. Required so a clean clone does not fall
 # back to esp32, which is incompatible with the TinyUSB device stack used here.
 CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 
 # Versioned partition table. The FILE_* protocol stores program TXT files in
 # the LittleFS partition labelled "storage", mounted at /fs.

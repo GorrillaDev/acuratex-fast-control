@@ -3,11 +3,15 @@
 #include "esp_err.h"
 
 #include "head_command_profile.h"
+#include "head_unified_program_definition.h"
 
 // Runtime independiente del Cabezal Unificado. Sus tablas compiladas y su
 // programa activo no comparten estado con el runtime del Cabezal Modular.
 void app_unified_head_program_runtime_init(void);
 app_head_program_id_t app_unified_head_program_get_active_id(void);
+const HeadUnifiedProgramDefinition *app_unified_head_program_get_definition(
+    app_head_program_id_t program_id);
+const HeadUnifiedProgramDefinition *app_unified_head_program_get_active_definition(void);
 const HeadCommandProfile *app_unified_head_program_get_profile(app_head_program_id_t program_id);
 const HeadCommandProfile *app_unified_head_program_get_active_profile(void);
 esp_err_t app_unified_head_program_select(app_head_program_id_t program_id,

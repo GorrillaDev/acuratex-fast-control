@@ -1,0 +1,201 @@
+.unified-head-program-2 {
+  width: 100%;
+  color: var(--acc-text);
+  font-family: inherit;
+}
+
+.unified-head-program-2 .section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0 8px;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.unified-head-program-2 .section-title::before {
+  content: "";
+  width: 8px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ef4444;
+}
+
+.unified-head-program-2 .motor-grid,
+.unified-head-program-2 .block-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.unified-head-program-2 .j-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 10px;
+}
+
+.unified-head-program-2 .cabezal-mcard,
+.unified-head-program-2 .cabezal-block,
+.unified-head-program-2 .j-card {
+  min-width: 0;
+  border: 1px solid #dce3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+
+.unified-head-program-2 .program2-state-card.pending {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.10);
+}
+
+.unified-head-program-2 .mhead,
+.unified-head-program-2 .blk-head,
+.unified-head-program-2 .j-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.unified-head-program-2 .mtitle,
+.unified-head-program-2 .blk-title,
+.unified-head-program-2 .j-title {
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.unified-head-program-2 .run-state {
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  color: var(--acc-green);
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.unified-head-program-2 .run-state.pending-state {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.unified-head-program-2 .run-row,
+.unified-head-program-2 .pos-buttons,
+.unified-head-program-2 .blk-actions,
+.unified-head-program-2 .j-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.unified-head-program-2 .mini-btn {
+  min-height: 30px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.unified-head-program-2 .mini-btn.run,
+.unified-head-program-2 .mini-btn.active {
+  border-color: #bbf7d0;
+  color: var(--acc-green);
+}
+
+.unified-head-program-2 .mini-btn.active {
+  background: #dcfce7;
+}
+
+.unified-head-program-2 .mini-btn.stop {
+  border-color: #fecaca;
+  color: var(--acc-red);
+}
+
+.unified-head-program-2 .pos-btn,
+.unified-head-program-2 .j-pin,
+.unified-head-program-2 .pin-btn {
+  min-height: 34px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.unified-head-program-2 .pos-btn {
+  font-weight: 800;
+}
+
+.unified-head-program-2 .pos-btn.on,
+.unified-head-program-2 .j-pin.on,
+.unified-head-program-2 .pin-btn.on {
+  border-color: #86efac;
+  background: #16a34a;
+  color: #f0fdf4;
+  box-shadow: none;
+}
+
+.unified-head-program-2 .slider-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px 10px;
+}
+
+.unified-head-program-2 .slider-wrap input {
+  min-width: 0;
+  accent-color: var(--acc-green);
+}
+
+.unified-head-program-2 .sval {
+  color: var(--acc-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  text-align: right;
+}
+
+.unified-head-program-2 .j-pins {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.unified-head-program-2 .pin-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.unified-head-program-2 .program2-stitch-positions {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.unified-head-program-2 .program2-status {
+  min-height: 42px;
+  margin-top: 12px;
+  border: 1px solid #e4e8f0;
+  border-radius: 10px;
+  background: var(--acc-surface-soft);
+  color: #334155;
+  padding: 11px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unified-head-program-2 *,
+  .unified-head-program-2 *::before,
+  .unified-head-program-2 *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
