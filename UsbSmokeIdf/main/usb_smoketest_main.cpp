@@ -35,6 +35,7 @@
 
 
 #include "esp_timer.h"
+#include "line_drive_control.h"
 
 
 
@@ -6521,6 +6522,11 @@ extern "C" void app_main(void)
 
 
     ESP_LOGI(TAG, "LAST_RESET=%s", app_reset_reason_name(esp_reset_reason()));
+
+    esp_err_t line_drive_err = app_line_drive_init();
+    if (line_drive_err != ESP_OK) {
+        ESP_LOGE(TAG, "LINE_DRIVE init fallo: %s", esp_err_to_name(line_drive_err));
+    }
 
 
 

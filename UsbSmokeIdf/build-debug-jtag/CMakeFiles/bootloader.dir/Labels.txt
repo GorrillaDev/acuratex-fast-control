@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/CMakeFiles/bootloader
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/CMakeFiles/bootloader.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/CMakeFiles/bootloader-complete.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

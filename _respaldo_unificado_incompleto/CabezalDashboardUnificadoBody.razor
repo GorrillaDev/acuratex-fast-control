@@ -1,0 +1,165 @@
+@if (DenMotors.Count > 0)
+{
+    <section class="section-title">DEN</section>
+    <section class="motor-grid">
+        @foreach (CabezalMotorUnificado motor in DenMotors)
+        {
+            <CabezalMotorCardUnificado Motor="motor"
+                PositionClicked="@((int position) => Invoke(DenPositionClicked, motor, position))"
+                SliderCommitted="@((int position) => Invoke(DenSliderCommitted, motor, position))"
+                RunClicked="@(() => Invoke(DenRunClicked, motor))"
+                StopClicked="@(() => Invoke(DenStopClicked, motor))"
+                Run1Clicked="@(() => Invoke(DenRun1Clicked, motor))"
+                Stop1Clicked="@(() => Invoke(DenStop1Clicked, motor))"
+                ActionsDisabled="@ActionsDisabled" />
+        }
+    </section>
+}
+
+@if (SicMotors.Count > 0)
+{
+    <section class="section-title">SIC</section>
+    <section class="motor-grid">
+        @foreach (CabezalMotorUnificado motor in SicMotors)
+        {
+            <CabezalMotorCardUnificado Motor="motor"
+                PositionClicked="@((int position) => Invoke(SicPositionClicked, motor, position))"
+                SliderCommitted="@((int position) => Invoke(SicSliderCommitted, motor, position))"
+                RunClicked="@(() => Invoke(SicRunClicked, motor))"
+                StopClicked="@(() => Invoke(SicStopClicked, motor))"
+                ActionsDisabled="@ActionsDisabled" />
+        }
+    </section>
+}
+
+@if (FeetMotors.Count > 0)
+{
+    <section class="section-title">Feet</section>
+    @if (FeetTriggerClicked is not null)
+    {
+        <section class="block-grid">
+            @foreach (CabezalMotorUnificado motor in FeetMotors)
+            {
+                <section class="cabezal-block">
+                    <div class="blk-head"><div class="blk-title">@motor.Title</div></div>
+                    <div class="blk-actions"><button class="mini-btn" type="button" disabled="@ActionsDisabled" @onclick="() => Invoke(FeetTriggerClicked, motor)">@motor.Title.ToUpperInvariant()</button></div>
+                </section>
+            }
+        </section>
+    }
+    else
+    {
+        <section class="motor-grid">
+            @foreach (CabezalMotorUnificado motor in FeetMotors)
+            {
+                <CabezalMotorCardUnificado Motor="motor"
+                    PositionClicked="@((int position) => Invoke(FeetPositionClicked, motor, position))"
+                    SliderCommitted="@((int position) => Invoke(FeetSliderCommitted, motor, position))"
+                    RunClicked="@(() => Invoke(FeetRunClicked, motor))"
+                    StopClicked="@(() => Invoke(FeetStopClicked, motor))"
+                    ActionsDisabled="@ActionsDisabled" />
+            }
+        </section>
+    }
+}
+
+@if (JGroups.Count > 0)
+{
+    <section class="section-title">J</section>
+    <section class="j-grid">
+        @foreach (CabezalJGroupUnificado group in JGroups)
+        {
+            <CabezalJCardUnificado Group="group"
+                PinClicked="@((int pin) => Invoke(JPinClicked, group, pin))"
+                AllClicked="@((bool on) => Invoke(JAllClicked, group, on))"
+                RunClicked="@(() => Invoke(JRunClicked, group))"
+                StopClicked="@(() => Invoke(JStopClicked, group))"
+                ActionsDisabled="@ActionsDisabled" />
+        }
+    </section>
+}
+
+@if (YarnBlocks.Count > 0)
+{
+    <section class="section-title">Yarn</section>
+    <section class="block-grid">
+        @foreach (CabezalOutputBlockUnificado block in YarnBlocks)
+        {
+            <CabezalBlockUnificado Block="block"
+                PinClicked="YarnPinClicked" AllClicked="YarnAllClicked"
+                RunClicked="YarnRunClicked" StopClicked="YarnStopClicked"
+                ActionsDisabled="@ActionsDisabled" />
+        }
+    </section>
+}
+
+@if (StitchBlocks.Count > 0)
+{
+    <section class="section-title">Stitch</section>
+    <section class="block-grid">
+        @foreach (CabezalOutputBlockUnificado block in StitchBlocks)
+        {
+            @if (StitchPositionClicked is not null)
+            {
+                <CabezalPositionBlockUnificado Block="block"
+                    PositionClicked="@((int position) => Invoke(StitchPositionClicked, block, position))"
+                    ResetClicked="@(() => Invoke(StitchResetClicked, block))"
+                    RunClicked="@(() => Invoke(StitchRunBlockClicked, block))"
+                    StopClicked="@(() => Invoke(StitchStopBlockClicked, block))"
+                    ActionsDisabled="@ActionsDisabled" />
+            }
+            else
+            {
+                <CabezalBlockUnificado Block="block"
+                    PinClicked="StitchPinClicked" AllClicked="StitchAllClicked"
+                    RunClicked="StitchRunClicked" StopClicked="StitchStopClicked"
+                    ActionsDisabled="@ActionsDisabled" />
+            }
+        }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<CabezalMotorUnificado> DenMotors { get; set; } = Array.Empty<CabezalMotorUnificado>();
+    [Parameter, EditorRequired] public IReadOnlyList<CabezalMotorUnificado> SicMotors { get; set; } = Array.Empty<CabezalMotorUnificado>();
+    [Parameter, EditorRequired] public IReadOnlyList<CabezalMotorUnificado> FeetMotors { get; set; } = Array.Empty<CabezalMotorUnificado>();
+    [Parameter, EditorRequired] public IReadOnlyList<CabezalJGroupUnificado> JGroups { get; set; } = Array.Empty<CabezalJGroupUnificado>();
+    [Parameter, EditorRequired] public IReadOnlyList<CabezalOutputBlockUnificado> YarnBlocks { get; set; } = Array.Empty<CabezalOutputBlockUnificado>();
+    [Parameter, EditorRequired] public IReadOnlyList<CabezalOutputBlockUnificado> StitchBlocks { get; set; } = Array.Empty<CabezalOutputBlockUnificado>();
+    [Parameter] public bool ActionsDisabled { get; set; }
+
+    [Parameter] public Func<CabezalMotorUnificado, int, Task>? DenPositionClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, int, Task>? DenSliderCommitted { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? DenRunClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? DenStopClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? DenRun1Clicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? DenStop1Clicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, int, Task>? SicPositionClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, int, Task>? SicSliderCommitted { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? SicRunClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? SicStopClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, int, Task>? FeetPositionClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, int, Task>? FeetSliderCommitted { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? FeetRunClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? FeetStopClicked { get; set; }
+    [Parameter] public Func<CabezalMotorUnificado, Task>? FeetTriggerClicked { get; set; }
+    [Parameter] public Func<CabezalJGroupUnificado, int, Task>? JPinClicked { get; set; }
+    [Parameter] public Func<CabezalJGroupUnificado, bool, Task>? JAllClicked { get; set; }
+    [Parameter] public Func<CabezalJGroupUnificado, Task>? JRunClicked { get; set; }
+    [Parameter] public Func<CabezalJGroupUnificado, Task>? JStopClicked { get; set; }
+    [Parameter] public Func<CabezalBlockPinChangeUnificado, Task>? YarnPinClicked { get; set; }
+    [Parameter] public Func<CabezalBlockAllChangeUnificado, Task>? YarnAllClicked { get; set; }
+    [Parameter] public Func<string, Task>? YarnRunClicked { get; set; }
+    [Parameter] public Func<string, Task>? YarnStopClicked { get; set; }
+    [Parameter] public Func<CabezalBlockPinChangeUnificado, Task>? StitchPinClicked { get; set; }
+    [Parameter] public Func<CabezalBlockAllChangeUnificado, Task>? StitchAllClicked { get; set; }
+    [Parameter] public Func<string, Task>? StitchRunClicked { get; set; }
+    [Parameter] public Func<string, Task>? StitchStopClicked { get; set; }
+    [Parameter] public Func<CabezalOutputBlockUnificado, int, Task>? StitchPositionClicked { get; set; }
+    [Parameter] public Func<CabezalOutputBlockUnificado, Task>? StitchResetClicked { get; set; }
+    [Parameter] public Func<CabezalOutputBlockUnificado, Task>? StitchRunBlockClicked { get; set; }
+    [Parameter] public Func<CabezalOutputBlockUnificado, Task>? StitchStopBlockClicked { get; set; }
+
+    private static Task Invoke<T>(Func<T, Task>? callback, T value) => callback?.Invoke(value) ?? Task.CompletedTask;
+    private static Task Invoke<T1, T2>(Func<T1, T2, Task>? callback, T1 first, T2 second) => callback?.Invoke(first, second) ?? Task.CompletedTask;
+}

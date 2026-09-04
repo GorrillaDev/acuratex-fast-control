@@ -970,6 +970,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Acuratex firmware options
+#
+# default:
+# CONFIG_ACURATEX_USB_DEBUG_JTAG is not set
+# end of Acuratex firmware options
+
+#
 # Compiler options
 #
 # default:

@@ -179,7 +179,9 @@ public interface IServoDashboardTarjetasCommandService
     /// [SI NO EXISTIERA]
     /// La UI tendría que construir la orden de posicion por su cuenta.
     /// </summary>
-    Task GoToPositionAsync(int positionNumber, decimal target, CancellationToken cancellationToken = default);
+    Task ConfigurePositionAsync(int positionNumber, decimal target, int turns, CancellationToken cancellationToken = default);
+
+    Task GoToPositionAsync(int positionNumber, decimal target, int turns, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// [POR QUÉ EXISTE]

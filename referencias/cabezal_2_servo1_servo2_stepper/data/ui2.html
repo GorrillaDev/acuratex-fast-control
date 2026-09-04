@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prueba Servo 1 + Servo 2 + Stepper</title>
+<style>
+:root{
+  --bg:#f4f7fb;--card:#fff;--line:#dce3ee;--txt:#172033;--muted:#687386;
+  --blue:#2563eb;--green:#159447;--red:#d92d20;--shadow:0 12px 34px rgba(29,47,78,.09)
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:Segoe UI,Arial,sans-serif}
+main{width:min(1380px,calc(100% - 24px));margin:auto;padding:22px 0 40px}
+header{display:flex;justify-content:space-between;gap:15px;align-items:center;margin-bottom:18px}
+h1{margin:0;font-size:clamp(1.5rem,4vw,2.2rem)}
+.sub{color:var(--muted);margin-top:6px}
+.conn{background:#fff;border:1px solid var(--line);border-radius:999px;padding:9px 13px;font-weight:700;white-space:nowrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#999;margin-right:7px}
+.dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
+.cardHead{padding:18px 19px;border-bottom:1px solid var(--line)}
+.cardHead h2{margin:0 0 5px}.pins{font-size:.8rem;color:var(--muted)}
+.body{padding:18px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+.label{font-size:.73rem;font-weight:800;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:15px 0 7px}
+button,input{font:inherit}
+button{min-height:45px;border-radius:12px;border:1px solid var(--line);font-weight:800;cursor:pointer}
+.on{background:#e9f8ef;color:var(--green)}.off{background:#fff0ef;color:var(--red)}
+.blue{background:#eaf1ff;color:var(--blue)}.dark{background:#172033;color:#fff}
+button.activeOn{background:var(--green);color:#fff}
+button.activeBlue{background:var(--blue);color:#fff}
+button.activeDark{background:#172033;color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+.hz{display:grid;grid-template-columns:1fr auto;gap:8px}
+input[type=number]{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px;font-weight:800}
+.sliderWrap{margin:10px 0 4px}
+input[type=range]{width:100%;accent-color:var(--blue);cursor:pointer}
+.sliderMeta{display:flex;justify-content:space-between;color:var(--muted);font-size:.72rem;margin-top:2px}
+.dirBtn{font-size:.95rem}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px}
+.presets button{min-height:34px;padding:5px 8px;background:#fff;font-size:.75rem}
+.status{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}
+.status6{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
+.moveBox{background:#f7f9fc;border:1px solid #e6ebf3;border-radius:14px;padding:13px;margin-top:10px}
+.hint{font-size:.75rem;color:var(--muted);margin-top:7px;line-height:1.4}
+.sendPos{width:100%;background:var(--blue);color:#fff;border-color:var(--blue);margin-top:12px}
+.stopSeq{width:100%;background:#fff0ef;color:var(--red);border-color:#f1bbb6;margin-top:12px}
+.stopSeq.activeStop{background:var(--red);color:#fff;border-color:var(--red)}
+.stat{background:#f7f9fc;border:1px solid #e6ebf3;border-radius:10px;padding:9px}
+.stat small{display:block;color:var(--muted);font-size:.65rem}.stat b{font-size:.9rem}
+.stopAll{margin-top:18px;width:100%;min-height:56px;border:0;background:var(--red);color:#fff;font-size:1rem}
+.log{margin-top:14px;background:#101828;color:#d1e0ff;border-radius:12px;padding:11px;font:12px Consolas,monospace;min-height:42px}
+.host{display:flex;gap:8px;margin-top:11px;align-items:center}
+.host input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px}
+.warn{display:none;background:#fff0ef;color:#9f2118;border:1px solid #f1bbb6;border-radius:12px;padding:10px;margin-bottom:12px;font-weight:700}
+.warn.show{display:block}
+@media(max-width:1050px){.grid{grid-template-columns:1fr 1fr}#cardStepper{grid-column:1/-1}}@media(max-width:760px){header{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr}#cardStepper{grid-column:auto}.status,.status6{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>Prueba de Servos + Stepper · PULSE / DIR</h1>
+    <div class="sub">Servo 1: secuencia · Servo 2: manual · Stepper: PULSE GPIO12 / DIR GPIO13</div>
+  </div>
+  <div class="conn"><span id="dot" class="dot"></span><span id="conn">Conectando...</span></div>
+</header>
+
+<div id="disabled" class="warn">Hay un módulo deshabilitado por configuración del firmware.</div>
+
+<section class="grid">
+  <article class="card" id="card1">
+    <div class="cardHead">
+      <h2>Servo 1 · Secuencia</h2>
+      <div class="pins">PULSE GPIO17 · DIR GPIO18 automático · SON GPIO10</div>
+    </div>
+
+    <div class="body">
+      <div class="label">Servo ON / referencia cero</div>
+
+      <div class="row">
+        <button id="s1SonOn" class="on" onclick="son(1,true)">SON ON · PONER CERO</button>
+        <button id="s1SonOff" class="off" onclick="son(1,false)">SON OFF · STOP + RESET</button>
+      </div>
+
+      <div class="hint">
+        Al pasar de OFF a ON, la posición física actual se toma como <b>0 pasos</b>.
+        SON OFF cancela inmediatamente la secuencia y reinicia el estado del Servo 1.
+      </div>
+
+      <div class="moveBox">
+        <div class="label" style="margin-top:0">Posiciones absolutas · escala operador</div>
+
+        <div class="hint" style="margin-top:0;margin-bottom:10px">
+          <b>1000 unidades = 1 vuelta.</b>
+          El firmware convierte internamente a <b>256 pasos físicos por vuelta</b>.
+          Ej.: 500 = 0.5 vueltas · 1500 = 1.5 vueltas · 15500 = 15.5 vueltas.
+        </div>
+
+        <div class="status6" style="margin-top:0">
+          <div>
+            <div class="label" style="margin-top:0">P1 · unidades</div>
+            <input id="s1P1" type="number" step="1" value="0">
+          </div>
+          <div>
+            <div class="label" style="margin-top:0">P2 · unidades</div>
+            <input id="s1P2" type="number" step="1" value="500">
+          </div>
+          <div>
+            <div class="label" style="margin-top:0">P3 · unidades</div>
+            <input id="s1P3" type="number" step="1" value="1000">
+          </div>
+        </div>
+
+        <div class="label">Secuencia</div>
+        <input id="s1Sequence" type="text" inputmode="numeric" maxlength="64"
+               value="123" placeholder="Ej: 123, 132, 1213">
+        <div class="hint">
+          Solo se admiten <b>1, 2 y 3</b>. Ejemplo: 1213 → P1 → P2 → P1 → P3
+          y luego vuelve a empezar continuamente hasta presionar <b>STOP SECUENCIA</b>.
+        </div>
+
+        <div class="label">Frecuencia de secuencia (Hz)</div>
+        <input id="s1SequenceHz" type="number" min="0.001" step="0.1" value="1">
+        <div class="hint">
+          Define la espera después de terminar completamente una posición y antes de iniciar la siguiente.
+        </div>
+
+        <div class="row" style="margin-bottom:0">
+          <button id="s1SendConfig" class="sendPos" onclick="sendServo1Config()">
+            INICIAR SECUENCIA
+          </button>
+          <button id="s1StopSequence" class="stopSeq" onclick="stopServo1Sequence()">
+            STOP SECUENCIA
+          </button>
+        </div>
+      </div>
+
+      <div class="status6">
+        <div class="stat"><small>SON</small><b id="s1SonStat">--</b></div>
+        <div class="stat"><small>ESTADO</small><b id="s1RunStat">--</b></div>
+        <div class="stat"><small>POS. ACTUAL · u</small><b id="s1PosStat">--</b></div>
+        <div class="stat"><small>OBJETIVO · u</small><b id="s1TargetStat">--</b></div>
+        <div class="stat"><small>SECUENCIA</small><b id="s1SeqStat">--</b></div>
+        <div class="stat"><small>PASO SEQ.</small><b id="s1SeqIndexStat">--</b></div>
+      </div>
+
+      <div class="status">
+        <div class="stat"><small>DIR AUTO</small><b id="s1DirStat">--</b></div>
+        <div class="stat"><small>RESTANTES</small><b id="s1RemainStat">--</b></div>
+        <div class="stat"><small>Hz SECUENCIA</small><b id="s1SeqHzStat">--</b></div>
+        <div class="stat"><small>PROGRESO MOV.</small><b id="s1ProgressStat">--</b></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="card" id="card2">
+    <div class="cardHead">
+      <h2>Servo 2</h2>
+      <div class="pins">PULSE GPIO8 · DIR GPIO9 · SON GPIO11 · módulo ya probado</div>
+    </div>
+    <div class="body">
+      <div class="label">Servo ON</div>
+      <div class="row">
+        <button id="s2SonOn" class="on" onclick="son(2,true)">SON ON</button>
+        <button id="s2SonOff" class="off" onclick="son(2,false)">SON OFF</button>
+      </div>
+
+      <div class="label">Dirección</div>
+      <div class="row">
+        <button id="s2Dir0" class="dirBtn" onclick="sendDir(2,0)">DIR 0</button>
+        <button id="s2Dir1" class="dirBtn" onclick="sendDir(2,1)">DIR 1</button>
+      </div>
+
+      <div class="label">Frecuencia de PULSE</div>
+      <div class="hz">
+        <input id="s2Hz" type="number" min="1" max="160000" value="1000">
+        <button class="blue" onclick="setHz(2)">APLICAR</button>
+      </div>
+      <div class="sliderWrap">
+        <input id="s2HzSlider" type="range" min="1" max="160000" step="100" value="1000"
+               oninput="sliderHz(2,this.value)" onchange="sliderApply(2,this.value)">
+        <div class="sliderMeta"><span>1 Hz</span><b id="s2SliderLabel">1000 Hz</b><span>160 kHz</span></div>
+      </div>
+      <div class="presets">
+        <button onclick="preset(2,100)">100</button>
+        <button onclick="preset(2,500)">500</button>
+        <button onclick="preset(2,1000)">1k</button>
+        <button onclick="preset(2,5000)">5k</button>
+        <button onclick="preset(2,10000)">10k</button>
+      </div>
+
+      <div class="label">Movimiento</div>
+      <div class="row">
+        <button id="s2RunOn" class="blue" onclick="run(2,true)">RUN PULSE</button>
+        <button id="s2RunOff" class="off" onclick="run(2,false)">STOP</button>
+      </div>
+
+      <div class="status">
+        <div class="stat"><small>SON</small><b id="s2SonStat">--</b></div>
+        <div class="stat"><small>RUN</small><b id="s2RunStat">--</b></div>
+        <div class="stat"><small>DIR</small><b id="s2DirStat">--</b></div>
+        <div class="stat"><small>Hz real</small><b id="s2Real">--</b></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="card" id="cardStepper">
+    <div class="cardHead">
+      <h2>Motor Stepper</h2>
+      <div class="pins">PULSE / STEP GPIO12 · DIR GPIO13 · sin ENABLE</div>
+    </div>
+
+    <div class="body">
+      <div class="hint">
+        Control continuo por PULSE/DIR. La frecuencia define la velocidad de pulsos.
+        Al cambiar de dirección, el firmware detiene PULSE unos milisegundos y luego continúa si estaba en RUN.
+      </div>
+
+      <div class="label">Dirección</div>
+      <div class="row">
+        <button id="stepDir0" class="dirBtn" onclick="stepDir(0)">DIR 0</button>
+        <button id="stepDir1" class="dirBtn" onclick="stepDir(1)">DIR 1</button>
+      </div>
+
+      <button id="stepRev" class="dark" style="width:100%;margin-bottom:12px" onclick="stepReverse()">
+        INVERTIR DIRECCIÓN · REV
+      </button>
+
+      <div class="label">Frecuencia de PULSE</div>
+      <div class="hz">
+        <input id="stepHz" type="number" min="1" max="200000" value="200">
+        <button class="blue" onclick="setStepHz()">APLICAR</button>
+      </div>
+
+      <div class="sliderWrap">
+        <input id="stepHzSlider" type="range" min="1" max="200000" step="100" value="200"
+               oninput="stepSliderHz(this.value)" onchange="stepSliderApply(this.value)">
+        <div class="sliderMeta">
+          <span>1 Hz</span>
+          <b id="stepSliderLabel">200 Hz</b>
+          <span>200 kHz</span>
+        </div>
+      </div>
+
+      <div class="presets">
+        <button onclick="stepPreset(100)">100</button>
+        <button onclick="stepPreset(200)">200</button>
+        <button onclick="stepPreset(500)">500</button>
+        <button onclick="stepPreset(1000)">1k</button>
+        <button onclick="stepPreset(5000)">5k</button>
+        <button onclick="stepPreset(10000)">10k</button>
+      </div>
+
+      <div class="label">Movimiento</div>
+      <div class="row">
+        <button id="stepRunOn" class="blue" onclick="stepRun(true)">RUN PULSE</button>
+        <button id="stepRunOff" class="off" onclick="stepRun(false)">STOP</button>
+      </div>
+
+      <div class="status">
+        <div class="stat"><small>RUN</small><b id="stepRunStat">--</b></div>
+        <div class="stat"><small>DIR</small><b id="stepDirStat">--</b></div>
+        <div class="stat"><small>Hz pedido</small><b id="stepHzStat">--</b></div>
+        <div class="stat"><small>Hz real</small><b id="stepRealStat">--</b></div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<button class="stopAll" onclick="stopEverything()">PARADA TOTAL · SERVO 1 + SERVO 2 + STEPPER</button>
+<div id="log" class="log">Esperando al ESP32...</div>
+<div class="host">
+  <b>ESP32:</b>
+  <input id="host" type="text">
+  <button onclick="refresh()">ACTUALIZAR</button>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+
+// P1/P2/P3/secuencia/Hz pertenecen al operador.
+// El polling de /status NUNCA debe reescribir estos inputs.
+const S1_CFG_STORAGE_KEY="servo1OperatorConfigV2";
+
+const state={
+  1:{son:false,run:false,dir:0,disabled:false,position:0,target:0,remain:0,total:0,done:0,
+     seqActive:false,seq:"",seqIndex:0,seqLen:0,seqHz:0,p1:0,p2:0,p3:0,unitsPerRev:1000},
+  2:{son:false,run:false,dir:0,disabled:false},
+  step:{run:false,dir:0,disabled:false,hz:200,hzReal:0}
+};
+
+function defaultHost(){
+  if(location.protocol==="http:"||location.protocol==="https:") return location.origin;
+  return "http://192.168.4.1";
+}
+$("host").value=localStorage.getItem("servoHost")||defaultHost();
+function base(){return $("host").value.trim().replace(/\/+$/,'')}
+
+async function req(path,ms=2200){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{
+    const r=await fetch(base()+path,{cache:"no-store",signal:c.signal});
+    const txt=await r.text();
+    if(!r.ok) throw new Error("HTTP "+r.status+" · "+txt);
+    return txt;
+  }finally{clearTimeout(t)}
+}
+
+function log(x,err=false){
+  $("log").textContent="["+new Date().toLocaleTimeString()+"] "+x;
+  $("log").style.color=err?"#ffb4ab":"#d1e0ff";
+}
+
+async function cmd(s,n){
+  const endpoint="/cmd?do=servo"+s+"_"+n+"&_="+Date.now();
+  try{
+    log("Enviando: "+endpoint);
+    const r=await req(endpoint);
+    if(r.includes("DISABLED")) log(r,true); else log("Servo "+s+": "+n+" -> "+r);
+    await refresh();
+    return r;
+  }catch(e){log(e.message,true);throw e}
+}
+
+async function son(s,on){
+  if(s===1){
+    try{await cmd(1,on?"son_on":"son_off")}catch(e){}
+    return;
+  }
+  try{
+    if(!on&&state[2].run) await cmd(2,"run_off");
+    await cmd(2,on?"son_on":"son_off");
+  }catch(e){}
+}
+
+// ==========================================================
+// SERVO 1:
+// - INICIAR envía configuración una sola vez.
+// - El ciclo continuo vive completamente en el firmware.
+// - STOP SECUENCIA solo envía la orden de parada al firmware.
+// No hay ningún bucle de secuencia en JavaScript.
+// ==========================================================
+function saveServo1OperatorConfig(){
+  const cfg={
+    p1:$("s1P1").value,
+    p2:$("s1P2").value,
+    p3:$("s1P3").value,
+    seq:$("s1Sequence").value,
+    hz:$("s1SequenceHz").value
+  };
+  localStorage.setItem(S1_CFG_STORAGE_KEY,JSON.stringify(cfg));
+}
+
+function restoreServo1OperatorConfig(){
+  try{
+    const raw=localStorage.getItem(S1_CFG_STORAGE_KEY);
+    if(!raw)return;
+    const cfg=JSON.parse(raw);
+    if(cfg.p1!==undefined)$("s1P1").value=cfg.p1;
+    if(cfg.p2!==undefined)$("s1P2").value=cfg.p2;
+    if(cfg.p3!==undefined)$("s1P3").value=cfg.p3;
+    if(cfg.seq!==undefined)$("s1Sequence").value=cfg.seq;
+    if(cfg.hz!==undefined)$("s1SequenceHz").value=cfg.hz;
+  }catch(e){}
+}
+
+["s1P1","s1P2","s1P3","s1Sequence","s1SequenceHz"].forEach(id=>{
+  $(id).addEventListener("input",saveServo1OperatorConfig);
+});
+
+function integerField(id,label){
+  const raw=$(id).value.trim();
+  if(raw==="") throw new Error(label+": valor vacío");
+  const v=Number(raw);
+  if(!Number.isInteger(v)) throw new Error(label+": debe ser un número entero de unidades");
+  return v;
+}
+
+async function sendServo1Config(){
+  if(!state[1].son){log("Servo 1: primero activa SON ON para establecer posición 0.",true);return}
+  if(state[1].run||state[1].seqActive){log("Servo 1: ya hay una secuencia o movimiento en ejecución.",true);return}
+
+  try{
+    const p1=integerField("s1P1","P1");
+    const p2=integerField("s1P2","P2");
+    const p3=integerField("s1P3","P3");
+    const seq=$("s1Sequence").value.trim();
+    if(!/^[123]+$/.test(seq)) throw new Error("Secuencia: solo se admiten 1, 2 y 3.");
+
+    const hz=Number($("s1SequenceHz").value.trim());
+    if(!Number.isFinite(hz)||hz<=0) throw new Error("Frecuencia de secuencia: debe ser mayor que 0 Hz.");
+
+    const endpoint="/servo1/config?p1="+encodeURIComponent(p1)+
+      "&p2="+encodeURIComponent(p2)+
+      "&p3="+encodeURIComponent(p3)+
+      "&seq="+encodeURIComponent(seq)+
+      "&hz="+encodeURIComponent(hz)+
+      "&_="+Date.now();
+
+    log("Enviando configuración Servo 1 en escala 1000 unidades/vuelta...");
+    const r=await req(endpoint,3000);
+    log("Servo 1 -> "+r);
+    saveServo1OperatorConfig();
+    await refresh();
+  }catch(e){log("Servo 1: "+e.message,true)}
+}
+
+async function stopServo1Sequence(){
+  if(!state[1].son){
+    log("Servo 1: SON está OFF; la secuencia ya está detenida.",true);
+    return;
+  }
+
+  if(!state[1].seqActive&&!state[1].run){
+    log("Servo 1: la secuencia ya está detenida.");
+    return;
+  }
+
+  try{
+    log("Servo 1: enviando STOP SECUENCIA...");
+    const r=await cmd(1,"sequence_stop");
+    log("Servo 1: STOP SECUENCIA -> "+r);
+    await refresh();
+  }catch(e){
+    log("Servo 1 STOP SECUENCIA: "+e.message,true);
+  }
+}
+
+["s1P1","s1P2","s1P3","s1Sequence","s1SequenceHz"].forEach(id=>{
+  $(id).addEventListener("keydown",e=>{if(e.key==="Enter") sendServo1Config()});
+});
+
+// ==========================================================
+// SERVO 2: control manual original
+// ==========================================================
+async function run(s,on){
+  if(s!==2)return;
+  if(on&&!state[2].son){log("Servo 2: primero activa SON ON.",true);return}
+  try{await cmd(2,on?"run_on":"run_off")}catch(e){}
+}
+
+async function sendDir(s,d){
+  if(s!==2)return;
+  const endpoint="/cmd?do=servo2_dir_"+d+"&_="+Date.now();
+  try{log("Enviando: "+endpoint);const r=await req(endpoint);log("Servo 2 DIR "+d+" -> "+r);await refresh()}
+  catch(e){log("DIR Servo 2: "+e.message,true)}
+}
+
+async function setHz(s){
+  if(s!==2)return;
+  let v=Math.round(Number($("s2Hz").value)||1);
+  v=Math.max(1,Math.min(160000,v));
+  $("s2Hz").value=v;$("s2HzSlider").value=v;$("s2SliderLabel").textContent=v.toLocaleString("es-PE")+" Hz";
+  const endpoint="/set?servo2_hz="+v+"&_="+Date.now();
+  try{log("Enviando: "+endpoint);const r=await req(endpoint);log("Servo 2: frecuencia "+v+" Hz -> "+r);await refresh()}
+  catch(e){log(e.message,true)}
+}
+function preset(s,v){if(s!==2)return;$("s2Hz").value=v;$("s2HzSlider").value=v;$("s2SliderLabel").textContent=v.toLocaleString("es-PE")+" Hz";setHz(2)}
+function sliderHz(s,v){if(s!==2)return;v=Math.max(1,Math.min(160000,Math.round(Number(v)||1)));$("s2Hz").value=v;$("s2SliderLabel").textContent=v.toLocaleString("es-PE")+" Hz"}
+async function sliderApply(s,v){if(s!==2)return;sliderHz(2,v);await setHz(2)}
+
+// ==========================================================
+// STEPPER: PULSE GPIO12 / DIR GPIO13
+// Misma lógica general del Servo 2, sin SON/ENABLE.
+// ==========================================================
+async function stepCmd(name){
+  const endpoint="/cmd?do=step_"+name+"&_="+Date.now();
+  try{
+    log("Enviando: "+endpoint);
+    const r=await req(endpoint);
+    if(r.includes("DISABLED")) log(r,true);
+    else log("Stepper: "+name+" -> "+r);
+    await refresh();
+    return r;
+  }catch(e){
+    log("Stepper: "+e.message,true);
+    throw e;
+  }
+}
+
+async function stepRun(on){
+  try{await stepCmd(on?"run_on":"run_off")}catch(e){}
+}
+
+async function stepDir(d){
+  try{await stepCmd(d?"dir_1":"dir_0")}catch(e){}
+}
+
+async function stepReverse(){
+  try{await stepCmd("rev")}catch(e){}
+}
+
+async function setStepHz(){
+  let v=Math.round(Number($("stepHz").value)||1);
+  v=Math.max(1,Math.min(200000,v));
+
+  $("stepHz").value=v;
+  $("stepHzSlider").value=v;
+  $("stepSliderLabel").textContent=v.toLocaleString("es-PE")+" Hz";
+
+  const endpoint="/set?step_hz="+v+"&_="+Date.now();
+
+  try{
+    log("Enviando: "+endpoint);
+    const r=await req(endpoint);
+    log("Stepper: frecuencia "+v+" Hz -> "+r);
+    await refresh();
+  }catch(e){
+    log("Stepper frecuencia: "+e.message,true);
+  }
+}
+
+function stepPreset(v){
+  $("stepHz").value=v;
+  $("stepHzSlider").value=v;
+  $("stepSliderLabel").textContent=v.toLocaleString("es-PE")+" Hz";
+  setStepHz();
+}
+
+function stepSliderHz(v){
+  v=Math.max(1,Math.min(200000,Math.round(Number(v)||1)));
+  $("stepHz").value=v;
+  $("stepSliderLabel").textContent=v.toLocaleString("es-PE")+" Hz";
+}
+
+async function stepSliderApply(v){
+  stepSliderHz(v);
+  await setStepHz();
+}
+
+async function stopEverything(){
+  log("Ejecutando parada total...");
+  try{await cmd(1,"son_off")}catch(e){}
+  try{await cmd(2,"run_off")}catch(e){}
+  try{await cmd(2,"son_off")}catch(e){}
+  try{await stepCmd("run_off")}catch(e){}
+  log("PARADA TOTAL ejecutada.");
+}
+
+function formatS1Units(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return "--";
+
+  const rounded=Math.round(n);
+  const isNearInteger=Math.abs(n-rounded)<0.0005;
+
+  return (isNearInteger
+    ? rounded.toLocaleString("es-PE")
+    : n.toLocaleString("es-PE",{maximumFractionDigits:3})
+  )+" u";
+}
+
+function paintServo1(){
+  $("s1SonStat").textContent=state[1].son?"ON":"OFF";
+  $("s1RunStat").textContent=state[1].seqActive?(state[1].run?"MOVIENDO":"SECUENCIA"):(state[1].run?"MOVIENDO":"IDLE");
+  $("s1PosStat").textContent=state[1].son?formatS1Units(state[1].position):"--";
+  $("s1TargetStat").textContent=state[1].son?formatS1Units(state[1].target):"--";
+  $("s1SeqStat").textContent=state[1].seq||"--";
+  $("s1SeqIndexStat").textContent=state[1].seqLen>0?Math.min(state[1].seqIndex,state[1].seqLen)+" / "+state[1].seqLen:"--";
+  $("s1RemainStat").textContent=state[1].remain.toLocaleString("es-PE");
+  $("s1SeqHzStat").textContent=state[1].seqHz>0?Number(state[1].seqHz).toLocaleString("es-PE",{maximumFractionDigits:4})+" Hz":"--";
+  $("s1DirStat").textContent=state[1].run?(state[1].dir?"+":"−"):"--";
+  const pct=state[1].total>0?Math.min(100,Math.round((state[1].done/state[1].total)*100)):0;
+  $("s1ProgressStat").textContent=state[1].run?pct+"%":(state[1].total>0?"100%":"--");
+  $("s1SonOn").classList.toggle("activeOn",state[1].son);
+  $("s1SonOff").classList.toggle("activeDark",!state[1].son);
+  $("s1SendConfig").disabled=!state[1].son||state[1].run||state[1].seqActive;
+  $("s1StopSequence").disabled=!state[1].son||(!state[1].run&&!state[1].seqActive);
+  $("s1StopSequence").classList.toggle("activeStop",state[1].seqActive||state[1].run);
+}
+
+function paintServo2(){
+  $("s2SonStat").textContent=state[2].son?"ON":"OFF";$("s2RunStat").textContent=state[2].run?"ON":"OFF";$("s2DirStat").textContent=state[2].dir;
+  $("s2SonOn").classList.toggle("activeOn",state[2].son);$("s2SonOff").classList.toggle("activeDark",!state[2].son);
+  $("s2RunOn").classList.toggle("activeBlue",state[2].run);$("s2RunOff").classList.toggle("activeDark",!state[2].run);
+  $("s2Dir0").classList.toggle("activeDark",state[2].dir===0);$("s2Dir1").classList.toggle("activeDark",state[2].dir===1);
+}
+
+function paintStepper(){
+  $("stepRunStat").textContent=state.step.run?"ON":"OFF";
+  $("stepDirStat").textContent=state.step.dir;
+  $("stepHzStat").textContent=Number(state.step.hz||0).toLocaleString("es-PE")+" Hz";
+  $("stepRealStat").textContent=Number(state.step.hzReal||0).toLocaleString("es-PE",{maximumFractionDigits:2})+" Hz";
+
+  $("stepRunOn").classList.toggle("activeBlue",state.step.run);
+  $("stepRunOff").classList.toggle("activeDark",!state.step.run);
+  $("stepDir0").classList.toggle("activeDark",state.step.dir===0);
+  $("stepDir1").classList.toggle("activeDark",state.step.dir===1);
+
+  $("stepRunOn").disabled=state.step.disabled;
+  $("stepRunOff").disabled=state.step.disabled;
+  $("stepDir0").disabled=state.step.disabled;
+  $("stepDir1").disabled=state.step.disabled;
+  $("stepRev").disabled=state.step.disabled;
+}
+
+async function refresh(){
+  try{
+    const j=JSON.parse(await req("/status?_="+Date.now(),1600));
+    $("dot").className="dot ok";$("conn").textContent="ESP32 conectado";
+
+    state[1].disabled=Boolean(j.servo1_disabled);state[1].son=Boolean(j.servo1_son);
+    state[1].run=Boolean(j.servo1_moving!==undefined?j.servo1_moving:j.servo1_run);state[1].dir=Number(j.servo1_dir)?1:0;
+    state[1].unitsPerRev=Number(j.servo1_operator_units_per_rev||1000);
+
+    // Dashboard trabaja SIEMPRE en escala operador (1000 unidades/vuelta).
+    // Los campos físicos quedan dentro del firmware.
+    state[1].position=Number(
+      j.servo1_position_units!==undefined
+        ? j.servo1_position_units
+        : ((Number(j.servo1_position||0)*state[1].unitsPerRev)/256)
+    );
+
+    state[1].target=Number(
+      j.servo1_target_units!==undefined
+        ? j.servo1_target_units
+        : ((Number(j.servo1_target||0)*state[1].unitsPerRev)/256)
+    );
+
+    state[1].remain=Number(j.servo1_steps_remaining||0);state[1].total=Number(j.servo1_steps_total||0);state[1].done=Number(j.servo1_steps_done||0);
+    state[1].seqActive=Boolean(j.servo1_seq_active);state[1].seq=String(j.servo1_seq||"");state[1].seqIndex=Number(j.servo1_seq_index||0);state[1].seqLen=Number(j.servo1_seq_len||0);state[1].seqHz=Number(j.servo1_seq_hz||0);
+
+    state[1].p1=Number(j.servo1_p1_units||0);
+    state[1].p2=Number(j.servo1_p2_units||0);
+    state[1].p3=Number(j.servo1_p3_units||0);
+
+    // NO TOCAR los inputs del operador aquí.
+    // /status es solo telemetría y nunca modifica P1/P2/P3/secuencia/Hz.
+
+    state[2].disabled=Boolean(j.servo2_disabled);state[2].son=Boolean(j.servo2_son);state[2].run=Boolean(j.servo2_run);state[2].dir=Number(j.servo2_dir)?1:0;
+    $("s2Real").textContent=Number(j.servo2_hz_real||0).toLocaleString("es-PE",{maximumFractionDigits:1})+" Hz";
+    if(Number(j.servo2_hz)>0){const hz=Number(j.servo2_hz);if(document.activeElement!==$("s2Hz"))$("s2Hz").value=hz;if(document.activeElement!==$("s2HzSlider"))$("s2HzSlider").value=hz;$("s2SliderLabel").textContent=hz.toLocaleString("es-PE")+" Hz"}
+
+    state.step.disabled=Boolean(j.step_disabled);
+    state.step.run=Boolean(j.step_run);
+    state.step.dir=Number(j.step_dir)?1:0;
+    state.step.hz=Number(j.step_hz||0);
+    state.step.hzReal=Number(j.step_hz_real||0);
+
+    if(state.step.hz>0){
+      if(document.activeElement!==$("stepHz"))$("stepHz").value=state.step.hz;
+      if(document.activeElement!==$("stepHzSlider"))$("stepHzSlider").value=state.step.hz;
+      $("stepSliderLabel").textContent=state.step.hz.toLocaleString("es-PE")+" Hz";
+    }
+
+    paintServo1();paintServo2();paintStepper();
+    $("disabled").classList.toggle("show",state[1].disabled||state[2].disabled||state.step.disabled);
+  }catch(e){$("dot").className="dot bad";$("conn").textContent="Sin respuesta"}
+}
+
+$("host").addEventListener("change",()=>{localStorage.setItem("servoHost",$("host").value.trim());refresh()});
+$("s2Hz").addEventListener("keydown",e=>{if(e.key==="Enter")setHz(2)});
+$("stepHz").addEventListener("keydown",e=>{if(e.key==="Enter")setStepHz()});
+
+restoreServo1OperatorConfig();
+refresh();setInterval(refresh,250);
+</script>
+</body>
+</html>

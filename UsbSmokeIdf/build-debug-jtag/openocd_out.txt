@@ -1,0 +1,11 @@
+Open On-Chip Debugger v0.12.0-esp32-20251215 (2025-12-15-18:17)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : esp_usb_jtag: VID set to 0x303a and PID to 0x1001
+Info : esp_usb_jtag: capabilities descriptor set to 0x2000
+Info : Listening on port 6666 for tcl connections
+Info : Listening on port 4444 for telnet connections
+Error: libusb_open() failed with LIBUSB_ERROR_NOT_FOUND
+Error: esp_usb_jtag: could not find or open device!
+

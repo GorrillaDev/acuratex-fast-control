@@ -1,0 +1,46 @@
+<section class="cabezal-block program2-state-card @(Block.Pending ? "pending" : null)">
+    <div class="blk-head">
+        <div class="blk-title">@Block.Title</div>
+        @if (Block.Pending)
+        {
+            <span class="run-state pending-state">PENDIENTE</span>
+        }
+        else if (Block.Running)
+        {
+            <span class="run-state">RUN</span>
+        }
+        else if (!string.IsNullOrEmpty(Block.RunMode))
+        {
+            <span class="run-state">@Block.RunMode</span>
+        }
+    </div>
+    <div class="blk-actions">
+        <button type="button" disabled="@ActionsDisabled" @onclick="ResetAsync">RESET</button>
+        <button class="mini-btn run @(Block.Running || Block.RunMode == "RUN" ? "active" : null)" type="button" disabled="@ActionsDisabled" @onclick="RunAsync">RUN</button>
+        <button class="mini-btn stop" type="button" disabled="@ActionsDisabled" @onclick="StopAsync">STOP</button>
+    </div>
+    <div class="pin-grid program2-stitch-positions">
+        @for (int positionNumber = 1; positionNumber <= Block.VisiblePositionCount; positionNumber++)
+        {
+            int currentPosition = positionNumber;
+            <button class="@(Block.SelectedPositionNumber == positionNumber ? "pin-btn on" : "pin-btn")"
+                    type="button"
+                    disabled="@ActionsDisabled"
+                    @onclick="() => SelectAsync(currentPosition)">@positionNumber</button>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter] public CabezalOutputBlockUnificado Block { get; set; } = new(string.Empty, string.Empty, string.Empty, Array.Empty<int>(), null, null);
+    [Parameter] public Func<int, Task>? PositionClicked { get; set; }
+    [Parameter] public Func<Task>? ResetClicked { get; set; }
+    [Parameter] public Func<Task>? RunClicked { get; set; }
+    [Parameter] public Func<Task>? StopClicked { get; set; }
+    [Parameter] public bool ActionsDisabled { get; set; }
+
+    private Task SelectAsync(int position) => PositionClicked?.Invoke(position) ?? Task.CompletedTask;
+    private Task ResetAsync() => ResetClicked?.Invoke() ?? Task.CompletedTask;
+    private Task RunAsync() => RunClicked?.Invoke() ?? Task.CompletedTask;
+    private Task StopAsync() => StopClicked?.Invoke() ?? Task.CompletedTask;
+}

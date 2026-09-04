@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "usb_smoketest_main.cpp"
         "command_processor.cpp"
+        "line_drive_control.cpp"
         "command_unified_head_processor.cpp"
         "command_head_program_runner.cpp"
         "head_command_frame_builder.cpp"
@@ -41,6 +42,7 @@ idf_component_register(
         esp_hw_support
         driver
         esp_driver_gpio
+        esp_driver_ledc
         esp_driver_twai
         esp_driver_uart
         esp_wifi

@@ -7,7 +7,7 @@
     </div>
     <div class="servo-card-subtitle">@Subtitle</div>
 
-    <div class="servo-control-grid">
+    <div class="servo-control-grid" style="@ControlGridStyle">
         @foreach (ServoDashboardTarjetasToggle toggle in Toggles)
         {
             <div class="servo-control-tile">
@@ -123,6 +123,13 @@
     private string CardClass => string.IsNullOrWhiteSpace(ExtraClass)
         ? "servo-card"
         : $"servo-card {ExtraClass}";
+
+    private string? ControlGridStyle => Toggles.Count switch
+    {
+        1 => "grid-template-columns: minmax(0, 1fr);",
+        2 => "grid-template-columns: repeat(2, minmax(0, 1fr));",
+        _ => null
+    };
 
     // [ACURATEX] Convierte el estado en una clase CSS de botón.
     private static string RoundButtonClass(ServoDashboardTarjetasToggle toggle)

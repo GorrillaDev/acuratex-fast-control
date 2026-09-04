@@ -11,6 +11,7 @@
 #include "command_unified_head_processor.h"
 #include "file_transfer.h"
 #include "line_codec.h"
+#include "line_drive_control.h"
 #include "head_state_manager.h"
 #include "head_fast_diag.h"
 #include "head_program_runtime.h"
@@ -1359,6 +1360,12 @@ esp_err_t app_command_process_line(const char *incoming_line,
 
     char log_line[96];
     ESP_LOGI(TAG, "CMD RX [%s]: %s", app_transport_name(env), app_command_log_line(line, log_line, sizeof(log_line)));
+    if (app_line_drive_is_command(line)) {
+        char response[160];
+        (void)app_line_drive_process_line(line, response, sizeof(response));
+        ESP_LOGI(TAG, "CMD CLASS [%s]: line_drive", app_transport_name(env));
+        return reply(response, ctx);
+    }
     if (strncasecmp(line, "uni_", 4) == 0) {
         ESP_LOGI(TAG, "CMD CLASS [%s]: unified_head", app_transport_name(env));
         return app_unified_head_process_line(line, reply, ctx, env);
@@ -1524,6 +1531,7 @@ esp_err_t app_command_process_line(const char *incoming_line,
     }
 
     if (strcasecmp(line, "emergency_stop") == 0) {
+        app_line_drive_safe_stop();
         ESP_LOGI(TAG, "CMD CLASS [%s]: emergency_stop", app_transport_name(env));
         app_head_state_manager_stop_all_motion();
         app_head_fast_diag_request_stop();

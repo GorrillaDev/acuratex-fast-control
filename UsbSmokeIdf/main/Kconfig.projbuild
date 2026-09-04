@@ -1,0 +1,12 @@
+menu "Acuratex firmware options"
+
+    config ACURATEX_USB_DEBUG_JTAG
+        bool "Use integrated USB Serial/JTAG instead of Acuratex TinyUSB"
+        default n
+        help
+            Leave GPIO19/GPIO20 available to the ESP32-S3 integrated USB
+            Serial/JTAG controller. The Acuratex TinyUSB driver is not
+            initialized, while WiFi/TCP, CAN/TWAI and command processing keep
+            their normal startup path.
+
+endmenu

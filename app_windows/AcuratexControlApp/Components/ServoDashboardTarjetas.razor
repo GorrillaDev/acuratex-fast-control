@@ -15,7 +15,10 @@
                 <button class="@ModeClass("CAN")" type="button" disabled="@IsEmergencyLocked" @onclick="SetCanModeAsync">CAN</button>
             </div>
         </div>
-        <button class="@InitClass" type="button" @onclick="ToggleInitAsync">INIT</button>
+        @if (IsCanMode)
+        {
+            <button class="@InitClass" type="button" @onclick="ToggleInitAsync">INIT</button>
+        }
     </section>
 
     @if (IsEmergencyLocked)
@@ -26,17 +29,17 @@
     }
 
     <section class="@DashboardGridClass">
-        <ServoDriveCardTarjetas Title="Servo Drive 1"
+        <ServoDriveCardTarjetas Title="Servo Drive 2"
                                 Subtitle="PULSE / DIR / SON"
                                 Toggles="@Servo1Toggles"
                                 ToggleClicked="ToggleOutputAsync"
                                 FrequencyLabel="Frecuencia servo (Hz)"
-                                FrequencyHz="@Servo1FrequencyHz"
+                                FrequencyHz="@Servo2FrequencyHz"
                                 FrequencyMin="1"
                                 FrequencyMax="160000"
                                 ShowRealFrequency="true"
                                 Disabled="@IsEmergencyLocked"
-                                FrequencyChanged="SetServo1FrequencyAsync" />
+                                FrequencyChanged="SetServo2FrequencyAsync" />
 
         <ServoDriveCardTarjetas Title="Stepper"
                                 Subtitle="STEP / DIR"
@@ -46,25 +49,25 @@
                                 FrequencyHz="@StepperFrequencyHz"
                                 FrequencyMin="1"
                                 FrequencyMax="50000"
-                                HelpText="REV suave: baja a ~200 Hz, cambia DIR, vuelve a subir."
+                                HelpText="@StepperHelpText"
                                 Disabled="@IsEmergencyLocked"
                                 FrequencyChanged="SetStepperFrequencyAsync" />
 
         <section class="servo-card card-servo2">
             <div class="servo-drive2-head">
                 <div>
-                    <h2>Servo Drive 2</h2>
+                    <h2>Servo Drive 1</h2>
                     <p>Control por posiciones</p>
                 </div>
                 <button class="@(RoutineEnabled ? "routine-toggle on" : "routine-toggle off")"
                         type="button"
                         disabled="@(!ShowRoutinePanel || IsEmergencyLocked)"
                         @onclick="ToggleRoutineAsync">
-                    RUTINA @(RoutineEnabled ? "ON" : "OFF")
+                    RUTINA @(IsCanMode ? (RoutineEnabled ? "ON" : "OFF") : (RoutineEnabled ? "OFF" : "ON"))
                 </button>
             </div>
 
-            <section class="servo2-toggle-grid">
+            <section class="servo2-toggle-grid" style="@Servo1ToggleGridStyle">
                 @* [ACURATEX] Estos tiles representan salidas logicas, no controles de hardware directos en la vista. *@
                 @foreach (ServoDashboardTarjetasToggle toggle in Servo2Toggles)
                 {
@@ -232,7 +235,7 @@
     private bool _routineEnabled;
     private int _draggingPositionNumber;
 
-    private int Servo1FrequencyHz { get; set; } = 1000;
+    private int Servo2FrequencyHz { get; set; } = 1000;
 
     private int StepperFrequencyHz { get; set; } = 200;
 
@@ -240,13 +243,27 @@
 
     private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
 
+    private bool IsCanMode => string.Equals(_selectedMode, "CAN", StringComparison.Ordinal);
+
     private IReadOnlyList<ServoDashboardTarjetasPosition> Positions => _positions;
 
     private IReadOnlyList<ServoDashboardTarjetasToggle> Servo1Toggles => GetToggles("s1-son", "s1-run", "s1-dir");
 
-    private IReadOnlyList<ServoDashboardTarjetasToggle> StepperToggles => GetToggles("step-run", "step-dir", "step-rev");
+    private IReadOnlyList<ServoDashboardTarjetasToggle> StepperToggles => IsCanMode
+        ? GetToggles("step-run", "step-dir", "step-rev")
+        : GetToggles("step-run", "step-dir");
 
-    private IReadOnlyList<ServoDashboardTarjetasToggle> Servo2Toggles => GetToggles("s2-son", "s2-run", "s2-dir");
+    private IReadOnlyList<ServoDashboardTarjetasToggle> Servo2Toggles => IsCanMode
+        ? GetToggles("s2-son", "s2-run", "s2-dir")
+        : GetToggles("s2-son");
+
+    private string? StepperHelpText => IsCanMode
+        ? "REV suave: baja a ~200 Hz, cambia DIR, vuelve a subir."
+        : null;
+
+    private string? Servo1ToggleGridStyle => IsCanMode
+        ? null
+        : "grid-template-columns: minmax(0, 1fr);";
 
     private bool RoutineEnabled
     {
@@ -317,6 +334,10 @@
             return;
         }
 
+        if (_selectedMode == mode) {
+            return;
+        }
+
         _selectedMode = mode;
         await CommandService.SetModeAsync(mode);
     }
@@ -347,14 +368,14 @@
         await CommandService.SetOutputAsync(key, toggle.Enabled);
     }
 
-    private async Task SetServo1FrequencyAsync(int frequencyHz)
+    private async Task SetServo2FrequencyAsync(int frequencyHz)
     {
         if (IsEmergencyLocked) {
             return;
         }
 
-        Servo1FrequencyHz = frequencyHz;
-        await CommandService.SetFrequencyAsync("servo1", frequencyHz);
+        Servo2FrequencyHz = frequencyHz;
+        await CommandService.SetFrequencyAsync("servo2", frequencyHz);
     }
 
     private async Task SetStepperFrequencyAsync(int frequencyHz)
@@ -395,19 +416,18 @@
         await PublishRoutineAsync();
     }
 
-    private Task SetPositionTargetAsync(ServoDashboardTarjetasTargetChange change)
+    private async Task SetPositionTargetAsync(ServoDashboardTarjetasTargetChange change)
     {
         // [ACURATEX] La vista guarda el objetivo para que el servicio construya el comando luego.
         if (IsEmergencyLocked) {
-            return Task.CompletedTask;
+            return;
         }
 
         ServoDashboardTarjetasPosition? position = _positions.FirstOrDefault(item => item.Number == change.PositionNumber);
         if (position != null) {
             position.Target = change.Target;
+            await CommandService.ConfigurePositionAsync(position.Number, position.Target, position.Turns);
         }
-
-        return Task.CompletedTask;
     }
 
     private async Task GoToPositionAsync(int positionNumber)
@@ -421,7 +441,8 @@
             return;
         }
 
-        await CommandService.GoToPositionAsync(position.Number, position.Target);
+        await CommandService.ConfigurePositionAsync(position.Number, position.Target, position.Turns);
+        await CommandService.GoToPositionAsync(position.Number, position.Target, position.Turns);
     }
 
     private async Task ChangeTurnsAsync(ServoDashboardTarjetasTurnsChange change)
@@ -441,7 +462,7 @@
         }
 
         position.Turns = nextTurns;
-        await CommandService.SetTurnsAsync(position.Number, position.Turns);
+        await CommandService.ConfigurePositionAsync(position.Number, position.Target, position.Turns);
     }
 
     private async Task ToggleRoutineAsync()
@@ -513,6 +534,10 @@
         // [ACURATEX] La rutina se publica como una lista ordenada de pasos al servicio.
         if (IsEmergencyLocked && !bypassLock) {
             return;
+        }
+
+        foreach (ServoDashboardTarjetasPosition position in _positions) {
+            await CommandService.ConfigurePositionAsync(position.Number, position.Target, position.Turns);
         }
 
         await CommandService.SetRoutineAsync(

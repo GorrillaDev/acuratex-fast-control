@@ -1,0 +1,2 @@
+source C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader/gdbinit/symbols
+source C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-debug-jtag/bootloader/gdbinit/connect

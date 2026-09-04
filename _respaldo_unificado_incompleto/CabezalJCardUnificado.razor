@@ -1,0 +1,49 @@
+<section class="j-card program2-state-card @(Group.Pending ? "pending" : null)">
+    <div class="j-head">
+        <div class="j-title">@($"J{Group.DisplayNumber}")</div>
+        @if (Group.Pending)
+        {
+            <span class="run-state pending-state">PENDIENTE</span>
+        }
+        else if (Group.Running)
+        {
+            <span class="run-state">RUN</span>
+        }
+        else if (!string.IsNullOrEmpty(Group.RunMode))
+        {
+            <span class="run-state">@Group.RunMode</span>
+        }
+    </div>
+    <div class="j-actions">
+        <button class="mini-btn" type="button" disabled="@ActionsDisabled" @onclick="() => SetAllAsync(false)">OFF ALL</button>
+        <button class="mini-btn" type="button" disabled="@ActionsDisabled" @onclick="() => SetAllAsync(true)">ON ALL</button>
+    </div>
+    <div class="j-actions">
+        <button class="mini-btn run @(Group.Running || Group.RunMode == "RUN" ? "active" : null)" type="button" disabled="@ActionsDisabled" @onclick="RunAsync">RUN</button>
+        <button class="mini-btn stop" type="button" disabled="@ActionsDisabled" @onclick="StopAsync">STOP</button>
+    </div>
+    <div class="j-pins">
+        @for (int pin = 1; pin <= Group.VisiblePinCount; pin++)
+        {
+            int currentPin = pin;
+            <button class="@(Group.IsPinOn(currentPin) ? "j-pin on" : "j-pin")"
+                    type="button"
+                    disabled="@ActionsDisabled"
+                    @onclick="() => ToggleAsync(currentPin)">@currentPin</button>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter] public CabezalJGroupUnificado Group { get; set; } = new(1);
+    [Parameter] public Func<int, Task>? PinClicked { get; set; }
+    [Parameter] public Func<bool, Task>? AllClicked { get; set; }
+    [Parameter] public Func<Task>? RunClicked { get; set; }
+    [Parameter] public Func<Task>? StopClicked { get; set; }
+    [Parameter] public bool ActionsDisabled { get; set; }
+
+    private Task ToggleAsync(int pin) => PinClicked?.Invoke(pin) ?? Task.CompletedTask;
+    private Task SetAllAsync(bool on) => AllClicked?.Invoke(on) ?? Task.CompletedTask;
+    private Task RunAsync() => RunClicked?.Invoke() ?? Task.CompletedTask;
+    private Task StopAsync() => StopClicked?.Invoke() ?? Task.CompletedTask;
+}
