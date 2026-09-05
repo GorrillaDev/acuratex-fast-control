@@ -25,7 +25,7 @@
                             @onclick="() => RunDenAsync(motor)">RUN</button>
                     <button class="mini-btn stop"
                             type="button"
-                            disabled="@(!Connection.IsConnected)"
+                            disabled="@(InitBlocked || !Connection.IsConnected)"
                             @onclick="() => StopDenAsync(motor)">STOP</button>
                 </div>
 
@@ -105,7 +105,7 @@
                             @onclick="() => RunJAsync(group)">RUN</button>
                     <button class="mini-btn stop"
                             type="button"
-                            disabled="@(!Connection.IsConnected)"
+                            disabled="@(InitBlocked || !Connection.IsConnected)"
                             @onclick="() => StopJAsync(group)">STOP</button>
                 </div>
                 <div class="j-pins">
@@ -147,7 +147,7 @@
                         @onclick="RunYarnAsync">RUN</button>
                 <button class="mini-btn stop"
                         type="button"
-                        disabled="@(!Connection.IsConnected)"
+                        disabled="@(InitBlocked || !Connection.IsConnected)"
                         @onclick="StopYarnAsync">STOP</button>
             </div>
             <div class="pin-grid">
@@ -189,7 +189,7 @@
                             @onclick="() => RunStitchAsync(stitch)">RUN</button>
                     <button class="mini-btn stop"
                             type="button"
-                            disabled="@(!Connection.IsConnected)"
+                            disabled="@(InitBlocked || !Connection.IsConnected)"
                             @onclick="() => StopStitchAsync(stitch)">STOP</button>
                 </div>
                 <div class="pin-grid program2-stitch-positions">

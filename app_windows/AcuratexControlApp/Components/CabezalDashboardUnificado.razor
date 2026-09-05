@@ -14,11 +14,11 @@
             <div class="head-program-selector-row">
                 <select id="head-program-select-unified" class="head-program-selector-input"
                         value="@((int)_selectedProgram)" @onchange="OnProgramChangedAsync" disabled="@(!CanChangeHeadProgram)">
-                    <option value="1">Programa 1</option>
-                    <option value="2">Programa 2</option>
-                    <option value="3">Programa 3</option>
+                    <option value="1">@GetProgramDisplayName(CabezalDashboardUnificadoProgramId.Program1)</option>
+                    <option value="2">@GetProgramDisplayName(CabezalDashboardUnificadoProgramId.Program2)</option>
+                    <option value="3">@GetProgramDisplayName(CabezalDashboardUnificadoProgramId.Program3)</option>
                 </select>
-                <button class="mini-btn" type="button" @onclick="RefreshProgramStateAsync" disabled="@(!Connection.IsConnected)">ACTUALIZAR</button>
+                <button class="mini-btn" type="button" @onclick="RefreshProgramStateAsync" disabled="@(_headInitBusy || !Connection.IsConnected)">ACTUALIZAR</button>
             </div>
             <div class="head-program-selector-status">@_headProgramStatus</div>
         </div>
@@ -43,7 +43,7 @@
     }
 
     <section class="can-rx-launcher unified-diagnostics">
-        <button class="mini-btn" type="button" @onclick="SendCheckAsync" disabled="@(!Connection.IsConnected)">CHECK</button>
+        <button class="mini-btn" type="button" @onclick="SendCheckAsync" disabled="@(_headInitBusy || !Connection.IsConnected)">CHECK</button>
         <button class="primary can-rx-button" type="button" @onclick="ToggleCanHistory">VER CAN RECIBIDO (@_canRxHistory.Count)</button>
         <button class="mini-btn" type="button" @onclick="ToggleAlarmHistory">HISTORIAL DE ALERTAS (@_canAlarmHistory.Count)</button>
         <button class="success" type="button" @onclick="SendTesteoAsync" disabled="@(IsHeadUiBlocked || _headTestBusy)">TESTEO</button>
@@ -95,7 +95,7 @@
 
     @if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2)
     {
-        <CabezalDashboardUnificadoPrograma2 @ref="_program2Component" />
+        <CabezalDashboardUnificadoPrograma2 @ref="_program2Component" InitBlocked="@_headInitBusy" />
     }
     else
     {
@@ -153,6 +153,34 @@
         <section class="log-box">@_logLine</section>
     </section>
     }
+
+    @if (_headInitBusy)
+    {
+        <div class="head-init-overlay" role="dialog" aria-modal="true" aria-labelledby="head-init-title" aria-describedby="head-init-message">
+            <section class="head-init-modal">
+                <div class="head-init-spinner" aria-hidden="true"></div>
+                <div class="head-init-content">
+                    <h2 id="head-init-title" class="head-init-title">@_headInitTitle</h2>
+                    <p id="head-init-message" class="head-init-message">@_headInitMessage</p>
+                    @if (_headInitProgress.HasValue)
+                    {
+                        <div class="head-init-progress-label">
+                            <span>Progreso</span>
+                            <strong>@_headInitProgress.Value %</strong>
+                        </div>
+                        <div class="head-init-progress" role="progressbar" aria-label="Progreso de inicialización"
+                             aria-valuemin="0" aria-valuemax="100" aria-valuenow="@_headInitProgress.Value">
+                            <div class="head-init-progress-fill" style="@($"width: {_headInitProgress.Value}%")"></div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_headInitMeta))
+                    {
+                        <div class="head-init-meta">@_headInitMeta</div>
+                    }
+                </div>
+            </section>
+        </div>
+    }
 </main>
 
 @code {
@@ -177,7 +205,13 @@
     private bool _programChangePending;
     private CancellationTokenSource? _headTestTimeoutCts;
     private HeadTestResult? _headTestLastResult;
-    private string _headProgramStatus = "Programa 1 listo. Actualiza para consultar el firmware.";
+    private CancellationTokenSource? _headInitTimeoutCts;
+    private bool _headInitBusy;
+    private string _headInitTitle = "Inicializando cabezal...";
+    private string _headInitMessage = "Enviando secuencia de inicialización...";
+    private int? _headInitProgress;
+    private string _headInitMeta = string.Empty;
+    private string _headProgramStatus = $"{GetProgramDisplayName(CabezalDashboardUnificadoProgramId.Program1)} listo. Actualiza para consultar el firmware.";
     private string _headTestStatus = "LISTO";
     private string _headTestMessage = "TESTEO: listo.";
     private string _logLine = "Listo.";
@@ -187,8 +221,8 @@
     private bool _showHeadTestDetail;
 
     private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
-    private bool IsHeadUiBlocked => IsEmergencyLocked || !Connection.IsConnected;
-    private bool CanChangeHeadProgram => Connection.IsConnected && PermissionService.HasPermission(UserPermission.HeadProgramSelect);
+    private bool IsHeadUiBlocked => _headInitBusy || IsEmergencyLocked || !Connection.IsConnected;
+    private bool CanChangeHeadProgram => !_headInitBusy && Connection.IsConnected && PermissionService.HasPermission(UserPermission.HeadProgramSelect);
     private string LockScopeClass => IsEmergencyLocked ? "emergency-lock-scope is-locked" : "emergency-lock-scope";
 
     protected override void OnInitialized()
@@ -205,7 +239,7 @@
         CabezalDashboardUnificadoProgramId program = (CabezalDashboardUnificadoProgramId)value;
         _selectedProgram = program;
         _programChangePending = true;
-        _headProgramStatus = $"Cambiando a Programa {value}...";
+        _headProgramStatus = $"Cambiando a {GetProgramDisplayName(program)}...";
         _programChangeTimeoutCts?.Cancel();
         _programChangeTimeoutCts?.Dispose();
         _programChangeTimeoutCts = new CancellationTokenSource();
@@ -216,7 +250,7 @@
             _programChangeTimeoutCts?.Dispose();
             _programChangeTimeoutCts = null;
             _selectedProgram = _activeProgram;
-            _headProgramStatus = $"No se pudo solicitar Programa {value}. Se conserva Programa {(int)_activeProgram}.";
+            _headProgramStatus = $"No se pudo solicitar {GetProgramDisplayName(program)}. Se conserva {GetProgramDisplayName(_activeProgram)}.";
             return;
         }
         _ = MonitorProgramChangeTimeoutAsync(program, _programChangeTimeoutCts.Token);
@@ -233,7 +267,7 @@
                 {
                     _programChangePending = false;
                     _selectedProgram = _activeProgram;
-                    _headProgramStatus = $"Timeout al confirmar Programa {(int)requested}. Se conserva Programa {(int)_activeProgram}.";
+                    _headProgramStatus = $"Timeout al confirmar {GetProgramDisplayName(requested)}. Se conserva {GetProgramDisplayName(_activeProgram)}.";
                     StateHasChanged();
                 }
                 _programChangeTimeoutCts?.Dispose();
@@ -247,9 +281,16 @@
 
     private async Task SendInitAsync()
     {
-        if (!Connection.IsConnected) return;
+        if (!Connection.IsConnected || _headInitBusy) return;
+        BeginHeadInit();
+        await InvokeAsync(StateHasChanged);
         if (IsEmergencyLocked) EmergencyStop.ResetEmergencyStop("INIT");
-        await SendDirectResultAsync("init", true);
+        if (!await SendDirectResultAsync("init", true))
+        {
+            CompleteHeadInit("No se pudo iniciar la inicialización del cabezal.");
+            return;
+        }
+        EnsureHeadInitTimeout();
     }
 
     private async Task SendCheckAsync()
@@ -361,6 +402,7 @@
         string clean = (line ?? string.Empty).Trim();
         if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2)
             _program2Component?.ProcessConnectionLine(clean);
+        if (TryApplyHeadInitLine(clean)) { StateHasChanged(); return; }
         if (TryApplyProgramState(clean)) { StateHasChanged(); return; }
         if (TryApplyProgramSelectionResponse(clean)) { StateHasChanged(); return; }
         if (TryParseCanRxLine(clean, out CanRxFrame? frame)) { ProcessCanFrame(frame!); StateHasChanged(); return; }
@@ -379,7 +421,7 @@
         _programChangeTimeoutCts?.Cancel();
         _programChangeTimeoutCts?.Dispose();
         _programChangeTimeoutCts = null;
-        _headProgramStatus = $"Programa {value} activo en firmware.";
+        _headProgramStatus = $"{GetProgramDisplayName(confirmed)} activo en firmware.";
         return true;
     }
 
@@ -387,7 +429,7 @@
     {
         if (line.StartsWith("OK uni_program_select_", StringComparison.OrdinalIgnoreCase))
         {
-            _headProgramStatus = $"Programa {(int)_selectedProgram} aceptado; confirmando estado físico...";
+            _headProgramStatus = $"{GetProgramDisplayName(_selectedProgram)} aceptado; confirmando estado físico...";
             _ = SendDirectAsync("program_status");
             return true;
         }
@@ -399,10 +441,136 @@
             _programChangeTimeoutCts = null;
             CabezalDashboardUnificadoProgramId rejected = _selectedProgram;
             _selectedProgram = _activeProgram;
-            _headProgramStatus = $"Programa {(int)rejected} rechazado: {line}. Se conserva Programa {(int)_activeProgram}.";
+            _headProgramStatus = $"{GetProgramDisplayName(rejected)} rechazado: {line}. Se conserva {GetProgramDisplayName(_activeProgram)}.";
             return true;
         }
         return false;
+    }
+
+    private static string GetProgramDisplayName(CabezalDashboardUnificadoProgramId program) => program switch
+    {
+        CabezalDashboardUnificadoProgramId.Program1 => "HP2boxControlBox",
+        CabezalDashboardUnificadoProgramId.Program2 => "HP1boxControlBox",
+        CabezalDashboardUnificadoProgramId.Program3 => "FlashControlBox",
+        _ => $"Programa {(int)program}",
+    };
+
+    private void BeginHeadInit()
+    {
+        CancelHeadInitTimeout();
+        _headInitBusy = true;
+        _headInitTitle = "Inicializando cabezal...";
+        _headInitMessage = "Enviando secuencia de inicialización...";
+        _headInitProgress = null;
+        _headInitMeta = string.Empty;
+    }
+
+    private bool TryApplyHeadInitLine(string line)
+    {
+        if (!line.StartsWith("INIT|", StringComparison.OrdinalIgnoreCase)) return false;
+
+        string[] fields = line.Split('|');
+        if (fields.Length < 2) return true;
+
+        switch (fields[1].ToUpperInvariant())
+        {
+            case "START":
+            case "RUNNING":
+                if (!_headInitBusy) break;
+                _headInitTitle = "Inicializando cabezal...";
+                _headInitMessage = "Ejecutando inicialización...";
+                _headInitProgress = null;
+                List<string> startMeta = new();
+                string? bus = ReadHeadInitField(fields, "BUS");
+                if (!string.IsNullOrWhiteSpace(bus)) startMeta.Add($"Bus {bus}");
+                if (int.TryParse(ReadHeadInitField(fields, "TOTAL"), out int startTotal) && startTotal > 0) startMeta.Add($"Total: {startTotal} pasos");
+                _headInitMeta = string.Join(" · ", startMeta);
+                EnsureHeadInitTimeout();
+                break;
+
+            case "STEP":
+                if (!_headInitBusy) break;
+                _headInitTitle = "Inicializando cabezal...";
+                _headInitMessage = fields.Length > 4 ? string.Join(" | ", fields.Skip(4)) : "Ejecutando inicialización...";
+                string tag = fields.Length > 2 ? fields[2].Trim() : string.Empty;
+                int current = 0;
+                int total = 0;
+                if (fields.Length > 3)
+                {
+                    string[] position = fields[3].Split('/', 2, StringSplitOptions.TrimEntries);
+                    if (position.Length == 2)
+                    {
+                        int.TryParse(position[0], out current);
+                        int.TryParse(position[1], out total);
+                    }
+                }
+                _headInitProgress = total > 0 ? Math.Clamp((int)Math.Round(current * 100d / total), 0, 100) : null;
+                _headInitMeta = total > 0 ? $"Paso {current} de {total}" : string.Empty;
+                if (!string.IsNullOrWhiteSpace(tag))
+                    _headInitMeta = string.IsNullOrEmpty(_headInitMeta) ? $"Etapa {tag}" : $"{_headInitMeta} · Etapa {tag}";
+                EnsureHeadInitTimeout();
+                break;
+
+            case "DONE":
+                CompleteHeadInit("Inicialización completada");
+                break;
+
+            case "ERROR":
+                string errorDetail = fields.Length > 2 ? string.Join(" | ", fields.Skip(2)) : string.Empty;
+                CompleteHeadInit(string.IsNullOrWhiteSpace(errorDetail) ? "Error durante la inicialización" : $"Error durante la inicialización: {errorDetail}");
+                break;
+
+            case "CANCELLED":
+                CompleteHeadInit("Inicialización cancelada");
+                break;
+        }
+
+        return true;
+    }
+
+    private static string? ReadHeadInitField(IEnumerable<string> fields, string name)
+    {
+        string prefix = $"{name}=";
+        foreach (string field in fields)
+            if (field.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return field[prefix.Length..].Trim();
+        return null;
+    }
+
+    private void EnsureHeadInitTimeout()
+    {
+        if (_headInitTimeoutCts is not null) return;
+        _headInitTimeoutCts = new CancellationTokenSource();
+        _ = MonitorHeadInitTimeoutAsync(_headInitTimeoutCts.Token);
+    }
+
+    private async Task MonitorHeadInitTimeoutAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(3), cancellationToken);
+            await InvokeAsync(() =>
+            {
+                if (!_headInitBusy) return;
+                CompleteHeadInit("No se pudo confirmar el final de la inicialización");
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void CompleteHeadInit(string message)
+    {
+        CancelHeadInitTimeout();
+        _headInitBusy = false;
+        _headProgramStatus = message;
+        _logLine = message;
+    }
+
+    private void CancelHeadInitTimeout()
+    {
+        _headInitTimeoutCts?.Cancel();
+        _headInitTimeoutCts?.Dispose();
+        _headInitTimeoutCts = null;
     }
 
     private void ProcessCanFrame(CanRxFrame frame)
@@ -463,6 +631,6 @@
     public void Dispose()
     {
         Connection.LineReceived -= OnLineReceived; EmergencyStop.StateChanged -= OnEmergencyStateChanged; EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
-        _headTestTimeoutCts?.Cancel(); _headTestTimeoutCts?.Dispose(); _programChangeTimeoutCts?.Cancel(); _programChangeTimeoutCts?.Dispose(); StopAllLoops();
+        _headTestTimeoutCts?.Cancel(); _headTestTimeoutCts?.Dispose(); _programChangeTimeoutCts?.Cancel(); _programChangeTimeoutCts?.Dispose(); CancelHeadInitTimeout(); StopAllLoops();
     }
 }

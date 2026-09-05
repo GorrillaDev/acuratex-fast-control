@@ -4,6 +4,8 @@ public static class CabezalDashboardUnificadoProgram2Commands
 {
     public readonly record struct ModuleMap(int DisplayNumber, int PhysicalNumber, string CanId, string Selector);
 
+    public const int YarnChannelCount = 8;
+
     public static readonly int[] DenPositionValues = [0, 162, 325, 487, 650];
     public static readonly int[] StitchPositionValues = [0, 320, 480, 160, 640];
 
@@ -82,7 +84,7 @@ public static class CabezalDashboardUnificadoProgram2Commands
 
     private static IReadOnlyList<CabezalOutputBlockUnificado> CreateYarnBlocks() =>
     [
-        new("yarn1", "Yarn 1", "363 - 05 01 00 canal 00 estado", Enumerable.Range(1, 8).ToArray(), YarnRun, YarnStop),
+        new("yarn1", "Yarn 1", "363 - 05 01 00 canal 00 estado", Enumerable.Range(1, YarnChannelCount).ToArray(), YarnRun, YarnStop),
     ];
 
     private static IReadOnlyList<CabezalOutputBlockUnificado> CreateStitchBlocks() =>

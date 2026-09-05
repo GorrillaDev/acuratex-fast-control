@@ -1,4 +1,6 @@
-.cabezal-dashboard {
+@import url("head-init-overlay.css");
+
+.cabezal-dashboard {
   --acc-bg: #f3f4f6;
   --acc-surface: #ffffff;
   --acc-surface-soft: #f8fafc;

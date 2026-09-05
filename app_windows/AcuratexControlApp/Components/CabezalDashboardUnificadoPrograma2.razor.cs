@@ -11,6 +11,7 @@ public partial class CabezalDashboardUnificadoPrograma2
     [Inject] protected ICabezalDashboardUnificadoCommandService CommandService { get; set; } = default!;
     [Inject] protected IConnectionController Connection { get; set; } = default!;
     [Inject] protected IEmergencyStopService EmergencyStop { get; set; } = default!;
+    [Parameter] public bool InitBlocked { get; set; }
 
     protected List<Program2DenMotor> DenMotors { get; } =
         CabezalDashboardUnificadoProgram2Commands.DenModules
@@ -21,12 +22,12 @@ public partial class CabezalDashboardUnificadoPrograma2
             .Select(module => new Program2JGroup(module.DisplayNumber, module.PhysicalNumber))
             .ToList();
     protected List<Program2StitchMotor> StitchMotors { get; } = [new(1), new(2)];
-    protected bool[] YarnStates { get; } = new bool[8];
+    protected bool[] YarnStates { get; } = new bool[CabezalDashboardUnificadoProgram2Commands.YarnChannelCount];
     protected bool YarnRunning { get; set; }
     protected bool YarnPending => _yarnPendingCount > 0;
     protected string Status { get; set; } = "Programa 2 confirmado";
     protected string LastMessage { get; set; } = "Listo.";
-    protected bool ActionsBlocked => EmergencyStop.IsEmergencyStopActive || !Connection.IsConnected;
+    protected bool ActionsBlocked => InitBlocked || EmergencyStop.IsEmergencyStopActive || !Connection.IsConnected;
 
     private readonly Dictionary<string, PendingCommand> _pending = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _yarnAnimation;
@@ -60,6 +61,7 @@ public partial class CabezalDashboardUnificadoPrograma2
 
     protected Task StopDenAsync(Program2DenMotor motor)
     {
+        if (InitBlocked) return Task.CompletedTask;
         motor.Pending = true;
         return SendAsync(CabezalDashboardUnificadoProgram2Commands.DenStop(motor.PhysicalNumber), () =>
         {
@@ -143,6 +145,7 @@ public partial class CabezalDashboardUnificadoPrograma2
 
     protected Task StopJAsync(Program2JGroup group)
     {
+        if (InitBlocked) return Task.CompletedTask;
         group.Pending = true;
         return SendAsync(CabezalDashboardUnificadoProgram2Commands.JStop(group.PhysicalNumber), () =>
         {
@@ -155,7 +158,7 @@ public partial class CabezalDashboardUnificadoPrograma2
     {
         if (ActionsBlocked) return;
         StopYarnAnimation(false);
-        for (int pin = 1; pin <= 8; pin++)
+        for (int pin = 1; pin <= CabezalDashboardUnificadoProgram2Commands.YarnChannelCount; pin++)
         {
             int currentPin = pin;
             _yarnPendingCount++;
@@ -192,6 +195,7 @@ public partial class CabezalDashboardUnificadoPrograma2
 
     protected Task StopYarnAsync()
     {
+        if (InitBlocked) return Task.CompletedTask;
         _yarnPendingCount++;
         return SendAsync(CabezalDashboardUnificadoProgram2Commands.YarnStop, () =>
         {
@@ -235,6 +239,7 @@ public partial class CabezalDashboardUnificadoPrograma2
 
     protected Task StopStitchAsync(Program2StitchMotor stitch)
     {
+        if (InitBlocked) return Task.CompletedTask;
         stitch.Pending = true;
         return SendAsync(CabezalDashboardUnificadoProgram2Commands.StitchStop(stitch.Number), () =>
         {
@@ -422,7 +427,7 @@ public partial class CabezalDashboardUnificadoPrograma2
         _ = AnimateAsync(_yarnAnimation.Token, periodMs, step =>
         {
             Array.Fill(YarnStates, false);
-            YarnStates[step % 8] = true;
+            YarnStates[step % CabezalDashboardUnificadoProgram2Commands.YarnChannelCount] = true;
         });
     }
 
@@ -433,7 +438,7 @@ public partial class CabezalDashboardUnificadoPrograma2
         _yarnAnimation?.Dispose();
         _yarnAnimation = null;
         YarnRunning = false;
-        if (restore && wasRunning && _yarnBeforeRun is not null) Array.Copy(_yarnBeforeRun, YarnStates, 8);
+        if (restore && wasRunning && _yarnBeforeRun is not null) Array.Copy(_yarnBeforeRun, YarnStates, CabezalDashboardUnificadoProgram2Commands.YarnChannelCount);
     }
 
     private void StartStitchAnimation(Program2StitchMotor stitch)
