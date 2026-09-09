@@ -2,6 +2,8 @@ namespace AcuratexControlApp.Services;
 
 public sealed record TesterWifiConfig(
     string Ssid,
+    string Password,
+    bool PasswordIncluded,
     int Port,
     string Status,
     string Ip,

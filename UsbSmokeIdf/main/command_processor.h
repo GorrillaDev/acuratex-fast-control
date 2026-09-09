@@ -43,6 +43,9 @@ enum {
 typedef struct {
     // [ACURATEX] true cuando la linea entro por la ruta USB activa.
     bool usb_mounted;
+    // [SEGURIDAD] Solo la ruta USB que origino el comando puede solicitar que
+    // WIFI_CONFIG_GET incluya la contrasena persistida.
+    bool allow_sensitive_wifi_read;
     // [ACURATEX] Estado WiFi usado por `status`.
     bool wifi_connected;
     // [C/C++] Punteros a strings administrados por wifi_manager/can_driver.

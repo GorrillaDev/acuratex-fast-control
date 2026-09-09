@@ -44,7 +44,7 @@
 
     <section class="can-rx-launcher unified-diagnostics">
         <button class="mini-btn" type="button" @onclick="SendCheckAsync" disabled="@(_headInitBusy || !Connection.IsConnected)">CHECK</button>
-        <button class="primary can-rx-button" type="button" @onclick="ToggleCanHistory">VER CAN RECIBIDO (@_canRxHistory.Count)</button>
+        <button class="primary can-rx-button" type="button" @onclick="ToggleCanHistory">VER CAN RECIBIDO (@CanHistoryDisplayCount)</button>
         <button class="mini-btn" type="button" @onclick="ToggleAlarmHistory">HISTORIAL DE ALERTAS (@_canAlarmHistory.Count)</button>
         <button class="success" type="button" @onclick="SendTesteoAsync" disabled="@(IsHeadUiBlocked || _headTestBusy)">TESTEO</button>
         <div class="head-test-state">
@@ -62,6 +62,13 @@
         <section class="can-rx-modal" role="dialog" aria-label="CAN recibido">
             <div class="can-rx-header"><strong>CAN RECIBIDO</strong><button class="mini-btn" @onclick="ToggleCanHistory">CERRAR</button></div>
             <div class="can-rx-table-wrap"><table class="can-rx-table"><thead><tr><th>Hora</th><th>Bus</th><th>ID</th><th>DLC</th><th>Data</th></tr></thead><tbody>
+                @foreach (DemoCanTxFailure frame in _demoCanTxFailures)
+                {
+                    <tr class="can-demo-failure-row">
+                        <td>@frame.ReceivedAt.ToString("HH:mm:ss")</td><td>@frame.Bus</td><td>@($"0x{frame.Id:X3}")</td><td>@frame.Data.Length</td>
+                        <td><span>@FormatData(frame.Data)</span><span class="can-demo-failure">@frame.Detail</span></td>
+                    </tr>
+                }
                 @foreach (CanRxFrame frame in _canRxHistory.AsEnumerable().Reverse())
                 { <tr><td>@frame.ReceivedAt.ToString("HH:mm:ss.fff")</td><td>@frame.Bus</td><td>@($"0x{frame.Id:X3}")</td><td>@frame.Dlc</td><td>@FormatData(frame.Data)</td></tr> }
             </tbody></table></div>
@@ -185,7 +192,11 @@
 
 @code {
     private const int CanHistoryMax = 1000;
+    private const bool DemoCanRxWithoutAck = true;
+    private const int DemoCanTxFailureCount = 3;
+    private const string DemoCanTxFailureDetail = "TX FAIL (sin ACK / bus / bitrate)";
     private readonly List<CanRxFrame> _canRxHistory = new();
+    private readonly List<DemoCanTxFailure> _demoCanTxFailures = new();
     private readonly List<CanAlarmHistoryItem> _canAlarmHistory = new();
     private readonly HeadTestResultDetector _headTestDetector = new();
     private readonly CancellationTokenSource?[] _denRunTokens = new CancellationTokenSource?[8];
@@ -223,6 +234,7 @@
     private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
     private bool IsHeadUiBlocked => _headInitBusy || IsEmergencyLocked || !Connection.IsConnected;
     private bool CanChangeHeadProgram => !_headInitBusy && Connection.IsConnected && PermissionService.HasPermission(UserPermission.HeadProgramSelect);
+    private int CanHistoryDisplayCount => _canRxHistory.Count + (DemoCanRxWithoutAck ? DemoCanTxFailureCount : 0);
     private string LockScopeClass => IsEmergencyLocked ? "emergency-lock-scope is-locked" : "emergency-lock-scope";
 
     protected override void OnInitialized()
@@ -608,7 +620,26 @@
     private void StopAllLoops() { foreach (CabezalMotorUnificado motor in _denMotors) StopLoop(motor, _denRunTokens); foreach (CabezalMotorUnificado motor in _sicMotors) StopLoop(motor, _sicRunTokens); foreach (CabezalMotorUnificado motor in _feetMotors) StopLoop(motor, _feetRunTokens); }
     private string JPinClass(CabezalJGroupUnificado group, int pin) => group.IsPinOn(pin) ? "j-pin on" : "j-pin";
     private static string FormatData(byte[] data) => string.Join(" ", data.Select(value => value.ToString("X2", CultureInfo.InvariantCulture)));
-    private void ToggleCanHistory() => _showCanHistory = !_showCanHistory;
+    private void ToggleCanHistory()
+    {
+        if (!_showCanHistory && DemoCanRxWithoutAck)
+            LoadDemoCanTxFailures();
+
+        _showCanHistory = !_showCanHistory;
+    }
+
+    private void LoadDemoCanTxFailures()
+    {
+        if (_demoCanTxFailures.Count > 0) return;
+
+        DateTime firstReceivedAt = DateTime.Now;
+        _demoCanTxFailures.AddRange([
+            new(firstReceivedAt, "CAN1", 0x320, [0x1C, 0x00, 0xE7, 0x01, 0x00], DemoCanTxFailureDetail),
+            new(firstReceivedAt.AddSeconds(1), "CAN1", 0x320, [0x1C, 0x00, 0x00, 0x00, 0x00], DemoCanTxFailureDetail),
+            new(firstReceivedAt.AddSeconds(2), "CAN1", 0x320, [0x1E, 0x18, 0x01], DemoCanTxFailureDetail),
+        ]);
+    }
+
     private void ToggleAlarmHistory() => _showAlarmHistory = !_showAlarmHistory;
     private void ToggleHeadTestDetail() => _showHeadTestDetail = !_showHeadTestDetail;
     private async Task HandleEmergencyStopAsync() { StopAllLoops(); if (_activeProgram != CabezalDashboardUnificadoProgramId.Program2) { await SendDirectResultAsync("emergency_stop", true); await SendDirectResultAsync("j_stop_all", true); await SendDirectResultAsync("y_stop_all", true); await SendDirectResultAsync("s_stop_all", true); } _logLine = "PARADA DE EMERGENCIA ACTIVADA"; await InvokeAsync(StateHasChanged); }
@@ -633,4 +664,6 @@
         Connection.LineReceived -= OnLineReceived; EmergencyStop.StateChanged -= OnEmergencyStateChanged; EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
         _headTestTimeoutCts?.Cancel(); _headTestTimeoutCts?.Dispose(); _programChangeTimeoutCts?.Cancel(); _programChangeTimeoutCts?.Dispose(); CancelHeadInitTimeout(); StopAllLoops();
     }
+
+    private sealed record DemoCanTxFailure(DateTime ReceivedAt, string Bus, uint Id, byte[] Data, string Detail);
 }

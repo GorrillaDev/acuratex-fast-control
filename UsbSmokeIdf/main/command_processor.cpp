@@ -116,7 +116,7 @@ static esp_err_t app_handle_wifi_config_get(app_reply_fn_t reply,
 {
     app_wifi_settings_t settings = {};
     char reason[96] = {};
-    char response[192];
+    char response[320];
     bool loaded = app_wifi_manager_load_settings(&settings, reason, sizeof(reason));
     const char *status = "missing";
 
@@ -125,14 +125,26 @@ static esp_err_t app_handle_wifi_config_get(app_reply_fn_t reply,
         ESP_LOGI(TAG, "WIFI_CONFIG_LOAD_OK|SSID=%s|PORT=%d", settings.ssid, settings.port);
     }
 
-    snprintf(response,
-             sizeof(response),
-             "WIFI_CONFIG|SSID=%s|PORT=%d|STATUS=%s|IP=%s|REASON=%s",
-             loaded ? settings.ssid : "",
-             loaded ? settings.port : 3333,
-             status,
-             (env != NULL && env->wifi_ip != NULL) ? env->wifi_ip : "0.0.0.0",
-             loaded ? "OK" : reason);
+    if (loaded && env != NULL && env->allow_sensitive_wifi_read) {
+        snprintf(response,
+                 sizeof(response),
+                 "WIFI_CONFIG|SSID=%s|PASS=%s|PORT=%d|STATUS=%s|IP=%s|REASON=%s",
+                 settings.ssid,
+                 settings.pass,
+                 settings.port,
+                 status,
+                 env->wifi_ip != NULL ? env->wifi_ip : "0.0.0.0",
+                 "OK");
+    } else {
+        snprintf(response,
+                 sizeof(response),
+                 "WIFI_CONFIG|SSID=%s|PORT=%d|STATUS=%s|IP=%s|REASON=%s",
+                 loaded ? settings.ssid : "",
+                 loaded ? settings.port : 3333,
+                 status,
+                 (env != NULL && env->wifi_ip != NULL) ? env->wifi_ip : "0.0.0.0",
+                 loaded ? "OK" : reason);
+    }
     return reply(response, ctx);
 }
 

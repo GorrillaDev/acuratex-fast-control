@@ -171,6 +171,14 @@
   gap: 10px;
 }
 
+.motor-roller-card .servo-control-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.motor-head-card .servo-control-grid {
+  grid-template-columns: minmax(0, 160px);
+}
+
 .servo-control-tile {
   display: flex;
   flex-direction: column;
@@ -315,6 +323,32 @@
   color: var(--acc-muted);
   font-size: 11px;
   font-family: "Space Grotesk", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.servo-compact-indicator {
+  width: min(210px, 100%);
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--acc-border);
+  border-radius: 9px;
+  background: var(--acc-card);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.servo-compact-indicator span {
+  color: var(--acc-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.servo-compact-indicator strong {
+  color: var(--acc-navy);
+  font-family: "Space Grotesk", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .small {

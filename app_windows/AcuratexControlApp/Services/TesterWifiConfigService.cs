@@ -164,6 +164,8 @@ public sealed class TesterWifiConfigService : ITesterWifiConfigService, IDisposa
 
         return new TesterWifiConfig(
             values.TryGetValue("SSID", out string? ssid) ? ssid : string.Empty,
+            values.TryGetValue("PASS", out string? password) ? password : string.Empty,
+            values.ContainsKey("PASS"),
             port,
             values.TryGetValue("STATUS", out string? status) ? status : "desconocido",
             values.TryGetValue("IP", out string? ip) ? ip : "0.0.0.0",

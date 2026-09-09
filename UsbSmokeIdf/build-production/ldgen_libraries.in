@@ -212,5 +212,6 @@ $<TARGET_FILE:idf::joltwallet__littlefs>
 $<TARGET_FILE:idf::main>
 $<TARGET_FILE:__idf_AcuratexUsb>
 $<TARGET_FILE:__idf_driver>
+$<TARGET_FILE:__idf_esp_driver_ledc>
 $<TARGET_FILE:__idf_esp_driver_twai>
 $<TARGET_FILE:__idf_joltwallet__littlefs>

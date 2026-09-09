@@ -3011,6 +3011,8 @@ static void app_fill_command_env(app_command_env_t *env, bool usb_mounted)
 
         .usb_mounted = usb_mounted,
 
+        .allow_sensitive_wifi_read = false,
+
 
 
         .wifi_connected = app_wifi_manager_is_connected(),
@@ -5314,6 +5316,10 @@ static void app_command_dispatch_task(void *arg)
 
 
             app_fill_command_env(&env, usb_active);
+
+            // [SEGURIDAD] La contrasena WiFi solo puede volver por la misma
+            // sesion USB que solicito WIFI_CONFIG_GET, nunca por TCP/UART.
+            env.allow_sensitive_wifi_read = message.transport == APP_TRANSPORT_USB;
 
 
 

@@ -497,14 +497,33 @@
   overflow: hidden;
 }
 
-.cabezal-dashboard .can-rx-header {
+.cabezal-dashboard .can-rx-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
   padding: 14px 16px;
   border-bottom: 1px solid #e5eaf2;
-}
+}
+
+.cabezal-dashboard .can-demo-failure {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: var(--acc-red);
+  font-weight: 800;
+}
+
+.cabezal-dashboard .can-demo-failure {
+  margin-left: 10px;
+  padding: 2px 7px;
+}
+
+.cabezal-dashboard .can-demo-failure-row td {
+  background: #fffafa;
+}
 
 .cabezal-dashboard .can-rx-title {
   color: #0f172a;

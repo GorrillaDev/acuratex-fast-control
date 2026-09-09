@@ -10,7 +10,7 @@
 <main class="servo-dashboard">
     <section class="servo-control-header">
         @* [ACURATEX] La cabecera agrupa modo de trabajo e interlock de emergencia. *@
-        <h1 class="servo-control-title">Panel de control</h1>
+        <h1 class="servo-control-title">MOTORES PRINCIPALES</h1>
         <button class="@InitClass" type="button" @onclick="ToggleInitAsync">INIT</button>
     </section>
 
@@ -22,34 +22,36 @@
     }
 
     <section class="@DashboardGridClass">
-        <ServoDriveCardUnificado Title="Servo Drive 1"
-                                 Subtitle="PULSE / DIR / SON"
-                                 Toggles="@Servo1Toggles"
-                                 ToggleClicked="ToggleOutputAsync"
-                                 FrequencyLabel="Frecuencia servo (Hz)"
-                                 FrequencyHz="@Servo1FrequencyHz"
-                                 FrequencyMin="1"
-                                 FrequencyMax="160000"
-                                 ShowRealFrequency="true"
-                                 Disabled="@IsEmergencyLocked"
-                                 FrequencyChanged="SetServo1FrequencyAsync" />
-
-        <ServoDriveCardUnificado Title="Stepper"
-                                 Subtitle="STEP / DIR"
+        <ServoDriveCardUnificado Title="Motor de Rodillo"
+                                 Subtitle=""
+                                 ExtraClass="motor-roller-card"
                                  Toggles="@StepperToggles"
                                  ToggleClicked="ToggleOutputAsync"
-                                 FrequencyLabel="Frecuencia stepper (Hz)"
+                                 FrequencyLabel="Frecuencia"
                                  FrequencyHz="@StepperFrequencyHz"
                                  FrequencyMin="1"
                                  FrequencyMax="50000"
-                                 HelpText="REV suave: baja a ~200 Hz, cambia DIR, vuelve a subir."
                                  Disabled="@IsEmergencyLocked"
                                  FrequencyChanged="SetStepperFrequencyAsync" />
+
+        <ServoDriveCardUnificado Title="Motor de Cabezal"
+                                 Subtitle=""
+                                 ExtraClass="motor-head-card"
+                                 Toggles="@Servo1Toggles"
+                                 ToggleClicked="ToggleOutputAsync"
+                                 FrequencyLabel="Frecuencia"
+                                 FrequencyHz="@Servo1FrequencyHz"
+                                 FrequencyMin="1"
+                                 FrequencyMax="160000"
+                                 IndicatorLabel="Tiempo de Traslación"
+                                 IndicatorValue="1.00 s"
+                                 Disabled="@IsEmergencyLocked"
+                                 FrequencyChanged="SetServo1FrequencyAsync" />
 
         <section class="@Servo2CardClass">
             <div class="servo-drive2-head">
                 <div>
-                    <h2>Servo Drive 2</h2>
+                    <h2>Motor de Raqueo</h2>
                     <p>Control por posiciones</p>
                 </div>
                 <button class="@(RoutineEnabled ? "routine-toggle on" : "routine-toggle off")"
@@ -201,9 +203,9 @@
 
     private IReadOnlyList<ServoDashboardUnificadoPosition> Positions => _positions;
 
-    private IReadOnlyList<ServoDashboardUnificadoToggle> Servo1Toggles => GetToggles("s1-son", "s1-run", "s1-dir");
+    private IReadOnlyList<ServoDashboardUnificadoToggle> Servo1Toggles => GetToggles("s1-son");
 
-    private IReadOnlyList<ServoDashboardUnificadoToggle> StepperToggles => GetToggles("step-run", "step-dir", "step-rev");
+    private IReadOnlyList<ServoDashboardUnificadoToggle> StepperToggles => GetToggles("step-run", "step-dir");
 
     private bool RoutineEnabled
     {

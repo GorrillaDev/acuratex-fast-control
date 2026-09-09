@@ -5,7 +5,10 @@
         <h2>@Title</h2>
         <span class="servo-state-chip">ESTADO: LISTO</span>
     </div>
-    <div class="servo-card-subtitle">@Subtitle</div>
+    @if (!string.IsNullOrWhiteSpace(Subtitle))
+    {
+        <div class="servo-card-subtitle">@Subtitle</div>
+    }
 
     <div class="servo-control-grid">
         @foreach (ServoDashboardUnificadoToggle toggle in Toggles)
@@ -67,6 +70,14 @@
         </section>
     }
 
+    @if (!string.IsNullOrWhiteSpace(IndicatorLabel) && !string.IsNullOrWhiteSpace(IndicatorValue))
+    {
+        <div class="servo-compact-indicator">
+            <span>@IndicatorLabel</span>
+            <strong>@IndicatorValue</strong>
+        </div>
+    }
+
     @if (!string.IsNullOrWhiteSpace(HelpText))
     {
         <div class="small">@HelpText</div>
@@ -112,6 +123,12 @@
     public bool ShowRealFrequency { get; set; }
 
     [Parameter]
+    public string? IndicatorLabel { get; set; }
+
+    [Parameter]
+    public string? IndicatorValue { get; set; }
+
+    [Parameter]
     public EventCallback<int> FrequencyChanged { get; set; }
 
     [Parameter]
@@ -133,6 +150,14 @@
     // [ACURATEX] Convierte la clave lógica del toggle en una etiqueta breve.
     private static string ControlLabel(ServoDashboardUnificadoToggle toggle)
     {
+        if (toggle.Key.Equals("s1-son", StringComparison.OrdinalIgnoreCase)) {
+            return "ON";
+        }
+
+        if (toggle.Key.Equals("step-run", StringComparison.OrdinalIgnoreCase)) {
+            return "ON/OFF";
+        }
+
         if (toggle.Key.Contains("dir", StringComparison.OrdinalIgnoreCase)) {
             return "DIR";
         }

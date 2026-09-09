@@ -977,7 +977,7 @@ public partial class Form1 : Form, IMainControlPanelHost
     private void OnLineReceived(string line)
     {
         // [EQUIV MCU] Es parecido a una interrupción de recepción que entrega la trama a la capa superior.
-        AppendLog($"<< {line}");
+        AppendLog($"<< {RedactSensitiveCommandForLog(line)}");
     }
 
     private void OnLineSent(string line)
@@ -989,6 +989,17 @@ public partial class Form1 : Form, IMainControlPanelHost
     {
         if (line.StartsWith("WIFI_CONFIG_SET", StringComparison.OrdinalIgnoreCase)) {
             return "WIFI_CONFIG_SET|PASS=<redacted>";
+        }
+
+        if (line.StartsWith("WIFI_CONFIG|", StringComparison.OrdinalIgnoreCase)) {
+            int passMarker = line.IndexOf("|PASS=", StringComparison.OrdinalIgnoreCase);
+            if (passMarker >= 0) {
+                int valueStart = passMarker + "|PASS=".Length;
+                int valueEnd = line.IndexOf('|', valueStart);
+                return valueEnd >= 0
+                    ? $"{line[..valueStart]}<redacted>{line[valueEnd..]}"
+                    : $"{line[..valueStart]}<redacted>";
+            }
         }
 
         return line;

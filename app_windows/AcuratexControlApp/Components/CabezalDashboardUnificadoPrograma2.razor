@@ -1,13 +1,20 @@
 @implements IDisposable
 
 <section class="unified-head-program-2" aria-label="Programa 2 Unificado">
-    <section class="section-title">DEN</section>
+    <section class="section-title">MOTOR DENSITY</section>
     <section class="motor-grid program2-den-grid">
         @foreach (Program2DenMotor motor in DenMotors)
         {
             <section class="cabezal-mcard program2-state-card @(motor.Running ? "running" : null) @(motor.Pending ? "pending" : null)">
                 <div class="mhead">
-                    <div class="mtitle">@($"DEN {motor.DisplayNumber}")</div>
+                    <div class="mtitle">@(motor.DisplayNumber switch
+                        {
+                            1 => "M1 Density",
+                            2 => "M2 Density",
+                            3 => "M4 Density",
+                            4 => "M3 Density",
+                            _ => $"DEN {motor.DisplayNumber}",
+                        })</div>
                     @if (motor.Pending)
                     {
                         <span class="run-state pending-state">PENDIENTE</span>
@@ -57,34 +64,34 @@
         }
     </section>
 
-    <section class="section-title">Feet</section>
+    <section class="section-title">PRESET</section>
     <section class="block-grid program2-feet-grid">
         @for (int index = 1; index <= 2; index++)
         {
             int feet = index;
             <section class="cabezal-block">
                 <div class="blk-head">
-                    <div class="blk-title">@($"Feet {feet}")</div>
+                    <div class="blk-title">@(feet == 1 ? "Preset Back" : "Preset Front")</div>
                 </div>
                 <div class="blk-actions program2-feet-actions">
                     <button class="mini-btn"
                             type="button"
                             disabled="@ActionsBlocked"
                             @onclick="() => TriggerFeetAsync(feet)">
-                        @($"FEET {feet}")
+                        ACTIVAR
                     </button>
                 </div>
             </section>
         }
     </section>
 
-    <section class="section-title">J1..J4</section>
+    <section class="section-title">MÓDULOS DE SELECCIÓN</section>
     <section class="j-grid">
         @foreach (Program2JGroup group in JGroups)
         {
             <section class="j-card program2-state-card @(group.Running ? "running" : null) @(group.Pending ? "pending" : null)">
                 <div class="j-head">
-                    <div class="j-title">@($"J{group.DisplayNumber}")</div>
+                    <div class="j-title">@($"Mod{group.DisplayNumber} Selección")</div>
                     @if (group.Pending)
                     {
                         <span class="run-state pending-state">PENDIENTE</span>
@@ -124,11 +131,11 @@
         }
     </section>
 
-    <section class="section-title">Yarn</section>
+    <section class="section-title">BOBINAS GUÍA HILOS</section>
     <section class="block-grid">
         <section class="cabezal-block program2-state-card @(YarnRunning ? "running" : null) @(YarnPending ? "pending" : null)">
             <div class="blk-head">
-                <div class="blk-title">Yarn 1</div>
+                <div class="blk-title">Guía Hilos</div>
                 @if (YarnPending)
                 {
                     <span class="run-state pending-state">PENDIENTE</span>
@@ -165,13 +172,13 @@
         </section>
     </section>
 
-    <section class="section-title">Stitch</section>
+    <section class="section-title">MOTOR TRANSFER</section>
     <section class="block-grid">
         @foreach (Program2StitchMotor stitch in StitchMotors)
         {
             <section class="cabezal-block program2-state-card @(stitch.Running ? "running" : null) @(stitch.Pending ? "pending" : null)">
                 <div class="blk-head">
-                    <div class="blk-title">@($"Stitch {stitch.Number}")</div>
+                    <div class="blk-title">@(stitch.Number == 1 ? "M Transfer Back" : "M Transfer Front")</div>
                     @if (stitch.Pending)
                     {
                         <span class="run-state pending-state">PENDIENTE</span>

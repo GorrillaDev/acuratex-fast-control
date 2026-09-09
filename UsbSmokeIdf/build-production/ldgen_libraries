@@ -212,5 +212,6 @@ C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/joltwallet
 C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/main/libmain.a
 C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/AcuratexUsb/libAcuratexUsb.a
 C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/driver/libdriver.a
+C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/esp_driver_ledc/libesp_driver_ledc.a
 C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/esp_driver_twai/libesp_driver_twai.a
 C:/Proyectos/AcuratexFastControl/UsbSmokeIdf/build-production/esp-idf/joltwallet__littlefs/libjoltwallet__littlefs.a

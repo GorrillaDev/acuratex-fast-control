@@ -28,7 +28,7 @@
             </div>
 
             <nav class="unified-nav" aria-label="Vistas Sistema Unificado">
-                <button class="@UnifiedNavItemClass("servo")" type="button" @onclick='() => SelectTab("servo")'>
+                <button class="@UnifiedNavItemClass("servo")" type="button" @onclick="RequestServoDashboard">
                     <span class="unified-nav-icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <path d="M4 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6zM14 6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6zM4 16a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2zM14 16a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
@@ -84,6 +84,65 @@
         </section>
     </section>
 
+    @if (_showServoWarning)
+    {
+        <div class="app-alert-overlay" @onclick="CloseServoWarning">
+            <section class="app-alert-modal servo-safety-modal"
+                     role="alertdialog"
+                     aria-modal="true"
+                     aria-labelledby="servo-warning-title"
+                     aria-describedby="servo-warning-message"
+                     @onclick:stopPropagation="true">
+                <button class="servo-safety-close" type="button" aria-label="Cerrar advertencia" @onclick="CloseServoWarning">×</button>
+                <div class="app-alert-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 8v5M12 17h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+                        <path d="M4.5 20h15a1.6 1.6 0 0 0 1.38-2.4L13.38 4.7a1.6 1.6 0 0 0-2.76 0L3.12 17.6A1.6 1.6 0 0 0 4.5 20Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                    </svg>
+                </div>
+
+                <div class="app-alert-content">
+                    <h2 id="servo-warning-title">ADVERTENCIA</h2>
+                    <p id="servo-warning-message">Usted iniciará el testeo de los motores principales sin haber inicializado la posición del cabezal. ¿Desea continuar?</p>
+                </div>
+
+                <div class="app-alert-actions servo-safety-actions">
+                    <button class="servo-safety-button is-safe" type="button" autofocus @onclick="GoToHeadInitialization">INICIALIZAR CABEZAL</button>
+                    <button class="servo-safety-button is-danger" type="button" @onclick="RequestForcedServoDashboard">FORZAR TESTEO</button>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (_showServoForceWarning)
+    {
+        <div class="app-alert-overlay" @onclick="CloseServoWarning">
+            <section class="app-alert-modal servo-safety-modal is-force"
+                     role="alertdialog"
+                     aria-modal="true"
+                     aria-labelledby="servo-force-warning-title"
+                     aria-describedby="servo-force-warning-message"
+                     @onclick:stopPropagation="true">
+                <button class="servo-safety-close" type="button" aria-label="Cerrar advertencia" @onclick="CloseServoWarning">×</button>
+                <div class="app-alert-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M12 8v5M12 17h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+                        <path d="M4.5 20h15a1.6 1.6 0 0 0 1.38-2.4L13.38 4.7a1.6 1.6 0 0 0-2.76 0L3.12 17.6A1.6 1.6 0 0 0 4.5 20Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+                    </svg>
+                </div>
+
+                <div class="app-alert-content">
+                    <h2 id="servo-force-warning-title">VERIFICACIÓN DE SEGURIDAD</h2>
+                    <p id="servo-force-warning-message">Asegúrese de que el cabezal y sus actuadores se encuentren en la posición inicial antes de continuar con el testeo de los motores principales.</p>
+                </div>
+
+                <div class="app-alert-actions servo-safety-actions">
+                    <button class="servo-safety-button is-warning" type="button" autofocus @onclick="ConfirmForcedServoDashboard">ACEPTAR</button>
+                </div>
+            </section>
+        </div>
+    }
+
     <AppAlertModal />
 </main>
 
@@ -97,6 +156,8 @@
     private DotNetObjectReference<UnifiedSystemShell>? _selfReference;
     private int _escapeHotkeyHandle;
     private bool _escapeRegistered;
+    private bool _showServoWarning;
+    private bool _showServoForceWarning;
 
     // [ACURATEX] El catálogo de comandos se filtra por categoría para alimentar la vista.
     // [FLUJO] Host.Commands -> filtro por categoría -> panel de botones visibles.
@@ -162,6 +223,38 @@
     private void SelectTab(string tab)
     {
         _selectedTab = tab;
+    }
+
+    private void RequestServoDashboard()
+    {
+        if (_selectedTab == "servo") return;
+
+        _showServoWarning = true;
+        _showServoForceWarning = false;
+    }
+
+    private void GoToHeadInitialization()
+    {
+        CloseServoWarning();
+        SelectTab("cabezal");
+    }
+
+    private void RequestForcedServoDashboard()
+    {
+        _showServoWarning = false;
+        _showServoForceWarning = true;
+    }
+
+    private void ConfirmForcedServoDashboard()
+    {
+        CloseServoWarning();
+        SelectTab("servo");
+    }
+
+    private void CloseServoWarning()
+    {
+        _showServoWarning = false;
+        _showServoForceWarning = false;
     }
 
     // [ACURATEX] Convierte la pestaña elegida en clase CSS activa o inactiva.

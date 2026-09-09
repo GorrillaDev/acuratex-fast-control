@@ -134,6 +134,9 @@ public sealed class RoleService
             UserPermission.TestRunUnificado,
             UserPermission.HeadProgramSelect,
 
+            UserPermission.ConfigView,
+            UserPermission.ConfigEditBasic,
+
             UserPermission.DeviceInfoView,
             UserPermission.FirmwareInfoView,
             UserPermission.FirmwareStatusView,
