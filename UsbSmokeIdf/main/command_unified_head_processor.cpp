@@ -18,9 +18,16 @@ static const char *TAG = "uni_head_cmd";
 
 static int app_unified_active_bus(const app_command_env_t *env)
 {
-    return env != NULL && env->active_bus == APP_CMD_CAN_BUS_2
-        ? APP_CMD_CAN_BUS_2
-        : APP_CMD_CAN_BUS_1;
+    (void)env;
+    return APP_UNIFIED_HEAD_PHYSICAL_CAN_BUS;
+}
+
+static app_command_env_t app_unified_env_on_can1(const app_command_env_t *env)
+{
+    app_command_env_t fixed = *env;
+    fixed.active_bus = APP_UNIFIED_HEAD_PHYSICAL_CAN_BUS;
+    fixed.active_bus_name = "CAN1";
+    return fixed;
 }
 
 static esp_err_t app_unified_reply_for_line(app_reply_fn_t reply,
@@ -357,11 +364,13 @@ esp_err_t app_unified_head_process_line(const char *line,
     if (strcasecmp(line, "uni_init") == 0) {
         if (app_head_state_manager_has_active_motion() || app_head_fast_diag_is_busy()) return reply("ERR|UNI|INIT_BUSY", ctx);
         (void)app_head_state_manager_init_with_profile(profile);
-        return app_head_fast_diag_start_init_profile(env, ctx, profile) == ESP_OK ? reply("OK uni_init", ctx) : reply("ERR|UNI|INIT", ctx);
+        const app_command_env_t can1_env = app_unified_env_on_can1(env);
+        return app_head_fast_diag_start_init_profile(&can1_env, ctx, profile) == ESP_OK ? reply("OK uni_init", ctx) : reply("ERR|UNI|INIT", ctx);
     }
     if (strcasecmp(line, "uni_testeo") == 0) {
         if (app_head_state_manager_has_active_motion() || app_head_fast_diag_is_busy() || !app_head_fast_diag_testeo_can_start()) return reply("ERR|UNI|TESTEO_BUSY", ctx);
-        return app_head_fast_diag_start_testeo_profile(env, ctx, profile) == ESP_OK ? reply("OK uni_testeo", ctx) : reply("ERR|UNI|TESTEO", ctx);
+        const app_command_env_t can1_env = app_unified_env_on_can1(env);
+        return app_head_fast_diag_start_testeo_profile(&can1_env, ctx, profile) == ESP_OK ? reply("OK uni_testeo", ctx) : reply("ERR|UNI|TESTEO", ctx);
     }
     if (strcasecmp(line, "uni_stop") == 0 || strcasecmp(line, "uni_emergency_stop") == 0) {
         const bool emergency =

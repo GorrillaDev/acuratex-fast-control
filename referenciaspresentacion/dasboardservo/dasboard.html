@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>U3 · Servos por CAN2</title>
+<style>
+:root{
+  --bg:#f4f7fb;--card:#fff;--line:#dce3ee;--txt:#172033;--muted:#687386;
+  --blue:#2563eb;--green:#159447;--red:#d92d20;--amber:#b76e00;--shadow:0 12px 34px rgba(29,47,78,.09)
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:Segoe UI,Arial,sans-serif}
+main{width:min(1380px,calc(100% - 24px));margin:auto;padding:22px 0 40px}
+header{display:flex;justify-content:space-between;gap:15px;align-items:center;margin-bottom:18px}
+h1{margin:0;font-size:clamp(1.5rem,4vw,2.2rem)}
+.sub{color:var(--muted);margin-top:6px}
+.conn{background:#fff;border:1px solid var(--line);border-radius:999px;padding:9px 13px;font-weight:700;white-space:nowrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#999;margin-right:7px}
+.dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
+.card.full{grid-column:1/-1}
+.cardHead{padding:18px 19px;border-bottom:1px solid var(--line)}
+.cardHead h2{margin:0 0 5px}.pins{font-size:.8rem;color:var(--muted)}
+.body{padding:18px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:12px}
+.label{font-size:.73rem;font-weight:800;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:15px 0 7px}
+button,input{font:inherit}
+button{min-height:45px;border-radius:12px;border:1px solid var(--line);font-weight:800;cursor:pointer}
+.on{background:#e9f8ef;color:var(--green)}.off{background:#fff0ef;color:var(--red)}
+.blue{background:#eaf1ff;color:var(--blue)}.dark{background:#172033;color:#fff}
+.amber{background:#fff6e6;color:var(--amber)}
+.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.init{background:var(--green);color:#fff;border-color:var(--green);font-size:1rem}
+button:disabled{opacity:.4;cursor:not-allowed}
+input{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px;font-weight:700}
+.status{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:12px}
+.stat{background:#f7f9fc;border:1px solid #e6ebf3;border-radius:10px;padding:9px}
+.stat small{display:block;color:var(--muted);font-size:.65rem}.stat b{font-size:.9rem}
+.moveBox{background:#f7f9fc;border:1px solid #e6ebf3;border-radius:14px;padding:13px;margin-top:10px}
+.hint{font-size:.75rem;color:var(--muted);margin-top:7px;line-height:1.45}
+.warn{background:#fff8e8;color:#7a4d00;border:1px solid #f2d49d;border-radius:12px;padding:11px;margin-bottom:14px;font-weight:700}
+.log{margin-top:14px;background:#101828;color:#d1e0ff;border-radius:12px;padding:11px;font:12px Consolas,monospace;min-height:52px;white-space:pre-wrap}
+.host{display:flex;gap:8px;margin-top:11px;align-items:center}
+.host input{flex:1;min-width:0}
+.raw{display:grid;grid-template-columns:1fr auto;gap:8px}
+.raw input{font-family:Consolas,monospace}
+@media(max-width:1050px){.grid{grid-template-columns:1fr 1fr}.card.full,#cardStepper{grid-column:1/-1}}
+@media(max-width:760px){header{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr}.card.full,#cardStepper{grid-column:auto}.status,.row3{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>U3 · Servos por CAN2</h1>
+    <div class="sub">CAN2 motores independiente · TX GPIO7 · RX GPIO15 · STBY GPIO16</div>
+  </div>
+  <div class="conn"><span id="dot" class="dot"></span><span id="conn">Conectando...</span></div>
+</header>
+
+<div class="warn">
+  U3 · CAN2 de banco. <b>Servo CAN 1 usa posición dinámica 0x352 y Servo CAN 2 ya usa velocidad/dirección 1..30 por sentido.</b>
+  Motor CAN 3 sigue pendiente. El STOP de Servo CAN 2 usa la trama ESC/OFF validada en banco.
+</div>
+
+<section class="grid">
+  <article class="card full">
+    <div class="cardHead">
+      <h2>CAN2 · U3</h2>
+      <div class="pins">Multiplexado con el TWAI interno · CAN1 4/5/6 · CAN2 7/15/16</div>
+    </div>
+    <div class="body">
+      <div class="row3">
+        <button class="blue" onclick="u3Cmd('start')">ACTIVAR CAN2 · U3</button>
+        <button id="initBtn" class="init" onclick="u3Init()">INIT U3</button>
+        <button class="dark" onclick="backCan1()">VOLVER A CAN1 · CABEZALES</button>
+      </div>
+
+      <div class="hint">
+        El botón INIT ejecuta exclusivamente <b>U3_INIT_SEQ[]</b> del firmware.
+        Esa es la sección reservada para pegar las tramas reales de inicialización del CAN de motores.
+      </div>
+
+      <div class="label">Enviar trama CAN2 cruda</div>
+      <div class="raw">
+        <input id="rawFrame" type="text" placeholder="Ej: 123 01 02 03 04">
+        <button class="primary" onclick="sendRaw()">ENVIAR CAN2</button>
+      </div>
+      <div class="hint">Formato: ID hexadecimal seguido de 0 a 8 bytes hexadecimales.</div>
+
+      <div class="status">
+        <div class="stat"><small>BUS ACTIVO</small><b id="busStat">--</b></div>
+        <div class="stat"><small>INIT</small><b id="initStat">--</b></div>
+        <div class="stat"><small>PROGRESO INIT</small><b id="initProgress">--</b></div>
+        <div class="stat"><small>ÚLTIMO RX CAN2</small><b id="rxStat">--</b></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="cardHead">
+      <h2>Servo CAN 1 · Secuencia</h2>
+      <div class="pins">Posición CAN 0x352 · Config A validada en banco · secuencia cíclica</div>
+    </div>
+    <div class="body">
+      <div class="label">Servo ON</div>
+      <div class="row">
+        <button class="on" onclick="u3Cmd('servo1_son_on')">SON ON</button>
+        <button class="off" onclick="u3Cmd('servo1_son_off')">SON OFF</button>
+      </div>
+
+      <div class="moveBox">
+        <div class="label" style="margin-top:0">Posiciones / parámetros</div>
+        <div class="row3">
+          <input id="s1P1" type="number" value="0" placeholder="P1">
+          <input id="s1P2" type="number" value="500" placeholder="P2">
+          <input id="s1P3" type="number" value="1000" placeholder="P3">
+        </div>
+
+        <div class="label">Secuencia</div>
+        <input id="s1Seq" type="text" value="123" maxlength="64">
+
+        <div class="label">Frecuencia de secuencia CAN (Hz)</div>
+        <input id="s1Hz" type="number" value="1" min="0.001" max="1000" step="0.1">
+
+        <div class="row" style="margin-top:12px;margin-bottom:0">
+          <button class="primary" onclick="sendS1Config()">INICIAR SECUENCIA</button>
+          <button class="off" onclick="u3Cmd('servo1_sequence_stop')">STOP SECUENCIA</button>
+        </div>
+      </div>
+
+      <div class="status">
+        <div class="stat"><small>SECUENCIA</small><b id="s1SeqStat">STOP</b></div>
+        <div class="stat"><small>ÚLTIMO TARGET</small><b id="s1TargetStat">--</b></div>
+        <div class="stat"><small>TX POSICIÓN</small><b id="s1TxStat">0</b></div>
+        <div class="stat"><small>SEED</small><b id="s1SeedStat">--</b></div>
+      </div>
+      <div class="hint">
+        Última trama 0x352: <b id="s1FrameStat" style="font-family:Consolas,monospace">--</b><br>
+        Por ahora el Hz define el intervalo entre órdenes CAN; todavía no espera una señal de “movimiento terminado”.
+        Los botones SON permanecen como slots separados hasta identificar su trama real.
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="cardHead">
+      <h2>Servo CAN 2 · Velocidad</h2>
+      <div class="pins">ID 0x352 · 30 niveles por sentido · derecha (+) / izquierda (-)</div>
+    </div>
+    <div class="body">
+      <div class="label">Dirección</div>
+      <div class="row">
+        <button id="s2LeftBtn" onclick="setS2Dir(-1)">IZQUIERDA (-)</button>
+        <button id="s2RightBtn" class="blue" onclick="setS2Dir(1)">DERECHA (+)</button>
+      </div>
+
+      <div class="label">Velocidad · nivel original 1..30</div>
+      <div class="moveBox" style="margin-top:0">
+        <input id="s2SpeedRange" type="range" min="1" max="30" step="1" value="10"
+               oninput="syncS2Speed(this.value,false)" onchange="applyS2Speed()">
+        <div class="raw" style="margin-top:9px">
+          <input id="s2Speed" type="number" min="1" max="30" step="1" value="10"
+                 oninput="syncS2Speed(this.value,true)">
+          <button class="blue" onclick="applyS2Speed()">APLICAR VELOCIDAD</button>
+        </div>
+        <div class="hint">
+          El firmware usa la tabla desentramada de 30 magnitudes. Si el motor ya está RUN,
+          cambiar velocidad o dirección reenvía automáticamente la ráfaga con el nuevo valor.
+        </div>
+      </div>
+
+      <div class="label">Movimiento</div>
+      <div class="row">
+        <button class="primary" onclick="u3Cmd('servo2_run_on')">RUN</button>
+        <button class="off" onclick="u3Cmd('servo2_run_off')">STOP / ESC</button>
+      </div>
+
+      <div class="status">
+        <div class="stat"><small>ESTADO</small><b id="s2RunStat">STOP</b></div>
+        <div class="stat"><small>VELOCIDAD</small><b id="s2SpeedStat">+10</b></div>
+        <div class="stat"><small>MAG CAN</small><b id="s2MagStat">100</b></div>
+        <div class="stat"><small>TX</small><b id="s2TxStat">0</b></div>
+      </div>
+      <div class="hint">
+        Última trama variable 0x352: <b id="s2FrameStat" style="font-family:Consolas,monospace">--</b><br>
+        Dirección y velocidad viajan en la misma orden; no se usa una trama DIR separada.
+      </div>
+    </div>
+  </article>
+
+  <article class="card" id="cardStepper">
+    <div class="cardHead">
+      <h2>Motor CAN 3 / Stepper · DEBUG GPIO</h2>
+      <div class="pins">IR2104 directo · SD_A 47 · SD_B 48 · IN_A+ 39 · IN_A- 11 · IN_B+ 12 · IN_B- 13</div>
+    </div>
+    <div class="body">
+      <div class="warn" style="margin-bottom:12px">
+        Modo de banco: cada botón hace <b>TOGGLE</b> del GPIO real. Al tomar control se detiene el
+        stepper PULSE/DIR legado y Servo 2 local porque GPIO11/12/13 se comparten.
+        <b>TODO LOW</b> deja SD_A=0 y SD_B=0 (IR2104 apagados).
+      </div>
+
+      <div class="row">
+        <button id="stepDebugBtn" class="blue" onclick="u3Cmd('step_gpio_debug_on')">TOMAR CONTROL GPIO</button>
+        <button class="off" onclick="u3Cmd('step_gpio_all_off')">TODO LOW · SAFE OFF</button>
+      </div>
+
+      <div class="label">Shutdown / Enable de fases</div>
+      <div class="row">
+        <button id="gpioSda" onclick="toggleStepGpio('sda')">SD_A · GPIO47 · --</button>
+        <button id="gpioSdb" onclick="toggleStepGpio('sdb')">SD_B · GPIO48 · --</button>
+      </div>
+
+      <div class="label">Fase A</div>
+      <div class="row">
+        <button id="gpioInap" onclick="toggleStepGpio('inap')">IN_A+ · GPIO39 · --</button>
+        <button id="gpioInam" onclick="toggleStepGpio('inam')">IN_A- · GPIO11 · --</button>
+      </div>
+
+      <div class="label">PRUEBA MOTOR REAL · FULL-STEP CONSERVADOR</div>
+      <div class="warn" style="margin-bottom:10px">
+        Secuencia: <b>A+B+ → A-B+ → A-B- → A+B-</b>.<br>
+        PWM de potencia/bootstrap fijo: <b>2 kHz / 10%</b>.<br>
+        Velocidad configurable: <b>10 a 3000 pasos/s</b>.<br>
+        Al pulsar STOP: <b>SD_A=0 y SD_B=0</b>, sin corriente de holding.
+        Mantén el bus de 24 V limitado externamente durante esta prueba.
+      </div>
+      <div class="row">
+        <button id="motorFwdBtn" class="blue" onclick="u3Cmd('step_motor_fwd')">MOTOR → FWD</button>
+        <button id="motorStopBtn" class="off" onclick="u3Cmd('step_motor_stop')">STOP MOTOR</button>
+        <button id="motorRevBtn" class="blue" onclick="u3Cmd('step_motor_rev')">MOTOR ← REV</button>
+      </div>
+
+      <div class="row" style="align-items:center">
+        <label style="min-width:140px">Velocidad motor</label>
+        <input id="motorStepHzInput" type="number" min="10" max="3000" step="10" value="100"
+               style="width:120px;padding:10px;border-radius:10px;border:1px solid #4b5563;background:#111827;color:#fff">
+        <button id="motorSpeedApplyBtn" class="blue" onclick="setMotorStepHz()">APLICAR pasos/s</button>
+      </div>
+      <div class="status">
+        <div class="stat"><small>MOTOR</small><b id="motorRunStat">STOP</b></div>
+        <div class="stat"><small>DIRECCIÓN</small><b id="motorDirStat">--</b></div>
+        <div class="stat"><small>ESTADO FULL-STEP</small><b id="motorStateStat">--</b></div>
+        <div class="stat"><small>PWM MOTOR</small><b id="motorPwmStat">2 kHz / 10%</b></div>
+      </div>
+
+      <div class="label">Prueba bootstrap PWM · SOLO FOCO entre los extremos de UNA fase</div>
+      <div class="warn" style="margin-bottom:10px">
+        Frecuencia fija <b>2 kHz</b>, duty fijo <b>80%</b>. Solo puede existir <b>una prueba PWM activa a la vez</b>.
+        Al iniciar una prueba, la otra fase queda deshabilitada y el IN opuesto de la fase probada queda LOW.
+      </div>
+      <div class="row">
+        <button id="pwmApBtn" class="blue" onclick="u3Cmd('step_pwm_ap_start')">PWM A+ · GPIO39</button>
+        <button id="pwmAmBtn" class="blue" onclick="u3Cmd('step_pwm_am_start')">PWM A- · GPIO11</button>
+      </div>
+
+      <div class="label">Fase B</div>
+      <div class="row">
+        <button id="gpioInbp" onclick="toggleStepGpio('inbp')">IN_B+ · GPIO12 · --</button>
+        <button id="gpioInbm" onclick="toggleStepGpio('inbm')">IN_B- · GPIO13 · --</button>
+      </div>
+      <div class="row">
+        <button id="pwmBpBtn" class="blue" onclick="u3Cmd('step_pwm_bp_start')">PWM B+ · GPIO12</button>
+        <button id="pwmBmBtn" class="blue" onclick="u3Cmd('step_pwm_bm_start')">PWM B- · GPIO13</button>
+        <button class="off" onclick="u3Cmd('step_pwm_stop')">STOP PWM</button>
+      </div>
+
+      <div class="status">
+        <div class="stat"><small>MODO GPIO</small><b id="stepDbgStat">INACTIVO</b></div>
+        <div class="stat"><small>SD_A / SD_B</small><b id="stepSdStat">0 / 0</b></div>
+        <div class="stat"><small>FASE A</small><b id="stepAStat">0 / 0</b></div>
+        <div class="stat"><small>FASE B</small><b id="stepBStat">0 / 0</b></div>
+      </div>
+
+      <div class="label">CAN3 anterior / pendiente</div>
+      <div class="row">
+        <button onclick="u3Cmd('step_dir_0')">DIR 0</button>
+        <button onclick="u3Cmd('step_dir_1')">DIR 1</button>
+      </div>
+      <div class="row">
+        <button class="blue" onclick="u3Cmd('step_run_on')">RUN CAN3</button>
+        <button class="off" onclick="u3Cmd('step_run_off')">STOP CAN3</button>
+      </div>
+    </div>
+  </article>
+</section>
+
+<div id="log" class="log">U3 listo para conectar al ESP32...</div>
+<div class="host">
+  <b>ESP32:</b>
+  <input id="host" type="text">
+  <button onclick="refresh()">ACTUALIZAR</button>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+
+function defaultHost(){
+  if(location.protocol==="http:"||location.protocol==="https:") return location.origin;
+  return "http://192.168.4.1";
+}
+$("host").value=localStorage.getItem("u3Host")||defaultHost();
+function base(){return $("host").value.trim().replace(/\/+$/,'')}
+
+async function req(path,ms=2500){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{
+    const r=await fetch(base()+path,{cache:"no-store",signal:c.signal});
+    const txt=await r.text();
+    if(!r.ok)throw new Error("HTTP "+r.status+" · "+txt);
+    return txt;
+  }finally{clearTimeout(t)}
+}
+
+function log(x,err=false){
+  $("log").textContent="["+new Date().toLocaleTimeString()+"] "+x;
+  $("log").style.color=err?"#ffb4ab":"#d1e0ff";
+}
+
+async function u3Cmd(name){
+  const ep="/u3/cmd?do="+encodeURIComponent(name)+"&_="+Date.now();
+  try{
+    log("U3 TX CMD: "+name);
+    const r=await req(ep,3500);
+    log(name+" -> "+r);
+    setTimeout(refresh,100);
+    return r;
+  }catch(e){log(e.message,true);throw e}
+}
+
+async function u3Init(){
+  try{
+    await u3Cmd("init");
+    log("INIT solicitado. Revisa progreso y log serial.");
+  }catch(e){}
+}
+
+async function backCan1(){
+  try{
+    await req("/u3/cmd?do=servo1_sequence_stop&_="+Date.now(),3500);
+    const r=await req("/cmd?do=start&_="+Date.now(),3500);
+    log("Secuencia U3 detenida · CAN1 cabezales -> "+r);
+    setTimeout(refresh,100);
+  }catch(e){log(e.message,true)}
+}
+
+async function sendRaw(){
+  const line=$("rawFrame").value.trim();
+  if(!line){log("Escribe una trama CAN2.",true);return}
+  try{
+    const r=await req("/u3/send?line="+encodeURIComponent(line)+"&_="+Date.now(),3500);
+    log("CAN2 RAW "+line+" -> "+r);
+    setTimeout(refresh,100);
+  }catch(e){log(e.message,true)}
+}
+
+async function sendS1Config(){
+  const p1=$("s1P1").value.trim();
+  const p2=$("s1P2").value.trim();
+  const p3=$("s1P3").value.trim();
+  const seq=$("s1Seq").value.trim();
+  const hz=$("s1Hz").value.trim();
+
+  try{
+    const ep="/u3/servo1/config?p1="+encodeURIComponent(p1)+
+      "&p2="+encodeURIComponent(p2)+
+      "&p3="+encodeURIComponent(p3)+
+      "&seq="+encodeURIComponent(seq)+
+      "&hz="+encodeURIComponent(hz)+
+      "&_="+Date.now();
+
+    const r=await req(ep,3500);
+    log("Servo CAN 1 · secuencia 0x352 -> "+r);
+  }catch(e){log(e.message,true)}
+}
+
+function syncS2Speed(value,fromNumber){
+  let v=Math.round(Number(value));
+  if(!Number.isFinite(v))v=10;
+  v=Math.max(1,Math.min(30,v));
+  $("s2Speed").value=String(v);
+  $("s2SpeedRange").value=String(v);
+  if(fromNumber && String(value)!==String(v)) $("s2Speed").value=String(v);
+}
+
+async function applyS2Speed(){
+  syncS2Speed($("s2Speed").value,true);
+  const v=$("s2Speed").value;
+  try{
+    await u3Cmd("servo2_speed_"+v);
+  }catch(e){}
+}
+
+async function setS2Dir(dir){
+  const left=Number(dir)<0;
+  try{
+    await u3Cmd(left?"servo2_dir_left":"servo2_dir_right");
+  }catch(e){}
+}
+
+async function u3ValueCmd(prefix,value){
+  try{
+    await u3Cmd(prefix+"_"+String(value).trim());
+  }catch(e){}
+}
+
+async function toggleStepGpio(name){
+  try{
+    await u3Cmd("step_gpio_"+name);
+  }catch(e){}
+}
+
+function paintGpioButton(id,label,gpio,value){
+  const el=$(id);
+  if(!el)return;
+  const on=Number(value)===1 || value===true;
+  el.textContent=label+" · GPIO"+gpio+" · "+(on?"HIGH":"LOW");
+  el.className=on?"on":"off";
+}
+
+function initName(v){
+  v=Number(v);
+  if(v===0)return"IDLE";
+  if(v===1)return"RUNNING";
+  if(v===2)return"DONE";
+  if(v===3)return"ERROR";
+  return String(v);
+}
+
+async function refresh(){
+  try{
+    const j=JSON.parse(await req("/u3/status?_="+Date.now(),1800));
+
+    $("dot").className="dot ok";
+    $("conn").textContent="ESP32 conectado";
+
+    $("busStat").textContent=j.can_active?"CAN2 / U3":"CAN2 inactivo";
+    $("initStat").textContent=initName(j.init_state)+" · "+(j.init_msg||"");
+    $("initProgress").textContent=(j.init_i||0)+" / "+(j.init_n||0);
+
+    $("s1SeqStat").textContent=j.s1_seq_active ? "RUNNING" : "STOP";
+    $("s1TargetStat").textContent=(j.s1_tx_count||0)>0 ? String(j.s1_last_target) : "--";
+    $("s1TxStat").textContent=String(j.s1_tx_count||0);
+    $("s1SeedStat").textContent=(j.s1_tx_count||0)>0
+      ? "0x"+Number(j.s1_last_seed||0).toString(16).toUpperCase().padStart(2,"0")
+      : "--";
+    $("s1FrameStat").textContent=(j.s1_tx_count||0)>0 ? String(j.s1_last_frame||"--") : "--";
+
+    const s2dir=Number(j.s2_dir||1)<0?-1:1;
+    const s2speed=Math.max(1,Math.min(30,Number(j.s2_speed||10)));
+    $("s2RunStat").textContent=j.s2_run ? "RUN" : "STOP";
+    $("s2SpeedStat").textContent=(s2dir<0?"-":"+")+String(s2speed);
+    $("s2MagStat").textContent=String(j.s2_magnitude||0);
+    $("s2TxStat").textContent=String(j.s2_tx_count||0);
+    $("s2FrameStat").textContent=(j.s2_tx_count||0)>0 ? String(j.s2_last_frame||"--") : "--";
+    $("s2LeftBtn").className=s2dir<0?"blue":"";
+    $("s2RightBtn").className=s2dir>0?"blue":"";
+    if(document.activeElement!==$("s2Speed")){
+      $("s2Speed").value=String(s2speed);
+      $("s2SpeedRange").value=String(s2speed);
+    }
+
+    const dbg=!!j.step_gpio_debug_active;
+    $("stepDbgStat").textContent=dbg?"ACTIVO":"INACTIVO";
+    $("stepDebugBtn").className=dbg?"on":"blue";
+
+    paintGpioButton("gpioSda","SD_A",47,j.step_gpio_sda);
+    paintGpioButton("gpioSdb","SD_B",48,j.step_gpio_sdb);
+    paintGpioButton("gpioInap","IN_A+",39,j.step_gpio_inap);
+    paintGpioButton("gpioInam","IN_A-",11,j.step_gpio_inam);
+    paintGpioButton("gpioInbp","IN_B+",12,j.step_gpio_inbp);
+    paintGpioButton("gpioInbm","IN_B-",13,j.step_gpio_inbm);
+
+    $("stepSdStat").textContent=String(j.step_gpio_sda||0)+" / "+String(j.step_gpio_sdb||0);
+    const pwmMode=String(j.step_pwm_mode||"OFF");
+    $("stepAStat").textContent=(pwmMode==="A+" || pwmMode==="A-")
+      ? "PWM "+pwmMode+" "+String(j.step_pwm_hz||2000)+" Hz / 80%"
+      : String(j.step_gpio_inap||0)+" / "+String(j.step_gpio_inam||0);
+    $("stepBStat").textContent=(pwmMode==="B+" || pwmMode==="B-")
+      ? "PWM "+pwmMode+" "+String(j.step_pwm_hz||2000)+" Hz / 80%"
+      : String(j.step_gpio_inbp||0)+" / "+String(j.step_gpio_inbm||0);
+    $("pwmApBtn").className=j.step_pwm_ap_active?"on":"blue";
+    $("pwmAmBtn").className=j.step_pwm_am_active?"on":"blue";
+    $("pwmBpBtn").className=j.step_pwm_bp_active?"on":"blue";
+    $("pwmBmBtn").className=j.step_pwm_bm_active?"on":"blue";
+
+    const motorRun=!!j.step_motor_running;
+    const motorDir=Number(j.step_motor_dir||1)>=0?1:-1;
+    const motorStates=["A+ B+","A- B+","A- B-","A+ B-"];
+    $("motorRunStat").textContent=motorRun?"RUN":"STOP";
+    $("motorDirStat").textContent=motorRun?(motorDir>0?"FWD →":"REV ←"):"--";
+    $("motorStateStat").textContent=motorRun
+      ? motorStates[Number(j.step_motor_state||0)&3]
+      : "--";
+    $("motorPwmStat").textContent=String(j.step_motor_pwm_hz||2000)+" Hz / "+
+      String(j.step_motor_pwm_duty_pct||10)+"% · "+String(j.step_motor_step_hz||100)+" pasos/s";
+    // NO sobrescribir el campo editable en cada refresh.
+    // El valor real aplicado ya se muestra arriba en motorPwmStat.
+    // Así el polling de 350 ms no devuelve el input a 100 mientras el usuario escribe/aplica.
+    $("motorFwdBtn").className=(motorRun&&motorDir>0)?"on":"blue";
+    $("motorRevBtn").className=(motorRun&&motorDir<0)?"on":"blue";
+
+    if(Number(j.rx_count||0)>0){
+      $("rxStat").textContent="0x"+String(j.rx_id||"").toUpperCase()+
+        " ["+String(j.rx_dlc||0)+"] "+String(j.rx_data||"");
+    }else{
+      $("rxStat").textContent="Sin RX";
+    }
+  }catch(e){
+    $("dot").className="dot bad";
+    $("conn").textContent="Sin respuesta";
+  }
+}
+
+$("rawFrame").addEventListener("keydown",e=>{if(e.key==="Enter")sendRaw()});
+$("motorStepHzInput").addEventListener("keydown",e=>{if(e.key==="Enter")setMotorStepHz()});
+$("host").addEventListener("change",()=>{
+  localStorage.setItem("u3Host",$("host").value.trim());
+  refresh();
+});
+
+refresh();
+setInterval(refresh,350);
+async function setMotorStepHz(){
+  const el=$("motorStepHzInput");
+  let hz=parseInt(el.value||"100",10);
+  if(!Number.isFinite(hz)) hz=100;
+  hz=Math.max(10,Math.min(3000,hz));
+  el.value=String(hz);
+
+  const btn=$("motorSpeedApplyBtn");
+  if(btn){
+    btn.disabled=true;
+    btn.textContent="APLICANDO...";
+  }
+
+  try{
+    await u3Cmd("step_motor_speed="+hz);
+    // Mantener el valor solicitado visible; el estado real se confirma en motorPwmStat.
+    el.value=String(hz);
+    setTimeout(refresh,150);
+  }catch(e){
+    log("No se pudo aplicar velocidad motor: "+e.message,true);
+  }finally{
+    if(btn){
+      btn.disabled=false;
+      btn.textContent="APLICAR pasos/s";
+    }
+  }
+}
+
+</script>
+</body>
+</html>

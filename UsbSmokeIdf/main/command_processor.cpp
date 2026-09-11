@@ -12,6 +12,7 @@
 #include "file_transfer.h"
 #include "line_codec.h"
 #include "line_drive_control.h"
+#include "u3_motor_control.h"
 #include "head_state_manager.h"
 #include "head_fast_diag.h"
 #include "head_program_runtime.h"
@@ -1263,6 +1264,10 @@ bool app_command_line_is_physical(const char *incoming_line,
         return true;
     }
 
+    if (app_u3_motor_is_command(line) || app_line_drive_is_command(line)) {
+        return true;
+    }
+
     if (strcasecmp(line, "can1") == 0 || strcasecmp(line, "can2") == 0) {
         return true;
     }
@@ -1376,6 +1381,13 @@ esp_err_t app_command_process_line(const char *incoming_line,
         char response[160];
         (void)app_line_drive_process_line(line, response, sizeof(response));
         ESP_LOGI(TAG, "CMD CLASS [%s]: line_drive", app_transport_name(env));
+        return reply(response, ctx);
+    }
+    if (app_u3_motor_is_command(line)) {
+        char response[192];
+        esp_err_t err = app_u3_motor_process_line(line, response, sizeof(response));
+        ESP_LOGI(TAG, "CMD CLASS [%s]: u3_motors", app_transport_name(env));
+        (void)err;
         return reply(response, ctx);
     }
     if (strncasecmp(line, "uni_", 4) == 0) {
@@ -1543,6 +1555,7 @@ esp_err_t app_command_process_line(const char *incoming_line,
     }
 
     if (strcasecmp(line, "emergency_stop") == 0) {
+        app_u3_motor_emergency_stop();
         app_line_drive_safe_stop();
         ESP_LOGI(TAG, "CMD CLASS [%s]: emergency_stop", app_transport_name(env));
         app_head_state_manager_stop_all_motion();

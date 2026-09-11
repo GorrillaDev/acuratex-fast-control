@@ -1,17 +1,17 @@
-@* Panel servo del sistema unificado con posiciones, rutina y toggles. *@
 @implements IDisposable
 @inject IServoDashboardUnificadoCommandService CommandService
 @inject IEmergencyStopService EmergencyStop
-
-@* [ACURATEX] Esta vista traduce controles de servo en llamadas a servicios.
-   [FLUJO] Boton / toggle / drag / slider -> callback async -> comando -> firmware.
-   [EQUIV MCU] Se parece a un panel HMI que administra salidas y tablas de posiciones. *@
+@inject IConnectionController Connection
 
 <main class="servo-dashboard">
     <section class="servo-control-header">
-        @* [ACURATEX] La cabecera agrupa modo de trabajo e interlock de emergencia. *@
-        <h1 class="servo-control-title">MOTORES PRINCIPALES</h1>
-        <button class="@InitClass" type="button" @onclick="ToggleInitAsync">INIT</button>
+        <div>
+            <h1 class="servo-control-title">MOTORES PRINCIPALES</h1>
+            <p class="motor-dashboard-subtitle">Servos CAN por U3 / CAN2 y rodillo LINE DRIVE local</p>
+        </div>
+        <button class="@InitClass" type="button" disabled="@IsInitializing" @onclick="StartInitAsync">
+            @InitButtonText
+        </button>
     </section>
 
     @if (IsEmergencyLocked)
@@ -21,509 +21,297 @@
         </section>
     }
 
-    <section class="@DashboardGridClass">
-        <ServoDriveCardUnificado Title="Motor de Rodillo"
-                                 Subtitle=""
-                                 ExtraClass="motor-roller-card"
-                                 Toggles="@StepperToggles"
-                                 ToggleClicked="ToggleOutputAsync"
-                                 FrequencyLabel="Frecuencia"
-                                 FrequencyHz="@StepperFrequencyHz"
-                                 FrequencyMin="1"
-                                 FrequencyMax="50000"
-                                 Disabled="@IsEmergencyLocked"
-                                 FrequencyChanged="SetStepperFrequencyAsync" />
+    @if (!string.IsNullOrWhiteSpace(StatusMessage))
+    {
+        <section class="motor-status-line @StatusClass">@StatusMessage</section>
+    }
 
-        <ServoDriveCardUnificado Title="Motor de Cabezal"
-                                 Subtitle=""
-                                 ExtraClass="motor-head-card"
-                                 Toggles="@Servo1Toggles"
-                                 ToggleClicked="ToggleOutputAsync"
-                                 FrequencyLabel="Frecuencia"
-                                 FrequencyHz="@Servo1FrequencyHz"
-                                 FrequencyMin="1"
-                                 FrequencyMax="160000"
-                                 IndicatorLabel="Tiempo de Traslación"
-                                 IndicatorValue="1.00 s"
-                                 Disabled="@IsEmergencyLocked"
-                                 FrequencyChanged="SetServo1FrequencyAsync" />
+    <section class="motor-dashboard-grid emergency-lock-scope @(IsEmergencyLocked ? "is-locked" : string.Empty)">
+        <article class="motor-control-card">
+            <header>
+                <h2>MOTOR DE RAQUEO</h2>
+                <p>Servo CAN 1 · posición 0x352</p>
+            </header>
 
-        <section class="@Servo2CardClass">
-            <div class="servo-drive2-head">
-                <div>
-                    <h2>Motor de Raqueo</h2>
-                    <p>Control por posiciones</p>
-                </div>
-                <button class="@(RoutineEnabled ? "routine-toggle on" : "routine-toggle off")"
-                        type="button"
-                        disabled="@(!ShowRoutinePanel || IsEmergencyLocked)"
-                        @onclick="ToggleRoutineAsync">
-                    RUTINA @(RoutineEnabled ? "ON" : "OFF")
-                </button>
+            <div class="motor-position-grid">
+                <label>P1<input type="number" min="-32768" max="32767" @bind="RackingP1" disabled="@ControlsDisabled" /></label>
+                <label>P2<input type="number" min="-32768" max="32767" @bind="RackingP2" disabled="@ControlsDisabled" /></label>
+                <label>P3<input type="number" min="-32768" max="32767" @bind="RackingP3" disabled="@ControlsDisabled" /></label>
             </div>
 
-            @if (ShowRoutinePanel)
-            {
-                <section class="servo-drive2-topgrid">
-                    <section class="servo-preset-card">
-                        <div class="servo-preset-title">Posiciones predefinidas</div>
-                        <div class="routine-list">
-                            @foreach (int positionNumber in VisibleRoutineOrder)
-                            {
-                                <button class="@RoutineStepClass(positionNumber)"
-                                        type="button"
-                                        disabled="@(RoutineEnabled || IsEmergencyLocked)"
-                                        draggable="@RoutineDraggable"
-                                        @ondragstart="() => StartDragging(positionNumber)"
-                                        @ondragend="StopDragging"
-                                        @ondragover:preventDefault="true"
-                                        @ondragover="() => DragOverAsync(positionNumber)">
-                                    POS @positionNumber
-                                </button>
-                            }
-                        </div>
-                    </section>
+            <label class="motor-field-label">
+                SECUENCIA
+                <input type="text" maxlength="64" @bind="RackingSequence" disabled="@ControlsDisabled" />
+            </label>
+            <label class="motor-field-label">
+                FRECUENCIA
+                <span class="motor-input-unit"><input type="number" min="0.001" max="1000" step="0.1" @bind="RackingFrequencyHz" disabled="@ControlsDisabled" /><b>Hz</b></span>
+            </label>
 
-                    <section class="speed-panel">
-                        <div class="speed-top">
-                            <div class="speed-label">Velocidad de rutina</div>
-                            <div class="speed-value">@SpeedLabel</div>
-                        </div>
+            <div class="motor-action-row">
+                <button class="motor-run-button" type="button" disabled="@ControlsDisabled" @onclick="StartRackingAsync">INICIAR SECUENCIA</button>
+                <button class="motor-stop-button" type="button" disabled="@ControlsDisabled" @onclick="StopRackingAsync">STOP</button>
+            </div>
+            <div class="motor-state-chip">@(RackingRunning ? "SECUENCIA ACTIVA" : "SECUENCIA DETENIDA")</div>
+        </article>
 
-                        <div class="speed-buttons">
-                            @foreach (int speed in SpeedLevels)
-                            {
-                                <button class="@(RoutineSpeedLevel == speed ? "speed-btn active" : "speed-btn")"
-                                        type="button"
-                                        disabled="@(RoutineEnabled || IsEmergencyLocked)"
-                                        @onclick="() => SetSpeedAsync(speed)">
-                                    VEL. @speed
-                                </button>
-                            }
-                        </div>
+        <article class="motor-control-card">
+            <header>
+                <h2>MOTOR DE CABEZAL</h2>
+                <p>Servo CAN 2 · dirección y velocidad 0x352</p>
+            </header>
 
-                        <div class="speed-visual">
-                            <div class="speed-track">
-                                <div class="speed-fill" style="width: @SpeedFill"></div>
-                            </div>
+            <div class="motor-section-label">DIRECCIÓN</div>
+            <div class="motor-choice-row">
+                <button class="motor-choice @(!MainDirectionRight ? "active" : string.Empty)" type="button" disabled="@ControlsDisabled" @onclick="() => SetMainDirectionAsync(false)">IZQUIERDA (-)</button>
+                <button class="motor-choice @(MainDirectionRight ? "active" : string.Empty)" type="button" disabled="@ControlsDisabled" @onclick="() => SetMainDirectionAsync(true)">DERECHA (+)</button>
+            </div>
 
-                            <div class="speed-ticks">
-                                <span>1.00 s</span>
-                                <span>0.75 s</span>
-                                <span>0.50 s</span>
-                                <span>0.25 s</span>
-                            </div>
-                        </div>
-                    </section>
-                </section>
-            }
+            <div class="motor-section-label">VELOCIDAD</div>
+            <input class="motor-speed-range" type="range" min="1" max="30" step="1" value="@MainSpeedLevel" disabled="@ControlsDisabled" @onchange="SetMainSpeedAsync" />
+            <div class="motor-range-labels"><span>nivel 1</span><span>nivel 30</span></div>
+            <div class="motor-current-value">Nivel actual: <strong>@MainSpeedLevel</strong></div>
 
-            @if (!ShowRoutinePanel)
-            {
-                <section class="servo-drive2-topgrid single">
-                    <section class="servo-preset-card muted">
-                        <div class="servo-preset-title">Posiciones predefinidas</div>
-                        <div class="servo-preset-empty">Agrega otra posicion para habilitar rutina.</div>
-                    </section>
-                </section>
-            }
+            <div class="motor-action-row">
+                <button class="motor-run-button" type="button" disabled="@ControlsDisabled" @onclick="RunMainMotorAsync">RUN</button>
+                <button class="motor-stop-button" type="button" disabled="@ControlsDisabled" @onclick="StopMainMotorAsync">STOP / ESC</button>
+            </div>
+            <div class="motor-state-chip">@(MainMotorRunning ? "MOTOR EN RUN" : "MOTOR DETENIDO")</div>
+        </article>
 
-            <section class="positions-area">
-                <div class="positions-scroll">
-                    <div class="@PositionsGridClass">
-                        @foreach (ServoDashboardUnificadoPosition position in Positions)
-                        {
-                            <ServoPositionBlockUnificado Position="@position"
-                                                         CanClose="@(position.Number > 1 && !RoutineEnabled)"
-                                                         Disabled="@(RoutineEnabled || IsEmergencyLocked)"
-                                                         CloseClicked="ClosePositionAsync"
-                                                         GoToClicked="GoToPositionAsync"
-                                                         TurnsChanged="ChangeTurnsAsync"
-                                                         TargetChanged="SetPositionTargetAsync" />
-                        }
-                    </div>
-                </div>
+        <article class="motor-control-card motor-roller-wide">
+            <header>
+                <h2>MOTOR DE RODILLO</h2>
+                <p>Stepper / LINE DRIVE · PULSE GPIO12 · DIR GPIO13</p>
+            </header>
 
-                @if (Positions.Count < MaxPositions)
-                {
-                    <div class="add-position-row">
-                        <button class="add-position-btn"
-                                type="button"
-                                disabled="@(RoutineEnabled || IsEmergencyLocked)"
-                                @onclick="AddPositionAsync">+</button>
-                    </div>
-                }
-            </section>
-        </section>
+            <div class="motor-choice-row compact">
+                <button class="motor-choice @(RollerDirection == 0 ? "active" : string.Empty)" type="button" disabled="@ControlsDisabled" @onclick="() => SetRollerDirectionAsync(0)">DIR 0</button>
+                <button class="motor-choice @(RollerDirection == 1 ? "active" : string.Empty)" type="button" disabled="@ControlsDisabled" @onclick="() => SetRollerDirectionAsync(1)">DIR 1</button>
+            </div>
+
+            <label class="motor-field-label motor-frequency-field">
+                FRECUENCIA
+                <span class="motor-input-unit"><input type="number" min="1" max="200000" @bind="RollerFrequencyHz" disabled="@ControlsDisabled" /><b>Hz</b></span>
+            </label>
+            <button class="motor-apply-button" type="button" disabled="@ControlsDisabled" @onclick="ApplyRollerFrequencyAsync">APLICAR FRECUENCIA</button>
+
+            <div class="motor-action-row">
+                <button class="motor-run-button" type="button" disabled="@ControlsDisabled" @onclick="() => SetRollerRunningAsync(true)">RUN</button>
+                <button class="motor-stop-button" type="button" disabled="@ControlsDisabled" @onclick="() => SetRollerRunningAsync(false)">STOP</button>
+            </div>
+            <div class="motor-state-chip">@(RollerRunning ? "RODILLO EN RUN" : "RODILLO DETENIDO")</div>
+        </article>
     </section>
 </main>
 
 @code {
-    private const int MaxPositions = 3;
-    private const decimal MinPositionTarget = 0m;
-    private const decimal MaxPositionTarget = 1000m;
-    private const int MaxTurns = 15;
-    private const int MinTurns = -15;
+    private CancellationTokenSource? _statusPolling;
+    private string _initState = "IDLE";
 
-    private static readonly int[] SpeedLevels = new[] { 1, 2, 3, 4 };
-    private static readonly string[] OutputKeys =
-    {
-        "s1-son",
-        "s1-run",
-        "s1-dir",
-        "step-run",
-        "step-dir",
-        "step-rev"
-    };
-
-    // [ACURATEX] Estos modelos guardan posiciones, rutinas y salidas visibles en la UI.
-    private readonly List<ServoDashboardUnificadoPosition> _positions = new() { new ServoDashboardUnificadoPosition(1) };
-    private readonly List<int> _routineOrder = new() { 1, 2, 3 };
-    private readonly Dictionary<string, ServoDashboardUnificadoToggle> _toggleMap = new()
-    {
-        ["s1-son"] = new ServoDashboardUnificadoToggle("s1-son", "SON: ON", "SON: OFF"),
-        ["s1-run"] = new ServoDashboardUnificadoToggle("s1-run", "RUN PULSE: ON", "RUN PULSE: OFF"),
-        ["s1-dir"] = new ServoDashboardUnificadoToggle("s1-dir", "DIR: 1", "DIR: 0"),
-        ["step-run"] = new ServoDashboardUnificadoToggle("step-run", "RUN: ON", "RUN: OFF"),
-        ["step-dir"] = new ServoDashboardUnificadoToggle("step-dir", "DIR: 1", "DIR: 0"),
-        ["step-rev"] = new ServoDashboardUnificadoToggle("step-rev", "REV suave: ON", "REV suave: OFF"),
-    };
-
-    private bool _initEnabled;
-    private bool _routineEnabled;
-    private int _draggingPositionNumber;
-
-    private int Servo1FrequencyHz { get; set; } = 1000;
-
-    private int StepperFrequencyHz { get; set; } = 200;
-
-    private int RoutineSpeedLevel { get; set; } = 1;
+    private int RackingP1 { get; set; } = 0;
+    private int RackingP2 { get; set; } = 500;
+    private int RackingP3 { get; set; } = 1000;
+    private string RackingSequence { get; set; } = "123";
+    private decimal RackingFrequencyHz { get; set; } = 1m;
+    private bool RackingRunning { get; set; }
+    private bool MainDirectionRight { get; set; } = true;
+    private int MainSpeedLevel { get; set; } = 10;
+    private bool MainMotorRunning { get; set; }
+    private int RollerDirection { get; set; }
+    private int RollerFrequencyHz { get; set; } = 200;
+    private bool RollerRunning { get; set; }
+    private string StatusMessage { get; set; } = "Listo para inicializar motores por CAN2.";
 
     private bool IsEmergencyLocked => EmergencyStop.IsEmergencyStopActive;
-
-    private IReadOnlyList<ServoDashboardUnificadoPosition> Positions => _positions;
-
-    private IReadOnlyList<ServoDashboardUnificadoToggle> Servo1Toggles => GetToggles("s1-son");
-
-    private IReadOnlyList<ServoDashboardUnificadoToggle> StepperToggles => GetToggles("step-run", "step-dir");
-
-    private bool RoutineEnabled
+    private bool IsInitializing => string.Equals(_initState, "INICIALIZANDO", StringComparison.Ordinal);
+    private bool ControlsDisabled => IsEmergencyLocked || IsInitializing;
+    private string InitClass => _initState switch
     {
-        get => _routineEnabled;
-        set => _routineEnabled = value && ShowRoutinePanel;
-    }
-
-    private bool ShowRoutinePanel => _positions.Count >= 2;
-
-    private IEnumerable<int> VisibleRoutineOrder => _routineOrder.Where(positionNumber => positionNumber <= _positions.Count);
-
-    private string InitClass => _initEnabled ? "init-btn on" : "init-btn";
-
-    // [ACURATEX] La clase del panel cambia para reflejar si la rutina esta bloqueada o no.
-    // [EQUIV MCU] Es como encender un LED de "interlock" para toda la tarjeta.
-    private string Servo2CardClass => RoutineEnabled ? "servo-card card-servo2 locked" : "servo-card card-servo2";
-
-    private string DashboardGridClass => IsEmergencyLocked
-        ? "dashboard-grid emergency-lock-scope is-locked"
-        : "dashboard-grid emergency-lock-scope";
-
-    private string PositionsGridClass => $"positions-grid count-{_positions.Count}";
-
-    private string RoutineDraggable => RoutineEnabled || IsEmergencyLocked ? "false" : "true";
-
-    private string SpeedLabel => RoutineSpeedLevel switch
-    {
-        1 => "VEL. 1 - 1.00 s",
-        2 => "VEL. 2 - 0.75 s",
-        3 => "VEL. 3 - 0.50 s",
-        4 => "VEL. 4 - 0.25 s",
-        _ => "VEL. 1 - 1.00 s"
+        "FINALIZADO" => "init-btn on",
+        "ERROR" => "init-btn error",
+        _ => "init-btn"
     };
-
-    private string SpeedFill => RoutineSpeedLevel switch
-    {
-        1 => "25%",
-        2 => "50%",
-        3 => "75%",
-        4 => "100%",
-        _ => "25%"
-    };
+    private string InitButtonText => _initState is "INICIALIZANDO" or "FINALIZADO" or "ERROR" ? _initState : "INIT";
+    private string StatusClass => _initState == "ERROR" ? "error" : _initState == "FINALIZADO" ? "success" : string.Empty;
 
     protected override void OnInitialized()
     {
-        // [ACURATEX] La vista escucha el estado de emergencia para apagar o repintar sin leer el firmware directamente.
-        EmergencyStop.StateChanged += HandleEmergencyStateChanged;
+        Connection.LineReceived += OnLineReceived;
+        EmergencyStop.StateChanged += OnEmergencyStateChanged;
         EmergencyStop.EmergencyStopTriggered += HandleEmergencyStopAsync;
     }
 
-    private async Task ToggleInitAsync()
+    private async Task StartInitAsync()
     {
-        // [ACURATEX] INIT puede limpiar emergencia antes de reflejar el nuevo estado en la pantalla.
-        // [FLUJO] INIT puede limpiar emergencia antes de enviar el nuevo estado al servicio.
-        if (IsEmergencyLocked) {
-            EmergencyStop.ResetEmergencyStop("INIT");
-            _initEnabled = true;
-            await CommandService.SetInitAsync(true);
-            return;
+        if (IsEmergencyLocked) EmergencyStop.ResetEmergencyStop("INIT MOTORES");
+        _initState = "INICIALIZANDO";
+        RackingRunning = false;
+        MainMotorRunning = false;
+        StatusMessage = "Inicializando CAN2 · 0 / 296";
+        try {
+            await CommandService.StartInitAsync();
+            StartStatusPolling();
+        } catch (Exception ex) {
+            _initState = "ERROR";
+            StatusMessage = $"ERROR: {ex.Message}";
         }
-
-        _initEnabled = !_initEnabled;
-        await CommandService.SetInitAsync(_initEnabled);
     }
 
-    private async Task ToggleOutputAsync(string key)
+    private async Task StartRackingAsync()
     {
-        if (IsEmergencyLocked) {
-            return;
-        }
-
-        ServoDashboardUnificadoToggle toggle = _toggleMap[key];
-        toggle.Enabled = !toggle.Enabled;
-        await CommandService.SetOutputAsync(key, toggle.Enabled);
+        await ExecuteAsync(async () => {
+            await CommandService.StartRackingSequenceAsync(RackingP1, RackingP2, RackingP3, RackingSequence, RackingFrequencyHz);
+            RackingRunning = true;
+            StatusMessage = "Secuencia de raqueo iniciada.";
+        });
     }
 
-    private async Task SetServo1FrequencyAsync(int frequencyHz)
+    private async Task StopRackingAsync()
     {
-        if (IsEmergencyLocked) {
-            return;
-        }
-
-        Servo1FrequencyHz = frequencyHz;
-        await CommandService.SetFrequencyAsync("servo1", frequencyHz);
+        await ExecuteAsync(async () => {
+            await CommandService.StopRackingSequenceAsync();
+            RackingRunning = false;
+            StatusMessage = "Secuencia de raqueo detenida.";
+        });
     }
 
-    private async Task SetStepperFrequencyAsync(int frequencyHz)
+    private async Task SetMainDirectionAsync(bool right)
     {
-        if (IsEmergencyLocked) {
-            return;
-        }
-
-        StepperFrequencyHz = frequencyHz;
-        await CommandService.SetFrequencyAsync("stepper", frequencyHz);
+        await ExecuteAsync(async () => {
+            await CommandService.SetMainMotorDirectionAsync(right);
+            MainDirectionRight = right;
+        });
     }
 
-    private async Task AddPositionAsync()
+    private async Task SetMainSpeedAsync(ChangeEventArgs args)
     {
-        // [ACURATEX] Agregar una posición solo amplía la plantilla local mientras la rutina está apagada.
-        if (IsEmergencyLocked || RoutineEnabled || _positions.Count >= MaxPositions) {
-            return;
-        }
-
-        _positions.Add(new ServoDashboardUnificadoPosition(_positions.Count + 1));
-        await Task.CompletedTask;
+        if (!int.TryParse(args.Value?.ToString(), out int level)) return;
+        await ExecuteAsync(async () => {
+            await CommandService.SetMainMotorSpeedAsync(level);
+            MainSpeedLevel = level;
+        });
     }
 
-    private async Task ClosePositionAsync(int positionNumber)
+    private async Task RunMainMotorAsync()
     {
-        // [ACURATEX] El cierre recorta la plantilla local para que la rutina no use pasos viejos.
-        if (IsEmergencyLocked || RoutineEnabled || positionNumber <= 1) {
-            return;
-        }
-
-        _positions.RemoveAll(position => position.Number >= positionNumber);
-
-        if (!ShowRoutinePanel) {
-            RoutineEnabled = false;
-        }
-
-        await Task.CompletedTask;
+        await ExecuteAsync(async () => {
+            await CommandService.RunMainMotorAsync();
+            MainMotorRunning = true;
+            StatusMessage = "Motor de cabezal en RUN.";
+        });
     }
 
-    private Task SetPositionTargetAsync(ServoDashboardUnificadoTargetChange change)
+    private async Task StopMainMotorAsync()
     {
-        // [ACURATEX] La UI solo guarda el objetivo local; el servicio decide la orden real.
-        if (IsEmergencyLocked || RoutineEnabled) {
-            return Task.CompletedTask;
-        }
-
-        ServoDashboardUnificadoPosition? position = _positions.FirstOrDefault(item => item.Number == change.PositionNumber);
-        if (position != null) {
-            position.Target = ClampPositionTarget(change.Target);
-        }
-
-        return Task.CompletedTask;
+        await ExecuteAsync(async () => {
+            await CommandService.StopMainMotorAsync();
+            MainMotorRunning = false;
+            StatusMessage = "Motor de cabezal detenido por ESC.";
+        });
     }
 
-    private async Task GoToPositionAsync(int positionNumber)
+    private async Task SetRollerDirectionAsync(int direction)
     {
-        if (IsEmergencyLocked || RoutineEnabled) {
-            return;
-        }
-
-        ServoDashboardUnificadoPosition? position = _positions.FirstOrDefault(item => item.Number == positionNumber);
-        if (position == null) {
-            return;
-        }
-
-        await CommandService.GoToPositionAsync(position.Number, position.Target, position.Turns);
+        await ExecuteAsync(async () => {
+            await CommandService.SetRollerDirectionAsync(direction);
+            RollerDirection = direction;
+        });
     }
 
-    private async Task ChangeTurnsAsync(ServoDashboardUnificadoTurnsChange change)
+    private Task ApplyRollerFrequencyAsync() => ExecuteAsync(async () => {
+        await CommandService.SetRollerFrequencyAsync(RollerFrequencyHz);
+        StatusMessage = $"Frecuencia del rodillo: {RollerFrequencyHz} Hz.";
+    });
+
+    private async Task SetRollerRunningAsync(bool running)
     {
-        if (IsEmergencyLocked || RoutineEnabled) {
-            return;
-        }
-
-        ServoDashboardUnificadoPosition? position = _positions.FirstOrDefault(item => item.Number == change.PositionNumber);
-        if (position == null) {
-            return;
-        }
-
-        int nextTurns = ClampTurns(position.Turns + change.Delta);
-        if (nextTurns == position.Turns) {
-            return;
-        }
-
-        position.Turns = nextTurns;
-        await Task.CompletedTask;
+        await ExecuteAsync(async () => {
+            await CommandService.SetRollerRunningAsync(running);
+            RollerRunning = running;
+            StatusMessage = running ? "Motor de rodillo en RUN." : "Motor de rodillo detenido.";
+        });
     }
 
-    private async Task ToggleRoutineAsync()
+    private async Task ExecuteAsync(Func<Task> operation)
     {
-        // [ACURATEX] La rutina se empaca en un record antes de enviarse al servicio de comandos.
-        // [FLUJO] El modo rutina se publica como comando estructurado, no como botones sueltos.
-        if (IsEmergencyLocked) {
-            return;
+        if (ControlsDisabled) return;
+        try {
+            await operation();
+        } catch (Exception ex) {
+            StatusMessage = $"ERROR: {ex.Message}";
         }
-
-        if (RoutineEnabled) {
-            RoutineEnabled = false;
-            await CommandService.SetRoutineAsync(BuildRoutineCommand(enabled: false));
-            return;
-        }
-
-        if (!ShowRoutinePanel) {
-            return;
-        }
-
-        RoutineEnabled = true;
-        await CommandService.SetRoutineAsync(BuildRoutineCommand(enabled: true));
     }
 
-    private Task SetSpeedAsync(int speed)
+    private void StartStatusPolling()
     {
-        // [ACURATEX] La velocidad se conserva en la vista hasta que la rutina se vuelva a publicar.
-        if (IsEmergencyLocked || RoutineEnabled) {
-            return Task.CompletedTask;
-        }
-
-        RoutineSpeedLevel = speed;
-        return Task.CompletedTask;
+        _statusPolling?.Cancel();
+        _statusPolling?.Dispose();
+        _statusPolling = new CancellationTokenSource();
+        _ = PollStatusAsync(_statusPolling.Token);
     }
 
-    private void StartDragging(int positionNumber)
+    private async Task PollStatusAsync(CancellationToken cancellationToken)
     {
-        if (IsEmergencyLocked || RoutineEnabled) {
-            return;
-        }
-
-        _draggingPositionNumber = positionNumber;
-    }
-
-    private void StopDragging()
-    {
-        _draggingPositionNumber = 0;
-    }
-
-    private async Task DragOverAsync(int targetPositionNumber)
-    {
-        // [ACURATEX] El reordenamiento solo altera la lista visual hasta que se vuelva a publicar la rutina.
-        // [EQUIV MCU] Reordenar la rutina equivale a reorganizar una lista de pasos de una secuencia.
-        if (IsEmergencyLocked || RoutineEnabled || _draggingPositionNumber == 0 || _draggingPositionNumber == targetPositionNumber) {
-            return;
-        }
-
-        int sourceIndex = _routineOrder.IndexOf(_draggingPositionNumber);
-        int targetIndex = _routineOrder.IndexOf(targetPositionNumber);
-        if (sourceIndex < 0 || targetIndex < 0) {
-            return;
-        }
-
-        _routineOrder.RemoveAt(sourceIndex);
-        _routineOrder.Insert(targetIndex, _draggingPositionNumber);
-        await Task.CompletedTask;
-    }
-
-    private string RoutineStepClass(int positionNumber)
-    {
-        if (RoutineEnabled || IsEmergencyLocked) {
-            return "routine-step locked";
-        }
-
-        return _draggingPositionNumber == positionNumber ? "routine-step dragging" : "routine-step";
-    }
-
-    private ServoDashboardUnificadoRoutineCommand BuildRoutineCommand(bool enabled)
-    {
-        // [ACURATEX] Este record condensa toda la rutina para que el servicio no recorra controles de UI.
-        // [ACURATEX] Este comando empaqueta la rutina completa para que el servicio no reinterprete la UI.
-        if (!enabled) {
-            return new ServoDashboardUnificadoRoutineCommand(false, RoutineSpeedLevel, Array.Empty<ServoDashboardUnificadoRoutineStep>());
-        }
-
-        List<ServoDashboardUnificadoRoutineStep> steps = new();
-        foreach (int positionNumber in VisibleRoutineOrder) {
-            ServoDashboardUnificadoPosition? position = _positions.FirstOrDefault(item => item.Number == positionNumber);
-            if (position == null) {
-                continue;
+        try {
+            while (!cancellationToken.IsCancellationRequested && IsInitializing) {
+                await Task.Delay(1000, cancellationToken);
+                await CommandService.RequestStatusAsync(cancellationToken);
             }
-
-            position.Target = ClampPositionTarget(position.Target);
-            position.Turns = ClampTurns(position.Turns);
-            steps.Add(new ServoDashboardUnificadoRoutineStep(position.Number, position.Target, position.Turns));
+        } catch (OperationCanceledException) {
+        } catch (Exception ex) {
+            await InvokeAsync(() => StatusMessage = $"ERROR consultando INIT: {ex.Message}");
         }
-
-        return new ServoDashboardUnificadoRoutineCommand(true, RoutineSpeedLevel, steps);
     }
 
-    private IReadOnlyList<ServoDashboardUnificadoToggle> GetToggles(params string[] keys)
-    {
-        // [C#] `params` permite pasar varios nombres sin crear manualmente un array.
-        return keys.Select(key => _toggleMap[key]).ToArray();
-    }
+    private void OnLineReceived(string line) => _ = InvokeAsync(() => ApplyFirmwareLine(line));
 
-    private async Task HandleEmergencyStopAsync()
+    private void ApplyFirmwareLine(string line)
     {
-        // [ACURATEX] El estado seguro apaga todo antes de repintar el dashboard.
-        // [ACURATEX] La emergencia cancela rutina, init y salidas para dejar la pantalla en estado seguro.
-        _initEnabled = false;
-        _routineEnabled = false;
-        _draggingPositionNumber = 0;
-
-        foreach (ServoDashboardUnificadoToggle toggle in _toggleMap.Values) {
-            toggle.Enabled = false;
+        string clean = (line ?? string.Empty).Trim();
+        if (clean.StartsWith("ERR|U3", StringComparison.OrdinalIgnoreCase)) {
+            _initState = IsInitializing ? "ERROR" : _initState;
+            StatusMessage = clean;
+            return;
         }
+        if (!clean.StartsWith("U3_STATE|", StringComparison.OrdinalIgnoreCase)) return;
 
-        await CommandService.SetRoutineAsync(BuildRoutineCommand(enabled: false));
-        await CommandService.SetInitAsync(false);
-
-        foreach (string key in OutputKeys) {
-            await CommandService.SetOutputAsync(key, false);
-        }
-
-        await InvokeAsync(StateHasChanged);
+        Dictionary<string, string> values = clean.Split('|', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .Select(static token => token.Split('=', 2))
+            .Where(static pair => pair.Length == 2)
+            .ToDictionary(static pair => pair[0], static pair => pair[1], StringComparer.OrdinalIgnoreCase);
+        if (values.TryGetValue("INIT", out string? state)) _initState = state.ToUpperInvariant();
+        string progress = values.TryGetValue("STEP", out string? step) ? step : "0/296";
+        StatusMessage = _initState switch
+        {
+            "INICIALIZANDO" => $"Inicializando CAN2 · {progress}",
+            "FINALIZADO" => "Inicialización de motores finalizada.",
+            "ERROR" => $"ERROR en inicialización · {progress}",
+            _ => StatusMessage
+        };
+        if (!IsInitializing) _statusPolling?.Cancel();
     }
 
-    private void HandleEmergencyStateChanged()
+    private Task HandleEmergencyStopAsync()
     {
-        _ = InvokeAsync(StateHasChanged);
+        _statusPolling?.Cancel();
+        _initState = "IDLE";
+        RackingRunning = false;
+        MainMotorRunning = false;
+        RollerRunning = false;
+        StatusMessage = "Parada global aplicada a Servo CAN 1, Servo CAN 2 y rodillo.";
+        return InvokeAsync(StateHasChanged);
     }
 
-    private static decimal ClampPositionTarget(decimal target)
-    {
-        return Math.Clamp(target, MinPositionTarget, MaxPositionTarget);
-    }
-
-    private static int ClampTurns(int turns)
-    {
-        return Math.Clamp(turns, MinTurns, MaxTurns);
-    }
+    private void OnEmergencyStateChanged() => _ = InvokeAsync(StateHasChanged);
 
     public void Dispose()
     {
-        // [ACURATEX] La shell deja de escuchar cuando el componente sale de pantalla.
-        // [ACURATEX] La desuscripcion evita callbacks luego de destruir el componente.
-        EmergencyStop.StateChanged -= HandleEmergencyStateChanged;
+        Connection.LineReceived -= OnLineReceived;
+        EmergencyStop.StateChanged -= OnEmergencyStateChanged;
         EmergencyStop.EmergencyStopTriggered -= HandleEmergencyStopAsync;
+        _statusPolling?.Cancel();
+        _statusPolling?.Dispose();
     }
 }

@@ -18,19 +18,23 @@
 #include "reply_dispatcher.h"
 #include "tcp_server.h"
 #include "can_driver_twai.h"
+#include "can_physical_config.h"
 
 // [ESP-IDF] TAG identifica en los logs que el mensaje pertenece al driver CAN.
 static const char *TAG = "can_twai";
 
-// [ACURATEX] Pines fisicos del controlador TWAI/transceiver CAN. No se cambian
-// en este estudio: TX=GPIO4, RX=GPIO5, STBY=GPIO6.
-static const gpio_num_t CAN_TX_GPIO = GPIO_NUM_4;
-static const gpio_num_t CAN_RX_GPIO = GPIO_NUM_5;
-static const gpio_num_t CAN_STBY_GPIO = GPIO_NUM_6;
+static const gpio_num_t CAN1_TX_GPIO = (gpio_num_t)APP_CAN1_PHYSICAL.tx_gpio;
+static const gpio_num_t CAN1_RX_GPIO = (gpio_num_t)APP_CAN1_PHYSICAL.rx_gpio;
+static const gpio_num_t CAN1_STBY_GPIO = (gpio_num_t)APP_CAN1_PHYSICAL.stby_gpio;
+static const gpio_num_t CAN2_TX_GPIO = (gpio_num_t)APP_CAN2_PHYSICAL.tx_gpio;
+static const gpio_num_t CAN2_RX_GPIO = (gpio_num_t)APP_CAN2_PHYSICAL.rx_gpio;
+static const gpio_num_t CAN2_STBY_GPIO = (gpio_num_t)APP_CAN2_PHYSICAL.stby_gpio;
 
 // [ACURATEX] Banderas internas del ciclo de vida TWAI.
 static bool s_driver_installed = false;
 static bool s_driver_started = false;
+static bool s_can_service_ready = false;
+static int s_active_physical_bus = 0;
 // [ACURATEX] Bus logico seleccionado por `can1`/`can2`. El ESP32-S3 usa un solo
 // controlador TWAI; esta variable conserva la semantica de protocolo.
 static int s_selected_bus = 1;
@@ -183,13 +187,141 @@ static void app_can_format_data_hex(const uint8_t *data, size_t len, char *out, 
  * [SI NO EXISTIERA]
  * El transceiver podria quedar habilitado aunque el driver interno no funcione.
  */
+static esp_err_t app_can_all_transceivers_standby(void)
+{
+    esp_err_t can1_err = gpio_set_level(CAN1_STBY_GPIO, 1);
+    esp_err_t can2_err = gpio_set_level(CAN2_STBY_GPIO, 1);
+    if (can1_err != ESP_OK || can2_err != ESP_OK) {
+        ESP_LOGW(TAG, "No se pudo aislar ambos transceivers: CAN1=%s CAN2=%s",
+                 esp_err_to_name(can1_err), esp_err_to_name(can2_err));
+        return can1_err != ESP_OK ? can1_err : can2_err;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t app_can_configure_stby_gpios(void)
+{
+    esp_err_t err = gpio_set_direction(CAN1_STBY_GPIO, GPIO_MODE_OUTPUT);
+    if (err != ESP_OK) return err;
+    err = gpio_set_direction(CAN2_STBY_GPIO, GPIO_MODE_OUTPUT);
+    if (err != ESP_OK) return err;
+    return app_can_all_transceivers_standby();
+}
+
 static void app_can_enter_standby(void)
 {
-    // [ACURATEX] En esta placa STBY alto deja el transceiver en espera.
-    esp_err_t err = gpio_set_level(CAN_STBY_GPIO, 1);
+    (void)app_can_all_transceivers_standby();
+    s_active_physical_bus = 0;
+}
+
+static gpio_num_t app_can_tx_gpio_for_bus(int bus)
+{
+    return bus == 2 ? CAN2_TX_GPIO : CAN1_TX_GPIO;
+}
+
+static gpio_num_t app_can_rx_gpio_for_bus(int bus)
+{
+    return bus == 2 ? CAN2_RX_GPIO : CAN1_RX_GPIO;
+}
+
+static gpio_num_t app_can_stby_gpio_for_bus(int bus)
+{
+    return bus == 2 ? CAN2_STBY_GPIO : CAN1_STBY_GPIO;
+}
+
+static esp_err_t app_can_install_start_for_bus(int bus)
+{
+    twai_general_config_t general = TWAI_GENERAL_CONFIG_DEFAULT(
+        app_can_tx_gpio_for_bus(bus), app_can_rx_gpio_for_bus(bus), TWAI_MODE_NORMAL);
+    general.tx_queue_len = 20;
+    general.rx_queue_len = 50;
+
+    twai_timing_config_t timing = TWAI_TIMING_CONFIG_1MBITS();
+    twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+    esp_err_t err = twai_driver_install(&general, &timing, &filter);
+    if (err != ESP_OK) return err;
+    s_driver_installed = true;
+
+    err = twai_start();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "No se pudo poner CAN STBY en alto: %s", esp_err_to_name(err));
+        (void)twai_driver_uninstall();
+        s_driver_installed = false;
+        return err;
     }
+
+    s_driver_started = true;
+    err = gpio_set_level(app_can_stby_gpio_for_bus(bus), 0);
+    if (err != ESP_OK) {
+        (void)twai_stop();
+        (void)twai_driver_uninstall();
+        s_driver_started = false;
+        s_driver_installed = false;
+        app_can_enter_standby();
+        return err;
+    }
+
+    s_active_physical_bus = bus;
+    ESP_LOGI(TAG, "CAN_PHYSICAL_ACTIVE|BUS=CAN%d|TX=%d|RX=%d|STBY=%d|BITRATE=%u",
+             bus,
+             (int)app_can_tx_gpio_for_bus(bus),
+             (int)app_can_rx_gpio_for_bus(bus),
+             (int)app_can_stby_gpio_for_bus(bus),
+             (unsigned)APP_CAN_BITRATE);
+    return ESP_OK;
+}
+
+static esp_err_t app_can_wait_until_tx_idle(void)
+{
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        twai_status_info_t status = {};
+        esp_err_t err = twai_get_status_info(&status);
+        if (err != ESP_OK) return err;
+        if (status.msgs_to_tx == 0) return ESP_OK;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return ESP_ERR_TIMEOUT;
+}
+
+// Solo la tarea can_tx llama esta funcion. Por tanto, el cambio de pines,
+// lifecycle TWAI y STBY queda serializado junto con todas las transmisiones.
+static esp_err_t app_can_switch_physical_bus_now(int bus)
+{
+    if (!app_can_is_valid_bus(bus)) return ESP_ERR_INVALID_ARG;
+    if (s_driver_started && s_active_physical_bus == bus) return ESP_OK;
+
+    if (s_driver_started) {
+        esp_err_t idle_err = app_can_wait_until_tx_idle();
+        if (idle_err != ESP_OK) {
+            ESP_LOGE(TAG, "CAN_SWITCH_ABORT|FROM=%d|TO=%d|REASON=TX_BUSY",
+                     s_active_physical_bus, bus);
+            return idle_err;
+        }
+    }
+
+    // Regla absoluta: ambos STBY suben antes de tocar el unico TWAI.
+    esp_err_t err = app_can_all_transceivers_standby();
+    if (err != ESP_OK) return err;
+    vTaskDelay(pdMS_TO_TICKS(2));
+
+    if (s_driver_started) {
+        err = twai_stop();
+        if (err != ESP_OK) return err;
+        s_driver_started = false;
+    }
+    if (s_driver_installed) {
+        err = twai_driver_uninstall();
+        if (err != ESP_OK) return err;
+        s_driver_installed = false;
+    }
+    s_active_physical_bus = 0;
+
+    err = app_can_install_start_for_bus(bus);
+    if (err != ESP_OK) {
+        app_can_enter_standby();
+        ESP_LOGE(TAG, "CAN_SWITCH_ERROR|TO=%d|ERR=%s", bus, esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
 }
 
 static void app_can_tx_update_high_water(void)
@@ -243,6 +375,11 @@ static esp_err_t app_can_transmit_now(const app_can_tx_request_t *request)
     if (request == NULL)
     {
         return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t switch_err = app_can_switch_physical_bus_now(request->bus);
+    if (switch_err != ESP_OK) {
+        return switch_err;
     }
 
     // [ESP-IDF] twai_message_t es la estructura que el driver TWAI consume.
@@ -477,7 +614,7 @@ static void app_can_rx_task(void *arg)
         }
 
         app_can_rx_event_t event = {};
-        event.bus = app_can_get_selected_bus();
+        event.bus = s_active_physical_bus == 2 ? 2 : 1;
         event.id = rx.identifier;
         event.dlc = rx.data_length_code;
         if (event.dlc > 0)
@@ -606,65 +743,26 @@ esp_err_t app_can_init(void)
 {
     esp_err_t install_err = ESP_OK;
     esp_err_t start_err = ESP_OK;
-    int stby_level = -1;
+    int stby_level = 1;
 
     if (s_driver_started) {
         // [ACURATEX] Inicializacion idempotente: repetir no reinstala TWAI.
         return ESP_OK;
     }
 
-    // [ESP-IDF] GPIO6 controla STBY del transceiver, por eso debe ser salida.
-    esp_err_t err = gpio_set_direction(CAN_STBY_GPIO, GPIO_MODE_OUTPUT);
+    // Ambos transceivers se configuran primero en standby. Solo CAN1 se activa
+    // despues de instalar e iniciar el unico controlador TWAI.
+    esp_err_t err = app_can_configure_stby_gpios();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "CAN/TWAI STBY GPIO ERROR: %s", esp_err_to_name(err));
         return err;
     }
 
-    // [ACURATEX] STBY bajo habilita el transceiver para operar en el bus CAN.
-    err = gpio_set_level(CAN_STBY_GPIO, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "CAN/TWAI STBY LOW ERROR: %s", esp_err_to_name(err));
-        return err;
-    }
-    stby_level = gpio_get_level(CAN_STBY_GPIO);
-
-    // [ESP-IDF] TWAI_GENERAL_CONFIG_DEFAULT carga una configuracion base en modo
-    // normal, usando GPIO4 como TX y GPIO5 como RX.
-    twai_general_config_t general =
-        TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_GPIO, CAN_RX_GPIO, TWAI_MODE_NORMAL);
-    // [ACURATEX] Longitudes de colas TWAI conservadas: TX=20, RX=50.
-    general.tx_queue_len = 20;
-    general.rx_queue_len = 50;
-
-    // [ESP-IDF] Bitrate CAN configurado a 1 Mbit/s. No se modifica en esta fase.
-    twai_timing_config_t timing = TWAI_TIMING_CONFIG_1MBITS();
-    // [ESP-IDF] Filtro accept-all: el controlador acepta todas las tramas
-    // recibidas, aunque este firmware se enfoca en transmitir.
-    twai_filter_config_t filter = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-
-    // [ESP-IDF] Instala el driver TWAI con configuracion general/timing/filtro.
-    err = twai_driver_install(&general, &timing, &filter);
+    err = app_can_install_start_for_bus(1);
     if (err != ESP_OK) {
         install_err = err;
-        ESP_LOGE(TAG, "CAN/TWAI DRIVER INSTALL ERROR: %s", esp_err_to_name(err));
-        app_can_enter_standby();
-        ESP_LOGI(TAG, "CAN_INIT_RESULT|INSTALL=%s|START=%s|STBY=%d",
-                 esp_err_to_name(install_err),
-                 esp_err_to_name(start_err),
-                 stby_level);
-        return err;
-    }
-    s_driver_installed = true;
-
-    // [ESP-IDF] twai_start() pasa el controlador a estado operativo.
-    err = twai_start();
-    if (err != ESP_OK) {
         start_err = err;
-        ESP_LOGE(TAG, "CAN/TWAI START ERROR: %s", esp_err_to_name(err));
-        // [ESP-IDF] Si start falla, se desinstala para no dejar un driver a
-        // medias marcado como disponible.
-        twai_driver_uninstall();
-        s_driver_installed = false;
+        ESP_LOGE(TAG, "CAN/TWAI CAN1 START ERROR: %s", esp_err_to_name(err));
         app_can_enter_standby();
         ESP_LOGI(TAG, "CAN_INIT_RESULT|INSTALL=%s|START=%s|STBY=%d",
                  esp_err_to_name(install_err),
@@ -672,8 +770,6 @@ esp_err_t app_can_init(void)
                  stby_level);
         return err;
     }
-
-    s_driver_started = true;
     // [ACURATEX] Bus logico por defecto al arrancar.
     s_selected_bus = 1;
 
@@ -702,7 +798,9 @@ esp_err_t app_can_init(void)
         return err;
     }
 
-    ESP_LOGI(TAG, "CAN/TWAI INIT OK 1Mbps TX=4 RX=5 STBY=6");
+    s_can_service_ready = true;
+
+    ESP_LOGI(TAG, "CAN/TWAI INIT OK 1Mbps CAN1=4/5/6 CAN2=7/15/16");
     ESP_LOGI(TAG, "CAN_INIT_RESULT|INSTALL=%s|START=%s|STBY=%d",
              esp_err_to_name(install_err),
              esp_err_to_name(start_err),
@@ -790,14 +888,15 @@ esp_err_t app_can_select_bus(int bus)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!app_can_is_started()) {
+    if (!s_can_service_ready) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    // [ACURATEX] Esta seleccion no instala otro controlador fisico; se conserva
-    // como bus logico del protocolo sobre un unico TWAI.
+    // La seleccion explicita cambia el destino logico. La tarea can_tx realiza
+    // la conmutacion fisica justo antes de la siguiente solicitud para que
+    // ninguna otra tarea toque STBY, pines o lifecycle TWAI.
     s_selected_bus = bus;
-    ESP_LOGI(TAG, "CAN bus logico seleccionado: CAN%d (controlador TWAI unico)", bus);
+    ESP_LOGI(TAG, "CAN destino seleccionado: CAN%d (conmutacion serializada en can_tx)", bus);
     return ESP_OK;
 }
 
@@ -848,7 +947,7 @@ esp_err_t app_can_send_standard(int bus, uint32_t id, const uint8_t *data, size_
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (!app_can_is_started()) {
+    if (!s_can_service_ready) {
         ESP_LOGE(TAG, "CAN TX ERROR id=0x%03" PRIX32 " err=%s",
                  id,
                  esp_err_to_name(ESP_ERR_INVALID_STATE));

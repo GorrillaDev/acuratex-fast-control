@@ -3,6 +3,8 @@ idf_component_register(
         "usb_smoketest_main.cpp"
         "command_processor.cpp"
         "line_drive_control.cpp"
+        "u3_motor_protocol.cpp"
+        "u3_motor_control.cpp"
         "command_unified_head_processor.cpp"
         "command_head_program_runner.cpp"
         "head_command_frame_builder.cpp"

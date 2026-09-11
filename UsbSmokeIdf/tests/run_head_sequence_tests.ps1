@@ -86,6 +86,32 @@ if ($LASTEXITCODE -ne 0) {
     throw "La validacion del perfil fisico P2 fallo con codigo $LASTEXITCODE."
 }
 
+$u3TestSource = Join-Path $repoRoot 'UsbSmokeIdf\tests\test_u3_motor_protocol.cpp'
+$u3TestExe = Join-Path $outputDir 'test_u3_motor_protocol.exe'
+$u3Protocol = Join-Path $main 'u3_motor_protocol.cpp'
+
+Push-Location $outputDir
+try {
+    & $cl /nologo /std:c++20 /EHsc /W4 "/I$stubs" "/I$main" `
+        $u3TestSource $u3Protocol "/Fe:$u3TestExe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "La compilacion host del protocolo U3 fallo con codigo $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
+
+& $u3TestExe
+if ($LASTEXITCODE -ne 0) {
+    throw "La validacion del protocolo U3 fallo con codigo $LASTEXITCODE."
+}
+
+& (Join-Path $PSScriptRoot 'compare_u3_init.ps1')
+if ($LASTEXITCODE -ne 0) {
+    throw "La comparacion U3 INIT fallo con codigo $LASTEXITCODE."
+}
+
 $neutralFiles = @(
     'head_state_manager.cpp',
     'head_command_profile.h',

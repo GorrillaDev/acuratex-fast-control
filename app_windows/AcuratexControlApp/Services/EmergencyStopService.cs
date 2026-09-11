@@ -82,6 +82,10 @@ public sealed class EmergencyStopService : IEmergencyStopService, IDisposable
     private static readonly string[] EmergencyStopSequence =
     {
         EmergencyStopCommand,
+        "U3_S1_STOP",
+        "U3_S2_STOP",
+        "LD_STEP_RUN|OFF",
+        "LD_SAFE_STOP",
         "stop",
         "j_stop_all",
         "y_stop_all",

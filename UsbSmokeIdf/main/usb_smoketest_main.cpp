@@ -36,6 +36,7 @@
 
 #include "esp_timer.h"
 #include "line_drive_control.h"
+#include "u3_motor_control.h"
 
 
 
@@ -6572,6 +6573,12 @@ extern "C" void app_main(void)
 
 
 
+    }
+
+    esp_err_t u3_err = app_u3_motor_init();
+    if (u3_err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "U3 motores no disponible: %s", esp_err_to_name(u3_err));
     }
 
 
