@@ -7,79 +7,55 @@
         {
             <section class="cabezal-mcard program2-state-card @(motor.Running ? "running" : null) @(motor.Pending ? "pending" : null)">
                 <div class="mhead">
-                    <div class="mtitle">@(motor.DisplayNumber switch
-                        {
-                            1 => "M1 Density",
-                            2 => "M2 Density",
-                            3 => "M4 Density",
-                            4 => "M3 Density",
-                            _ => $"DEN {motor.DisplayNumber}",
-                        })</div>
-                    @if (motor.Pending)
-                    {
-                        <span class="run-state pending-state">PENDIENTE</span>
-                    }
-                    else if (motor.Running)
-                    {
-                        <span class="run-state">RUN</span>
-                    }
+                    <div class="mtitle">@($"M{motor.DisplayNumber} Density")</div>
+                    @if (motor.Pending) { <span class="run-state pending-state">PENDIENTE</span> }
+                    else if (motor.Running) { <span class="run-state">@motor.RunMode</span> }
                 </div>
-
                 <div class="run-row">
-                    <button class="mini-btn run @(motor.Running ? "active" : null)"
-                            type="button"
-                            disabled="@ActionsBlocked"
-                            @onclick="() => RunDenAsync(motor)">RUN</button>
-                    <button class="mini-btn stop"
-                            type="button"
-                            disabled="@(InitBlocked || !Connection.IsConnected)"
-                            @onclick="() => StopDenAsync(motor)">STOP</button>
+                    <button class="mini-btn run @(motor.RunMode == "RUN" ? "active" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => RunDenAsync(motor, false)">RUN</button>
+                    <button class="mini-btn stop" type="button" disabled="@(InitBlocked || !Connection.IsConnected)" @onclick="() => StopDenAsync(motor, false)">STOP</button>
+                    <button class="mini-btn run @(motor.RunMode == "RUN1" ? "active" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => RunDenAsync(motor, true)">RUN1</button>
+                    <button class="mini-btn stop" type="button" disabled="@(InitBlocked || !Connection.IsConnected)" @onclick="() => StopDenAsync(motor, true)">STOP1</button>
                 </div>
-
                 <div class="pos-buttons">
                     @for (int index = 0; index < DenPositions.Length; index++)
                     {
                         int positionNumber = index + 1;
-                        <button class="pos-btn @(motor.SelectedPosition == positionNumber ? "on" : null)"
-                                type="button"
-                                disabled="@ActionsBlocked"
-                                @onclick="() => SelectDenPositionAsync(motor, positionNumber)">
-                            @($"POS {positionNumber}")
-                        </button>
+                        <button class="pos-btn @(motor.SelectedPosition == positionNumber ? "on" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => SelectDenPositionAsync(motor, positionNumber)">POS @positionNumber</button>
                     }
                 </div>
-
                 <div class="slider-wrap">
-                    <input type="range"
-                           min="0"
-                           max="650"
-                           step="1"
-                           value="@motor.PreviewValue"
-                           disabled="@ActionsBlocked"
-                           @oninput="args => PreviewDen(motor, args)"
-                           @onchange="args => CommitDenAsync(motor, args)" />
+                    <input type="range" min="0" max="650" step="1" value="@motor.PreviewValue" disabled="@ActionsBlocked" @oninput="args => PreviewDen(motor, args)" @onchange="args => CommitDenAsync(motor, args)" />
                     <div class="sval">@($"Posición: {motor.PreviewValue}")</div>
                 </div>
             </section>
         }
     </section>
 
-    <section class="section-title">PRESET</section>
-    <section class="block-grid program2-feet-grid">
-        @for (int index = 1; index <= 2; index++)
+    <section class="section-title">SIC</section>
+    <section class="motor-grid program2-sic-grid">
+        @foreach (Program2SicMotor sic in SicMotors)
         {
-            int feet = index;
-            <section class="cabezal-block">
-                <div class="blk-head">
-                    <div class="blk-title">@(feet == 1 ? "Preset Back" : "Preset Front")</div>
+            <section class="cabezal-mcard program2-state-card @(sic.Running ? "running" : null) @(sic.Pending ? "pending" : null)">
+                <div class="mhead">
+                    <div class="mtitle">@($"SIC{sic.Number}")</div>
+                    @if (sic.Pending) { <span class="run-state pending-state">PENDIENTE</span> }
+                    else if (sic.Running) { <span class="run-state">RUN</span> }
                 </div>
-                <div class="blk-actions program2-feet-actions">
-                    <button class="mini-btn"
-                            type="button"
-                            disabled="@ActionsBlocked"
-                            @onclick="() => TriggerFeetAsync(feet)">
-                        ACTIVAR
-                    </button>
+                <div class="run-row">
+                    <button class="mini-btn run @(sic.Running ? "active" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => RunSicAsync(sic)">RUN</button>
+                    <button class="mini-btn stop" type="button" disabled="@(InitBlocked || !Connection.IsConnected)" @onclick="() => StopSicAsync(sic)">STOP</button>
+                </div>
+                <div class="pos-buttons">
+                    @for (int index = 0; index < sic.Positions.Length; index++)
+                    {
+                        int positionNumber = index + 1;
+                        <button class="pos-btn @(sic.SelectedPosition == positionNumber ? "on" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => SelectSicPositionAsync(sic, positionNumber)">POS @positionNumber</button>
+                    }
+                </div>
+                <div class="slider-wrap">
+                    <input type="range" min="0" max="750" step="1" value="@sic.PreviewValue" disabled="@ActionsBlocked" @oninput="args => PreviewSic(sic, args)" @onchange="args => CommitSicAsync(sic, args)" />
+                    <div class="sval">@($"Posición: {sic.PreviewValue}")</div>
                 </div>
             </section>
         }
@@ -92,39 +68,22 @@
             <section class="j-card program2-state-card @(group.Running ? "running" : null) @(group.Pending ? "pending" : null)">
                 <div class="j-head">
                     <div class="j-title">@($"Mod{group.DisplayNumber} Selección")</div>
-                    @if (group.Pending)
-                    {
-                        <span class="run-state pending-state">PENDIENTE</span>
-                    }
-                    else if (group.Running)
-                    {
-                        <span class="run-state">RUN</span>
-                    }
+                    @if (group.Pending) { <span class="run-state pending-state">PENDIENTE</span> }
+                    else if (group.Running) { <span class="run-state">RUN</span> }
                 </div>
                 <div class="j-actions">
                     <button class="mini-btn" type="button" disabled="@ActionsBlocked" @onclick="() => SetJAsync(group, false)">OFF ALL</button>
                     <button class="mini-btn" type="button" disabled="@ActionsBlocked" @onclick="() => SetJAsync(group, true)">ON ALL</button>
                 </div>
                 <div class="j-actions">
-                    <button class="mini-btn run @(group.Running ? "active" : null)"
-                            type="button"
-                            disabled="@ActionsBlocked"
-                            @onclick="() => RunJAsync(group)">RUN</button>
-                    <button class="mini-btn stop"
-                            type="button"
-                            disabled="@(InitBlocked || !Connection.IsConnected)"
-                            @onclick="() => StopJAsync(group)">STOP</button>
+                    <button class="mini-btn run @(group.Running ? "active" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => RunJAsync(group)">RUN</button>
+                    <button class="mini-btn stop" type="button" disabled="@(InitBlocked || !Connection.IsConnected)" @onclick="() => StopJAsync(group)">STOP</button>
                 </div>
                 <div class="j-pins">
                     @for (int pin = 1; pin <= 8; pin++)
                     {
                         int currentPin = pin;
-                        <button class="j-pin @(group.IsOn(currentPin) ? "on" : null)"
-                                type="button"
-                                disabled="@ActionsBlocked"
-                                @onclick="() => ToggleJAsync(group, currentPin)">
-                            @currentPin
-                        </button>
+                        <button class="j-pin @(group.IsOn(currentPin) ? "on" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => ToggleJAsync(group, currentPin)">@currentPin</button>
                     }
                 </div>
             </section>
@@ -136,37 +95,20 @@
         <section class="cabezal-block program2-state-card @(YarnRunning ? "running" : null) @(YarnPending ? "pending" : null)">
             <div class="blk-head">
                 <div class="blk-title">Guía Hilos</div>
-                @if (YarnPending)
-                {
-                    <span class="run-state pending-state">PENDIENTE</span>
-                }
-                else if (YarnRunning)
-                {
-                    <span class="run-state">RUN</span>
-                }
+                @if (YarnPending) { <span class="run-state pending-state">PENDIENTE</span> }
+                else if (YarnRunning) { <span class="run-state">RUN</span> }
             </div>
             <div class="blk-actions">
                 <button type="button" disabled="@ActionsBlocked" @onclick="() => SetAllYarnAsync(false)">OFF ALL</button>
                 <button type="button" disabled="@ActionsBlocked" @onclick="() => SetAllYarnAsync(true)">ON ALL</button>
-                <button class="mini-btn run @(YarnRunning ? "active" : null)"
-                        type="button"
-                        disabled="@ActionsBlocked"
-                        @onclick="RunYarnAsync">RUN</button>
-                <button class="mini-btn stop"
-                        type="button"
-                        disabled="@(InitBlocked || !Connection.IsConnected)"
-                        @onclick="StopYarnAsync">STOP</button>
+                <button class="mini-btn run @(YarnRunning ? "active" : null)" type="button" disabled="@ActionsBlocked" @onclick="RunYarnAsync">RUN</button>
+                <button class="mini-btn stop" type="button" disabled="@(InitBlocked || !Connection.IsConnected)" @onclick="StopYarnAsync">STOP</button>
             </div>
             <div class="pin-grid">
                 @for (int pin = 1; pin <= 8; pin++)
                 {
                     int currentPin = pin;
-                    <button class="pin-btn @(YarnStates[currentPin - 1] ? "on" : null)"
-                            type="button"
-                            disabled="@ActionsBlocked"
-                            @onclick="() => ToggleYarnAsync(currentPin)">
-                        @currentPin
-                    </button>
+                    <button class="pin-btn @(YarnStates[currentPin - 1] ? "on" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => ToggleYarnAsync(currentPin)">@currentPin</button>
                 }
             </div>
         </section>
@@ -174,41 +116,25 @@
 
     <section class="section-title">MOTOR TRANSFER</section>
     <section class="block-grid">
-        @foreach (Program2StitchMotor stitch in StitchMotors)
+        @foreach (Program2TransferMotor transfer in TransferMotors)
         {
-            <section class="cabezal-block program2-state-card @(stitch.Running ? "running" : null) @(stitch.Pending ? "pending" : null)">
+            <section class="cabezal-block program2-state-card @(transfer.Running ? "running" : null) @(transfer.Pending ? "pending" : null)">
                 <div class="blk-head">
-                    <div class="blk-title">@(stitch.Number == 1 ? "M Transfer Back" : "M Transfer Front")</div>
-                    @if (stitch.Pending)
-                    {
-                        <span class="run-state pending-state">PENDIENTE</span>
-                    }
-                    else if (stitch.Running)
-                    {
-                        <span class="run-state">RUN</span>
-                    }
+                    <div class="blk-title">@(transfer.Number == 1 ? "M Transfer Back" : "M Transfer Front")</div>
+                    @if (transfer.Pending) { <span class="run-state pending-state">PENDIENTE</span> }
+                    else if (transfer.Running) { <span class="run-state">RUN</span> }
                 </div>
                 <div class="blk-actions">
-                    <button type="button" disabled="@ActionsBlocked" @onclick="() => ResetStitchAsync(stitch)">RESET</button>
-                    <button class="mini-btn run @(stitch.Running ? "active" : null)"
-                            type="button"
-                            disabled="@ActionsBlocked"
-                            @onclick="() => RunStitchAsync(stitch)">RUN</button>
-                    <button class="mini-btn stop"
-                            type="button"
-                            disabled="@(InitBlocked || !Connection.IsConnected)"
-                            @onclick="() => StopStitchAsync(stitch)">STOP</button>
+                    <button type="button" disabled="@ActionsBlocked" @onclick="() => SetAllTransferAsync(transfer, false)">OFF ALL</button>
+                    <button type="button" disabled="@ActionsBlocked" @onclick="() => SetAllTransferAsync(transfer, true)">ON ALL</button>
+                    <button class="mini-btn run @(transfer.Running ? "active" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => RunTransferAsync(transfer)">RUN</button>
+                    <button class="mini-btn stop" type="button" disabled="@(InitBlocked || !Connection.IsConnected)" @onclick="() => StopTransferAsync(transfer)">STOP</button>
                 </div>
-                <div class="pin-grid program2-stitch-positions">
-                    @for (int index = 0; index < StitchPositions.Length; index++)
+                <div class="pin-grid">
+                    @for (int pin = 1; pin <= CabezalDashboardUnificadoProgram2Commands.TransferChannelCount; pin++)
                     {
-                        int positionNumber = index + 1;
-                        <button class="pin-btn @(stitch.SelectedPosition == positionNumber ? "on" : null)"
-                                type="button"
-                                disabled="@ActionsBlocked"
-                                @onclick="() => SelectStitchPositionAsync(stitch, positionNumber)">
-                            @StitchPositions[index]
-                        </button>
+                        int currentPin = pin;
+                        <button class="pin-btn @(transfer.States[currentPin - 1] ? "on" : null)" type="button" disabled="@ActionsBlocked" @onclick="() => ToggleTransferAsync(transfer, currentPin)">@currentPin</button>
                     }
                 </div>
             </section>

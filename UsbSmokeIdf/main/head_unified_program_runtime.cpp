@@ -19,7 +19,7 @@ static const HeadUnifiedProgramDefinition kProgram1Definition = {
 static const HeadUnifiedProgramDefinition kProgram2Definition = {
     .profile = &kUnifiedProgram2Commands,
     .handle_special_command = app_unified_program2_handle_special_command,
-    .prepare_j_run = app_unified_program2_prepare_j_run,
+    .prepare_j_run = NULL,
     .physical_stop = app_unified_program2_physical_stop,
 };
 

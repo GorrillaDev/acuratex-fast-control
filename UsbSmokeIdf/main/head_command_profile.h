@@ -99,6 +99,7 @@ typedef struct HeadJCommandProfile {
     const uint32_t *instance_can_ids = nullptr;
     const uint8_t *instance_selectors = nullptr;
     uint32_t active_instance_mask = 0U;
+    bool preserve_register_on_run = false;
     app_head_j_frame_builder_fn_t build_frame = nullptr;
 } HeadJCommandProfile;
 

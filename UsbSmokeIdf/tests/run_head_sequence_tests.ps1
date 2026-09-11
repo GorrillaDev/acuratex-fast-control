@@ -11,7 +11,7 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
     throw 'No se encontro vswhere.exe; se necesita MSVC Build Tools.'
 }
 
-$vsInstall = & $vswhere -latest -products Microsoft.VisualStudio.Product.BuildTools -property installationPath
+$vsInstall = & $vswhere -latest -products * -property installationPath
 if (-not $vsInstall) {
     throw 'No se encontro una instalacion de MSVC Build Tools.'
 }
@@ -62,6 +62,28 @@ finally {
 & $testExe $ino
 if ($LASTEXITCODE -ne 0) {
     throw "La validacion de secuencia fallo con codigo $LASTEXITCODE."
+}
+
+$profileTestSource = Join-Path $repoRoot 'UsbSmokeIdf\tests\test_unified_program_2_yarn_profile.cpp'
+$profileTestExe = Join-Path $outputDir 'test_unified_program_2_profile.exe'
+$program2Profile = Join-Path $main 'head_unified_program_2_commands.cpp'
+$frameBuilder = Join-Path $main 'head_command_frame_builder.cpp'
+
+Push-Location $outputDir
+try {
+    & $cl /nologo /std:c++20 /EHsc /W4 "/I$stubs" "/I$main" `
+        $profileTestSource $program2Profile $frameBuilder "/Fe:$profileTestExe"
+    if ($LASTEXITCODE -ne 0) {
+        throw "La compilacion host del perfil P2 fallo con codigo $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
+
+& $profileTestExe
+if ($LASTEXITCODE -ne 0) {
+    throw "La validacion del perfil fisico P2 fallo con codigo $LASTEXITCODE."
 }
 
 $neutralFiles = @(

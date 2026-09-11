@@ -6,7 +6,6 @@ namespace AcuratexControlApp.Components;
 public partial class CabezalDashboardUnificadoPrograma2
 {
     protected static readonly int[] DenPositions = CabezalDashboardUnificadoProgram2Commands.DenPositionValues;
-    protected static readonly int[] StitchPositions = CabezalDashboardUnificadoProgram2Commands.StitchPositionValues;
 
     [Inject] protected ICabezalDashboardUnificadoCommandService CommandService { get; set; } = default!;
     [Inject] protected IConnectionController Connection { get; set; } = default!;
@@ -21,7 +20,11 @@ public partial class CabezalDashboardUnificadoPrograma2
         CabezalDashboardUnificadoProgram2Commands.JModules
             .Select(module => new Program2JGroup(module.DisplayNumber, module.PhysicalNumber))
             .ToList();
-    protected List<Program2StitchMotor> StitchMotors { get; } = [new(1), new(2)];
+    protected List<Program2SicMotor> SicMotors { get; } =
+        CabezalDashboardUnificadoProgram2Commands.SicPositionValues
+            .Select((positions, index) => new Program2SicMotor(index + 1, positions))
+            .ToList();
+    protected List<Program2TransferMotor> TransferMotors { get; } = [new(1), new(2)];
     protected bool[] YarnStates { get; } = new bool[CabezalDashboardUnificadoProgram2Commands.YarnChannelCount];
     protected bool YarnRunning { get; set; }
     protected bool YarnPending => _yarnPendingCount > 0;
@@ -31,6 +34,7 @@ public partial class CabezalDashboardUnificadoPrograma2
 
     private readonly Dictionary<string, PendingCommand> _pending = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _yarnAnimation;
+    private readonly CancellationTokenSource?[] _sicAnimations = new CancellationTokenSource?[2];
     private bool[]? _yarnBeforeRun;
     private int _yarnPendingCount;
     private long _nextPendingSequence;
@@ -43,27 +47,29 @@ public partial class CabezalDashboardUnificadoPrograma2
 
     public Task OffAllAsync() => SendAsync(CabezalDashboardUnificadoProgram2Commands.OffAll, () => ApplyAllOutputs(false));
     public Task OnAllAsync() => SendAsync(CabezalDashboardUnificadoProgram2Commands.OnAll, () => ApplyAllOutputs(true));
-    public Task RunAllAsync() => SendAsync(CabezalDashboardUnificadoProgram2Commands.RunAll, null);
     public Task StopAllAsync() => SendAsync(CabezalDashboardUnificadoProgram2Commands.StopAll, ApplyGlobalStopConfirmation);
 
-    protected Task TriggerFeetAsync(int feet) => SendAsync(CabezalDashboardUnificadoProgram2Commands.FeetTrigger(feet), null);
-
-    protected Task RunDenAsync(Program2DenMotor motor)
+    protected Task RunDenAsync(Program2DenMotor motor, bool alternate)
     {
         motor.Pending = true;
-        return SendAsync(CabezalDashboardUnificadoProgram2Commands.DenRun(motor.PhysicalNumber), () =>
+        string command = alternate
+            ? CabezalDashboardUnificadoProgram2Commands.DenRun1(motor.PhysicalNumber)
+            : CabezalDashboardUnificadoProgram2Commands.DenRun(motor.PhysicalNumber);
+        return SendAsync(command, () =>
         {
             motor.Pending = false;
-            motor.Running = true;
-            StartDenAnimation(motor);
+            StartDenAnimation(motor, alternate);
         }, () => motor.Pending = false);
     }
 
-    protected Task StopDenAsync(Program2DenMotor motor)
+    protected Task StopDenAsync(Program2DenMotor motor, bool alternate)
     {
         if (InitBlocked) return Task.CompletedTask;
         motor.Pending = true;
-        return SendAsync(CabezalDashboardUnificadoProgram2Commands.DenStop(motor.PhysicalNumber), () =>
+        string command = alternate
+            ? CabezalDashboardUnificadoProgram2Commands.DenStop1(motor.PhysicalNumber)
+            : CabezalDashboardUnificadoProgram2Commands.DenStop(motor.PhysicalNumber);
+        return SendAsync(command, () =>
         {
             motor.Pending = false;
             StopDenAnimation(motor);
@@ -105,6 +111,65 @@ public partial class CabezalDashboardUnificadoPrograma2
         {
             motor.Pending = false;
             motor.PreviewValue = motor.Value;
+        });
+    }
+
+    protected Task RunSicAsync(Program2SicMotor sic)
+    {
+        sic.Pending = true;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.SicRun(sic.Number), () =>
+        {
+            sic.Pending = false;
+            StartSicAnimation(sic);
+        }, () => sic.Pending = false);
+    }
+
+    protected Task StopSicAsync(Program2SicMotor sic)
+    {
+        if (InitBlocked) return Task.CompletedTask;
+        sic.Pending = true;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.SicStop(sic.Number), () =>
+        {
+            sic.Pending = false;
+            StopSicAnimation(sic);
+        }, () => sic.Pending = false);
+    }
+
+    protected Task SelectSicPositionAsync(Program2SicMotor sic, int positionNumber)
+    {
+        if (ActionsBlocked) return Task.CompletedTask;
+        sic.Pending = true;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.SicSelect(sic.Number, positionNumber), () =>
+        {
+            StopSicAnimation(sic);
+            sic.Pending = false;
+            sic.SelectedPosition = positionNumber;
+            sic.Value = sic.Positions[positionNumber - 1];
+            sic.PreviewValue = sic.Value;
+        }, () => sic.Pending = false);
+    }
+
+    protected void PreviewSic(Program2SicMotor sic, ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out int value)) sic.PreviewValue = Math.Clamp(value, 0, 750);
+    }
+
+    protected Task CommitSicAsync(Program2SicMotor sic, ChangeEventArgs args)
+    {
+        PreviewSic(sic, args);
+        int requested = sic.PreviewValue;
+        sic.Pending = true;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.SicPosition(sic.Number, requested), () =>
+        {
+            StopSicAnimation(sic);
+            sic.Pending = false;
+            sic.Value = requested;
+            sic.PreviewValue = requested;
+            sic.SelectedPosition = Array.IndexOf(sic.Positions, requested) + 1;
+        }, () =>
+        {
+            sic.Pending = false;
+            sic.PreviewValue = sic.Value;
         });
     }
 
@@ -204,48 +269,54 @@ public partial class CabezalDashboardUnificadoPrograma2
         }, () => _yarnPendingCount = Math.Max(0, _yarnPendingCount - 1));
     }
 
-    protected Task ResetStitchAsync(Program2StitchMotor stitch)
+    protected async Task SetAllTransferAsync(Program2TransferMotor transfer, bool on)
     {
-        stitch.Pending = true;
-        return SendAsync(CabezalDashboardUnificadoProgram2Commands.StitchReset(stitch.Number), () =>
+        if (ActionsBlocked) return;
+        StopTransferAnimation(transfer, false);
+        for (int pin = 1; pin <= CabezalDashboardUnificadoProgram2Commands.TransferChannelCount; pin++)
         {
-            StopStitchAnimation(stitch, false);
-            stitch.Pending = false;
-            stitch.SelectedPosition = 0;
-        }, () => stitch.Pending = false);
+            int currentPin = pin;
+            transfer.PendingCount++;
+            await SendAsync(CabezalDashboardUnificadoProgram2Commands.TransferPin(transfer.Number, pin, on), () =>
+            {
+                transfer.States[currentPin - 1] = on;
+                transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1);
+            }, () => transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1));
+        }
     }
 
-    protected Task SelectStitchPositionAsync(Program2StitchMotor stitch, int position)
+    protected Task ToggleTransferAsync(Program2TransferMotor transfer, int pin)
     {
         if (ActionsBlocked) return Task.CompletedTask;
-        stitch.Pending = true;
-        return SendAsync(CabezalDashboardUnificadoProgram2Commands.StitchPosition(stitch.Number, position), () =>
+        bool requested = !transfer.States[pin - 1];
+        transfer.PendingCount++;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.TransferPin(transfer.Number, pin, requested), () =>
         {
-            StopStitchAnimation(stitch, false);
-            stitch.Pending = false;
-            stitch.SelectedPosition = position;
-        }, () => stitch.Pending = false);
+            StopTransferAnimation(transfer, false);
+            transfer.States[pin - 1] = requested;
+            transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1);
+        }, () => transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1));
     }
 
-    protected Task RunStitchAsync(Program2StitchMotor stitch)
+    protected Task RunTransferAsync(Program2TransferMotor transfer)
     {
-        stitch.Pending = true;
-        return SendAsync(CabezalDashboardUnificadoProgram2Commands.StitchRun(stitch.Number), () =>
+        transfer.PendingCount++;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.TransferRun(transfer.Number), () =>
         {
-            stitch.Pending = false;
-            StartStitchAnimation(stitch);
-        }, () => stitch.Pending = false);
+            transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1);
+            StartTransferAnimation(transfer);
+        }, () => transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1));
     }
 
-    protected Task StopStitchAsync(Program2StitchMotor stitch)
+    protected Task StopTransferAsync(Program2TransferMotor transfer)
     {
         if (InitBlocked) return Task.CompletedTask;
-        stitch.Pending = true;
-        return SendAsync(CabezalDashboardUnificadoProgram2Commands.StitchStop(stitch.Number), () =>
+        transfer.PendingCount++;
+        return SendAsync(CabezalDashboardUnificadoProgram2Commands.TransferStop(transfer.Number), () =>
         {
-            stitch.Pending = false;
-            StopStitchAnimation(stitch, false);
-        }, () => stitch.Pending = false);
+            transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1);
+            StopTransferAnimation(transfer, true);
+        }, () => transfer.PendingCount = Math.Max(0, transfer.PendingCount - 1));
     }
 
     private async Task SendAsync(string command, Action? confirmed, Action? failed = null)
@@ -352,8 +423,8 @@ public partial class CabezalDashboardUnificadoPrograma2
         else if (command.Equals("uni_j_stop_all", StringComparison.OrdinalIgnoreCase)) foreach (Program2JGroup group in JGroups) StopJAnimation(group, true);
         else if (command.Equals("uni_y_run_all", StringComparison.OrdinalIgnoreCase)) StartYarnAnimation(CabezalDashboardUnificadoProgram2Commands.YarnAllVisualPeriodMs);
         else if (command.Equals("uni_y_stop_all", StringComparison.OrdinalIgnoreCase)) StopYarnAnimation(true);
-        else if (command.Equals("uni_s_run_all", StringComparison.OrdinalIgnoreCase)) foreach (Program2StitchMotor stitch in StitchMotors) StartStitchAnimation(stitch);
-        else if (command.Equals("uni_s_stop_all", StringComparison.OrdinalIgnoreCase)) foreach (Program2StitchMotor stitch in StitchMotors) StopStitchAnimation(stitch, false);
+        else if (command.Equals("uni_s_run_all", StringComparison.OrdinalIgnoreCase)) foreach (Program2TransferMotor transfer in TransferMotors) StartTransferAnimation(transfer);
+        else if (command.Equals("uni_s_stop_all", StringComparison.OrdinalIgnoreCase)) foreach (Program2TransferMotor transfer in TransferMotors) StopTransferAnimation(transfer, true);
         else if (command.Equals("uni_off_all", StringComparison.OrdinalIgnoreCase)) ApplyAllOutputs(false);
         else if (command.Equals("uni_on_all", StringComparison.OrdinalIgnoreCase)) ApplyAllOutputs(true);
         else if (command.Equals("uni_stop", StringComparison.OrdinalIgnoreCase)
@@ -364,27 +435,33 @@ public partial class CabezalDashboardUnificadoPrograma2
     {
         foreach (Program2JGroup group in JGroups) StopJAnimation(group, false);
         StopYarnAnimation(false);
-        foreach (Program2StitchMotor stitch in StitchMotors) StopStitchAnimation(stitch, false);
+        foreach (Program2TransferMotor transfer in TransferMotors) StopTransferAnimation(transfer, false);
         foreach (Program2JGroup group in JGroups) group.Register = on ? (byte)0x00 : (byte)0xFF;
         Array.Fill(YarnStates, on);
+        foreach (Program2TransferMotor transfer in TransferMotors) Array.Fill(transfer.States, on);
     }
 
     private void ApplyGlobalStopConfirmation()
     {
         StopAllAnimations(false);
-        foreach (Program2JGroup group in JGroups) group.Register = 0xFF;
-        Array.Fill(YarnStates, false);
-        Status = "Parada aplicada; J/Yarn apagados, estado físico DEN/SIC/Feet/Stitch no confirmado";
+        Status = "STOP aplicado: secuencias detenidas sin forzar OFF físico";
     }
 
-    private void StartDenAnimation(Program2DenMotor motor)
+    private void StartDenAnimation(Program2DenMotor motor, bool alternate)
     {
         StopDenAnimation(motor);
         motor.Running = true;
+        motor.RunMode = alternate ? "RUN1" : "RUN";
         motor.Animation = new CancellationTokenSource();
-        _ = AnimateAsync(motor.Animation.Token, CabezalDashboardUnificadoProgram2Commands.DenVisualPeriodMs, step =>
+        int[] sequence = alternate
+            ? CabezalDashboardUnificadoProgram2Commands.DenRun1Sequence
+            : CabezalDashboardUnificadoProgram2Commands.DenRunSequence;
+        int period = alternate
+            ? CabezalDashboardUnificadoProgram2Commands.DenRun1VisualPeriodMs
+            : CabezalDashboardUnificadoProgram2Commands.DenVisualPeriodMs;
+        _ = AnimateAsync(motor.Animation.Token, period, step =>
         {
-            int position = step % 5 + 1;
+            int position = sequence[step % sequence.Length];
             motor.SelectedPosition = position;
             motor.Value = DenPositions[position - 1];
             motor.PreviewValue = motor.Value;
@@ -397,6 +474,31 @@ public partial class CabezalDashboardUnificadoPrograma2
         motor.Animation?.Dispose();
         motor.Animation = null;
         motor.Running = false;
+        motor.RunMode = string.Empty;
+    }
+
+    private void StartSicAnimation(Program2SicMotor sic)
+    {
+        StopSicAnimation(sic);
+        sic.Running = true;
+        CancellationTokenSource animation = new();
+        _sicAnimations[sic.Number - 1] = animation;
+        _ = AnimateAsync(animation.Token, CabezalDashboardUnificadoProgram2Commands.SicVisualPeriodMs, step =>
+        {
+            int position = CabezalDashboardUnificadoProgram2Commands.SicRunSequence[step % CabezalDashboardUnificadoProgram2Commands.SicRunSequence.Length];
+            sic.SelectedPosition = position;
+            sic.Value = sic.Positions[position - 1];
+            sic.PreviewValue = sic.Value;
+        });
+    }
+
+    private void StopSicAnimation(Program2SicMotor sic)
+    {
+        int index = sic.Number - 1;
+        _sicAnimations[index]?.Cancel();
+        _sicAnimations[index]?.Dispose();
+        _sicAnimations[index] = null;
+        sic.Running = false;
     }
 
     private void StartJAnimation(Program2JGroup group)
@@ -441,23 +543,27 @@ public partial class CabezalDashboardUnificadoPrograma2
         if (restore && wasRunning && _yarnBeforeRun is not null) Array.Copy(_yarnBeforeRun, YarnStates, CabezalDashboardUnificadoProgram2Commands.YarnChannelCount);
     }
 
-    private void StartStitchAnimation(Program2StitchMotor stitch)
+    private void StartTransferAnimation(Program2TransferMotor transfer)
     {
-        StopStitchAnimation(stitch, false);
-        stitch.BeforeRun = stitch.SelectedPosition;
-        stitch.Running = true;
-        stitch.Animation = new CancellationTokenSource();
-        _ = AnimateAsync(stitch.Animation.Token, CabezalDashboardUnificadoProgram2Commands.StitchVisualPeriodMs, step => stitch.SelectedPosition = step % 6);
+        StopTransferAnimation(transfer, false);
+        transfer.BeforeRun = [.. transfer.States];
+        transfer.Running = true;
+        transfer.Animation = new CancellationTokenSource();
+        _ = AnimateAsync(transfer.Animation.Token, CabezalDashboardUnificadoProgram2Commands.TransferVisualPeriodMs, step =>
+        {
+            Array.Fill(transfer.States, false);
+            transfer.States[step % CabezalDashboardUnificadoProgram2Commands.TransferChannelCount] = true;
+        });
     }
 
-    private static void StopStitchAnimation(Program2StitchMotor stitch, bool restore)
+    private static void StopTransferAnimation(Program2TransferMotor transfer, bool restore)
     {
-        bool wasRunning = stitch.Running;
-        stitch.Animation?.Cancel();
-        stitch.Animation?.Dispose();
-        stitch.Animation = null;
-        stitch.Running = false;
-        if (restore && wasRunning) stitch.SelectedPosition = stitch.BeforeRun;
+        bool wasRunning = transfer.Running;
+        transfer.Animation?.Cancel();
+        transfer.Animation?.Dispose();
+        transfer.Animation = null;
+        transfer.Running = false;
+        if (restore && wasRunning) Array.Copy(transfer.BeforeRun, transfer.States, transfer.States.Length);
     }
 
     private async Task AnimateAsync(CancellationToken token, int periodMs, Action<int> update)
@@ -477,9 +583,10 @@ public partial class CabezalDashboardUnificadoPrograma2
     private void StopAllAnimations(bool restore)
     {
         foreach (Program2DenMotor motor in DenMotors) StopDenAnimation(motor);
+        foreach (Program2SicMotor sic in SicMotors) StopSicAnimation(sic);
         foreach (Program2JGroup group in JGroups) StopJAnimation(group, restore);
         StopYarnAnimation(restore);
-        foreach (Program2StitchMotor stitch in StitchMotors) StopStitchAnimation(stitch, restore);
+        foreach (Program2TransferMotor transfer in TransferMotors) StopTransferAnimation(transfer, restore);
     }
 
     private void OnEmergencyStateChanged()
@@ -509,10 +616,11 @@ public partial class CabezalDashboardUnificadoPrograma2
         public int PhysicalNumber { get; } = physicalNumber;
         public string CanId { get; } = canId;
         public string Selector { get; } = selector;
-        public int Value { get; set; }
-        public int PreviewValue { get; set; }
-        public int SelectedPosition { get; set; } = 1;
+        public int Value { get; set; } = 18;
+        public int PreviewValue { get; set; } = 18;
+        public int SelectedPosition { get; set; } = 5;
         public bool Running { get; set; }
+        public string RunMode { get; set; } = string.Empty;
         public bool Pending { get; set; }
         public CancellationTokenSource? Animation { get; set; }
     }
@@ -529,13 +637,25 @@ public partial class CabezalDashboardUnificadoPrograma2
         public bool IsOn(int pin) => (Register & (1 << (pin - 1))) == 0;
     }
 
-    protected sealed class Program2StitchMotor(int number)
+    protected sealed class Program2SicMotor(int number, int[] positions)
     {
         public int Number { get; } = number;
-        public int SelectedPosition { get; set; }
-        public int BeforeRun { get; set; }
+        public int[] Positions { get; } = positions;
+        public int Value { get; set; } = positions[0];
+        public int PreviewValue { get; set; } = positions[0];
+        public int SelectedPosition { get; set; } = 1;
         public bool Running { get; set; }
         public bool Pending { get; set; }
+    }
+
+    protected sealed class Program2TransferMotor(int number)
+    {
+        public int Number { get; } = number;
+        public bool[] States { get; } = new bool[CabezalDashboardUnificadoProgram2Commands.TransferChannelCount];
+        public bool[] BeforeRun { get; set; } = new bool[CabezalDashboardUnificadoProgram2Commands.TransferChannelCount];
+        public bool Running { get; set; }
+        public int PendingCount { get; set; }
+        public bool Pending => PendingCount > 0;
         public CancellationTokenSource? Animation { get; set; }
     }
 }

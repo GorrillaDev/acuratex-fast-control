@@ -432,9 +432,11 @@ static void app_head_state_start_j_run_locked(int index,
     s_state.j_running[index] = true;
     s_state.j_turning_on[index] = true;
     s_state.j_bit[index] = 0;
-    // [ACURATEX] RUN arranca desde todo apagado fisico: FF equivale a logico 00.
-    s_state.j_physical_register[index] = commands->initial_register;
-    s_state.j_logical_mask[index] = (uint8_t)~commands->initial_register;
+    if (!commands->preserve_register_on_run) {
+        // Los perfiles historicos arrancan desde todo apagado fisico.
+        s_state.j_physical_register[index] = commands->initial_register;
+        s_state.j_logical_mask[index] = (uint8_t)~commands->initial_register;
+    }
     s_state.j_next_due_ms[index] = now_ms;
     s_state.j_can_bus[index] = app_head_state_normalize_bus(bus);
     app_head_state_bump_revision_locked(index);

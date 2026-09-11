@@ -27,14 +27,17 @@
         <button class="danger" type="button" disabled="@IsHeadUiBlocked" @onclick="OffAllAsync">OFF ALL</button>
         <button class="success" type="button" disabled="@IsHeadUiBlocked" @onclick="OnAllAsync">ON ALL</button>
         <button class="primary" type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("status")'>STATUS</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick="RunAllAsync">RUN ALL</button>
+        @if (_activeProgram != CabezalDashboardUnificadoProgramId.Program2)
+        {
+            <button type="button" disabled="@IsHeadUiBlocked" @onclick="RunAllAsync">RUN ALL</button>
+        }
         <button type="button" disabled="@IsHeadUiBlocked" @onclick="StopAllAsync">STOP ALL</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_run_all")'>RUN ALL (J)</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_stop_all")'>STOP ALL (J)</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("y_run_all")'>RUN ALL (YARN)</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("y_stop_all")'>STOP ALL (YARN)</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("s_run_all")'>RUN ALL (STITCH)</button>
-        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("s_stop_all")'>STOP ALL (STITCH)</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_run_all")'>@(_activeProgram == CabezalDashboardUnificadoProgramId.Program2 ? "RUN ALL (SELECCIÓN)" : "RUN ALL (J)")</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("j_stop_all")'>@(_activeProgram == CabezalDashboardUnificadoProgramId.Program2 ? "STOP ALL (SELECCIÓN)" : "STOP ALL (J)")</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("y_run_all")'>@(_activeProgram == CabezalDashboardUnificadoProgramId.Program2 ? "RUN ALL (GUÍA HILOS)" : "RUN ALL (YARN)")</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("y_stop_all")'>@(_activeProgram == CabezalDashboardUnificadoProgramId.Program2 ? "STOP ALL (GUÍA HILOS)" : "STOP ALL (YARN)")</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("s_run_all")'>@(_activeProgram == CabezalDashboardUnificadoProgramId.Program2 ? "RUN ALL (TRANSFER)" : "RUN ALL (STITCH)")</button>
+        <button type="button" disabled="@IsHeadUiBlocked" @onclick='() => SendDirectAsync("s_stop_all")'>@(_activeProgram == CabezalDashboardUnificadoProgramId.Program2 ? "STOP ALL (TRANSFER)" : "STOP ALL (STITCH)")</button>
     </section>
 
     @if (IsEmergencyLocked)
@@ -294,6 +297,11 @@
     private async Task SendInitAsync()
     {
         if (!Connection.IsConnected || _headInitBusy) return;
+        await StartHeadInitCommandAsync();
+    }
+
+    private async Task StartHeadInitCommandAsync()
+    {
         BeginHeadInit();
         await InvokeAsync(StateHasChanged);
         if (IsEmergencyLocked) EmergencyStop.ResetEmergencyStop("INIT");
@@ -392,7 +400,7 @@
 
     private async Task OffAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.OffAllAsync(); return; } foreach (CabezalJGroupUnificado group in _jGroups) await SetJAllAsync(group, false); foreach (CabezalOutputBlockUnificado block in AllBlocks()) await SetBlockAllAsync(new(block.Key, false)); }
     private async Task OnAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.OnAllAsync(); return; } foreach (CabezalJGroupUnificado group in _jGroups) await SetJAllAsync(group, true); foreach (CabezalOutputBlockUnificado block in AllBlocks()) await SetBlockAllAsync(new(block.Key, true)); }
-    private async Task RunAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.RunAllAsync(); return; } await SendDirectAsync("j_run_all"); }
+    private async Task RunAllAsync() { if (IsHeadUiBlocked || _activeProgram == CabezalDashboardUnificadoProgramId.Program2) return; await SendDirectAsync("j_run_all"); }
     private async Task StopAllAsync() { if (IsHeadUiBlocked) return; if (_activeProgram == CabezalDashboardUnificadoProgramId.Program2 && _program2Component is not null) { await _program2Component.StopAllAsync(); return; } await SendDirectAsync("j_stop_all"); }
 
     private Task SendDirectAsync(string command) => SendDirectResultAsync(command, false);
