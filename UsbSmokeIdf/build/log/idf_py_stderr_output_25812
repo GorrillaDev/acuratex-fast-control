@@ -1,0 +1,27 @@
+Command: cmake -G Ninja -B C:\Proyectos\AcuratexFastControl\UsbSmokeIdf\build -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Espressif\tools\python_env\idf6.0_py3.14_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=True C:\Proyectos\AcuratexFastControl\UsbSmokeIdf
+Configuration Report                                                           
++-----------------------------------------------------------------------------+
+|  Parser Version: 1                                                          |
+|  Verbosity: default                                                         |
+|  Defaults policy: sdkconfig                                                 |
+|  Status: Finished with notifications                                        |
+|                                                                             |
+| Disabled Symbols/Choices With User-Set Value                                |
+| +-------------------------------------------------------------------------+ |
+| | * IDF_TARGET (defined at C:/Espressif/v6.0/esp-idf/Kconfig:68) with     | |
+| | user-set value esp32s3 from                                             | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpm_mom_8y                 | |
+| | * ESPTOOLPY_FLASHSIZE (defined at                                       | |
+| | C:/Espressif/v6.0/esp-idf/components/esptool_py/Kconfig.projbuild:136)  | |
+| | with user-set value 16MB from                                           | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpm_mom_8y                 | |
+| | * PARTITION_TABLE_FILENAME (defined at                                  | |
+| | C:/Espressif/v6.0/esp-idf/components/partition_table/Kconfig.projbuildà | |
+| | with user-set value partitions.csv from                                 | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpm_mom_8y                 | |
+| | * ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED (defined at                       | |
+| | C:/Espressif/v6.0/esp-idf/components/esp_stdio/Kconfig:57) with         | |
+| | user-set value n from                                                   | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpm_mom_8y                 | |
+| +-------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------+

@@ -1,0 +1,20 @@
+Command: C:\Espressif\tools\python_env\idf6.0_py3.14_env\Scripts\python.exe -m esptool -p COM9 -b 460800 --before default-reset --after hard-reset --chip esp32s3 erase-flash
+esptool v5.3.dev2
+Serial port COM9:
+Connecting....
+Connected to ESP32-S3 on COM9:
+Chip type:          ESP32-S3 (QFN56) (revision v0.2)
+Features:           Wi-Fi, BT 5 (LE), Dual Core + LP Core, 240MHz, Embedded PSRAM 8MB (AP_3v3)
+Crystal frequency:  40MHz
+MAC:                1c:db:d4:46:f9:70
+
+Uploading stub flasher...
+Running stub flasher...
+Stub flasher running.
+Changing baud rate to 460800...
+Changed.
+
+Erasing flash memory (this may take a while)...
+Flash memory erased successfully in 3.0 seconds.
+
+Hard resetting via RTS pin...

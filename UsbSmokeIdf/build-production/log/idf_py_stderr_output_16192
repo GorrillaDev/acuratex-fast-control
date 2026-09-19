@@ -1,0 +1,29 @@
+Command: ninja all
+Configuration Report                                                           
++-----------------------------------------------------------------------------+
+|  Parser Version: 1                                                          |
+|  Verbosity: default                                                         |
+|  Defaults policy: sdkconfig                                                 |
+|  Status: Finished with notifications                                        |
+|                                                                             |
+| Miscellaneous                                                               |
+| +-------------------------------------------------------------------------+ |
+| | * Trying to set symbol ESP_CONSOLE_UART_DEFAULT to n, but it is         | |
+| | currently selected by choice ESP_CONSOLE_UART. For setting it to n, set | |
+| | another choice symbol to y instead.                                     | |
+| +-------------------------------------------------------------------------+ |
+| Disabled Symbols/Choices With User-Set Value                                |
+| +-------------------------------------------------------------------------+ |
+| | * IDF_TARGET (defined at C:/Espressif/v6.0/esp-idf/Kconfig:68) with     | |
+| | user-set value esp32s3 from                                             | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmp5jg0s8_l                 | |
+| | * ESPTOOLPY_FLASHSIZE (defined at                                       | |
+| | C:/Espressif/v6.0/esp-idf/components/esptool_py/Kconfig.projbuild:136)  | |
+| | with user-set value 16MB from                                           | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmp5jg0s8_l                 | |
+| | * PARTITION_TABLE_FILENAME (defined at                                  | |
+| | C:/Espressif/v6.0/esp-idf/components/partition_table/Kconfig.projbuildà | |
+| | with user-set value partitions.csv from                                 | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmp5jg0s8_l                 | |
+| +-------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------+

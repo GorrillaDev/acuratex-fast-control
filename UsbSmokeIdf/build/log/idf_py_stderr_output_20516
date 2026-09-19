@@ -1,0 +1,1 @@
+Command: C:\Espressif\tools\python_env\idf6.0_py3.14_env\Scripts\python.exe -m esptool -p COM9 -b 460800 --before default-reset --after hard-reset --chip esp32s3 erase-flash

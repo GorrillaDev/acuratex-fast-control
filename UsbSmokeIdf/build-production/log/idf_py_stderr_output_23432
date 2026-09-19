@@ -1,0 +1,8 @@
+Command: C:\Espressif\tools\python_env\idf6.0_py3.14_env\Scripts\python.exe C:\Espressif\v6.0\esp-idf\tools/idf_monitor.py -p COM3 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 C:\Proyectos\AcuratexFastControl\UsbSmokeIdf\build-production\UsbSmokeIdf.elf C:\Proyectos\AcuratexFastControl\UsbSmokeIdf\build-production\bootloader\bootloader.elf --force-color -m 'C:\Espressif\tools\python_env\idf6.0_py3.14_env\Scripts\python.exe' 'C:\Espressif\v6.0\esp-idf\tools\idf.py' '-p' 'COM3' '-B' 'build-production'
+[0;33m--- Warning: GDB cannot open serial ports accessed as COMx[0m
+[0;33m--- Using \\.\COM3 instead...[0m
+[0;33m--- esp-idf-monitor 1.9.0 on \\.\COM3 115200[0m
+[0;33m--- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H[0m
+[0;33m--- Connection to \\.\COM3 failed. Available ports:
+[0m
+[0m

@@ -1,0 +1,57 @@
+Command: ninja all
+fatal: detected dubious ownership in repository at 'C:/Espressif/v6.0/esp-idf'
+'C:/Espressif/v6.0/esp-idf' is owned by:
+	MSI/Manuel (S-1-5-21-650315406-3462608842-1107893333-1001)
+but the current user is:
+	MSI/CodexSandboxOffline (S-1-5-21-650315406-3462608842-1107893333-1003)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/Espressif/v6.0/esp-idf
+Configuration Report                                                           
++-----------------------------------------------------------------------------+
+|  Parser Version: 1                                                          |
+|  Verbosity: default                                                         |
+|  Defaults policy: sdkconfig                                                 |
+|  Status: Finished with notifications                                        |
+|                                                                             |
+| Miscellaneous                                                               |
+| +-------------------------------------------------------------------------+ |
+| | * Trying to set symbol ESP_CONSOLE_UART_DEFAULT to n, but it is         | |
+| | currently selected by choice ESP_CONSOLE_UART. For setting it to n, set | |
+| | another choice symbol to y instead.                                     | |
+| +-------------------------------------------------------------------------+ |
+| Disabled Symbols/Choices With User-Set Value                                |
+| +-------------------------------------------------------------------------+ |
+| | * IDF_TARGET (defined at C:/Espressif/v6.0/esp-idf/Kconfig:68) with     | |
+| | user-set value esp32s3 from                                             | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpp5u1krxy                 | |
+| | * ESPTOOLPY_FLASHSIZE (defined at                                       | |
+| | C:/Espressif/v6.0/esp-idf/components/esptool_py/Kconfig.projbuild:136)  | |
+| | with user-set value 16MB from                                           | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpp5u1krxy                 | |
+| | * PARTITION_TABLE_FILENAME (defined at                                  | |
+| | C:/Espressif/v6.0/esp-idf/components/partition_table/Kconfig.projbuildà | |
+| | with user-set value partitions.csv from                                 | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpp5u1krxy                 | |
+| | * ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED (defined at                       | |
+| | C:/Espressif/v6.0/esp-idf/components/esp_stdio/Kconfig:57) with         | |
+| | user-set value n from                                                   | |
+| | C:\Users\Manuel\AppData\Local\Temp\kconfgen_tmpp5u1krxy                 | |
+| +-------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------+
+fatal: detected dubious ownership in repository at 'C:/Espressif/v6.0/esp-idf'
+'C:/Espressif/v6.0/esp-idf' is owned by:
+	MSI/Manuel (S-1-5-21-650315406-3462608842-1107893333-1001)
+but the current user is:
+	MSI/CodexSandboxOffline (S-1-5-21-650315406-3462608842-1107893333-1003)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/Espressif/v6.0/esp-idf
+fatal: detected dubious ownership in repository at 'C:/Espressif/v6.0/esp-idf/components/openthread/openthread'
+'C:/Espressif/v6.0/esp-idf/components/openthread/openthread/.git' is owned by:
+	MSI/Manuel (S-1-5-21-650315406-3462608842-1107893333-1001)
+but the current user is:
+	MSI/CodexSandboxOffline (S-1-5-21-650315406-3462608842-1107893333-1003)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/Espressif/v6.0/esp-idf/components/openthread/openthread

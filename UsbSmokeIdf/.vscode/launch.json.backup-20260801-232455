@@ -1,0 +1,32 @@
+{
+    "version":  "0.2.0",
+    "configurations":  [
+                           {
+                               "name":  "ESP32-S3 USB Serial/JTAG (attach, no flash)",
+                               "type":  "gdbtarget",
+                               "request":  "attach",
+                               "program":  "${workspaceFolder}\\build-debug-jtag\\UsbSmokeIdf.elf",
+                               "gdb":  "C:\\Espressif\\tools\\xtensa-esp-elf-gdb\\16.3_20250913\\xtensa-esp-elf-gdb\\bin\\xtensa-esp32s3-elf-gdb.exe",
+                               "cwd":  "${workspaceFolder}",
+                               "runOpenOCD":  true,
+                               "buildFlashMonitor":  false,
+                               "verifyAppBinBeforeDebug":  false,
+                               "initialBreakpoint":  "app_main",
+                               "target":  {
+                                              "connectCommands":  [
+                                                                      "set remotetimeout 20",
+                                                                      "-target-select extended-remote localhost:3333"
+                                                                  ]
+                                          },
+                               "environment":  {
+                                                   "IDF_PATH":  "C:\\Espressif\\v6.0\\esp-idf",
+                                                   "IDF_TOOLS_PATH":  "C:\\Espressif\\tools",
+                                                   "IDF_PYTHON_ENV_PATH":  "C:\\Espressif\\tools\\python_env\\idf6.0_py3.14_env",
+                                                   "PYTHON":  "C:\\Espressif\\tools\\python_env\\idf6.0_py3.14_env\\Scripts\\python.exe",
+                                                   "OPENOCD_SCRIPTS":  "C:\\Espressif\\tools\\openocd-esp32\\v0.12.0-esp32-20251215\\openocd-esp32\\share\\openocd\\scripts",
+                                                   "ESP_IDF_VERSION":  "6.0.0",
+                                                   "ESP_ROM_ELF_DIR":  "C:\\Espressif\\tools\\esp-rom-elfs\\20241011"
+                                               }
+                           }
+                       ]
+}
